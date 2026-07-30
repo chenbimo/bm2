@@ -1,0 +1,8 @@
+import {
+  "chensuiyi/bm2/config",
+  "chensuiyi/bm2/core",
+  "chensuiyi/bm2/process",
+  "moonbitlang/core/env",
+}
+
+pkgtype(kind: "executable")

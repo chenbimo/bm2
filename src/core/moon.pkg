@@ -1,0 +1,8 @@
+import {
+  "chensuiyi/bm2/config",
+  "chensuiyi/bm2/process",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/x/fs",
+}

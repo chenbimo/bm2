@@ -1,0 +1,12 @@
+import {
+  "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
+}
+
+import {
+  "moonbitlang/x/fs",
+} for "test"
+
+options(
+  "native-stub": [ "native.c" ],
+)
