@@ -5,13 +5,15 @@ set -u
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 fixtures="$root/scripts/e2e/fixtures"
 ACC=${BM2_E2E_DIR:-/tmp/bm2-e2e}
+real_home=$HOME
 export HOME="$ACC/home"
+state_dir="$HOME/.bm2"
 bin_dir=${BM2_BIN_DIR:?BM2_BIN_DIR must point to bm2 and bm2d binaries}
-export PATH="$bin_dir:$HOME/.bun/bin:/usr/bin:/bin"
+export PATH="$bin_dir:$real_home/.bun/bin:/usr/bin:/bin"
 
 cleanup() {
-  if [ -f "$ACC/state/bm2d.pid" ]; then
-    kill -TERM "$(cat "$ACC/state/bm2d.pid")" 2>/dev/null || true
+  if [ -f "$state_dir/bm2d.pid" ]; then
+    kill -TERM "$(cat "$state_dir/bm2d.pid")" 2>/dev/null || true
   fi
   pkill -x bm2 2>/dev/null || true
   rm -rf "$ACC"
@@ -114,13 +116,13 @@ echo "===== B. crash loop -> errored ====="
 bm2 status crash
 check "crash errored" "errored" "$(bm2 status crash | tail -1 | awk '{print $5}')"
 check "crash restart_count 3" "3" "$(bm2 status crash | tail -1 | awk '{print $6}')"
-contains "crash.log reason=exit_code" state/crash/logs/crash-0.crash.log "reason=exit_code"
-contains "crash.log restartCount=3" state/crash/logs/crash-0.crash.log "restartCount=3"
+contains "crash.log reason=exit_code" $state_dir/crash/logs/crash-0.crash.log "reason=exit_code"
+contains "crash.log restartCount=3" $state_dir/crash/logs/crash-0.crash.log "restartCount=3"
 
 echo "===== C. clean exit restarts without count ====="
 QCOUNT=$(bm2 status quick | tail -1 | awk '{print $6}')
 check "quick restart_count stays 0" "0" "$QCOUNT"
-if [ -s state/quick/logs/quick-0.crash.log ]; then
+if [ -s $state_dir/quick/logs/quick-0.crash.log ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: quick crash.log should be empty"
 else
   PASS=$((PASS + 1)); echo "PASS: quick crash.log empty"
@@ -131,8 +133,8 @@ sleep 14
 bm2 status hog
 check "hog errored" "errored" "$(bm2 status hog | tail -1 | awk '{print $5}')"
 check "hog restart_count 2" "2" "$(bm2 status hog | tail -1 | awk '{print $6}')"
-contains "hog crash.log memory_limit" state/hog/logs/hog-0.crash.log "reason=memory_limit"
-contains "hog crash.log rssMb" state/hog/logs/hog-0.crash.log "rssMb="
+contains "hog crash.log memory_limit" $state_dir/hog/logs/hog-0.crash.log "reason=memory_limit"
+contains "hog crash.log rssMb" $state_dir/hog/logs/hog-0.crash.log "rssMb="
 
 echo "===== E. slow app serves HTTP ====="
 check "slow http" "slow slow-0" "$(wait_http 4231 "slow slow-0")"
@@ -147,28 +149,28 @@ check "quick stopped status" "stopped" "$(bm2 status quick | tail -1 | awk '{pri
 
 echo "===== G. daemon restart adopts running instances ====="
 SLOW_PID_BEFORE=$(bm2 status slow | tail -1 | awk '{print $3}')
-kill -9 "$(cat state/bm2d.pid)"
+kill -9 "$(cat "$state_dir/bm2d.pid")"
 sleep 1
 bm2 status slow >/dev/null
 SLOW_PID_AFTER=$(bm2 status slow | tail -1 | awk '{print $3}')
 check "slow adopted with same pid" "$SLOW_PID_BEFORE" "$SLOW_PID_AFTER"
 check "slow adopted online" "online" "$(bm2 status slow | tail -1 | awk '{print $5}')"
-contains "stale socket retry logged" state/bm2.events.jsonl "\"event\":\"stale_socket_removed\""
-contains "adoption event logged" state/bm2d.events.jsonl "\"event\":\"instance_adopted\""
+contains "stale socket retry logged" $state_dir/bm2.events.jsonl "\"event\":\"stale_socket_removed\""
+contains "adoption event logged" $state_dir/bm2d.events.jsonl "\"event\":\"instance_adopted\""
 bm2 stop slow
 
 echo "===== H. pid reuse -> pid_conflict, foreign process untouched ====="
 sleep 300 &
 FOREIGN=$!
-cat > state/slow/slow-0.json <<EOF
+cat > $state_dir/slow/slow-0.json <<EOF
 {"app_name":"slow","instance_id":0,"pid":$FOREIGN,"pgid":$FOREIGN,"port":4231,"status":"online","started_at":"2026-07-31T00:00:00.000Z","restart_count":0}
 EOF
-kill -9 "$(cat state/bm2d.pid)" 2>/dev/null
+kill -9 "$(cat "$state_dir/bm2d.pid")" 2>/dev/null
 sleep 1
 bm2 status slow >/dev/null
 check "pid_conflict status" "errored" "$(bm2 status slow | tail -1 | awk '{print $5}')"
-contains "pid_conflict crash.log" state/slow/logs/slow-0.crash.log "reason=pid_conflict"
-contains "pid_conflict event logged" state/bm2d.events.jsonl "\"event\":\"pid_conflict\""
+contains "pid_conflict crash.log" $state_dir/slow/logs/slow-0.crash.log "reason=pid_conflict"
+contains "pid_conflict event logged" $state_dir/bm2d.events.jsonl "\"event\":\"pid_conflict\""
 if kill -0 "$FOREIGN" 2>/dev/null; then
   PASS=$((PASS + 1)); echo "PASS: foreign process untouched"
 else
@@ -202,10 +204,10 @@ bm2 stop slow
 
 echo "===== L. daemon SIGTERM graceful shutdown ====="
 bm2 start slow >/dev/null
-DPID=$(cat state/bm2d.pid)
+DPID=$(cat "$state_dir/bm2d.pid")
 kill -TERM "$DPID"
 sleep 3
-if [ -S state/bm2.sock ] || [ -f state/bm2d.pid ]; then
+  if [ -S "$state_dir/bm2.sock" ] || [ -f "$state_dir/bm2d.pid" ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: sock/pid file not cleaned"
 else
   PASS=$((PASS + 1)); echo "PASS: sock and pid file cleaned"

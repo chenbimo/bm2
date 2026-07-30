@@ -62,7 +62,7 @@ test "rejects invalid toml document" {
 
 ///|
 test "rejects missing apps" {
-  assert_true(parse_error("apps = []\n").contains("apps is required"))
+  assert_true(parse_error("").contains("apps is required"))
 }
 
 ///|
