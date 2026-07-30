@@ -19,7 +19,7 @@ fn run() -> Int {
   } noraise {
     loaded => loaded
   }
-  let state_dir = @core.resolve_state_dir(config.state_dir)
+  let state_dir = @core.resolve_state_dir()
   @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_starting")
   let sv = try @core.Supervisor::new(config, state_dir~, bun_path="bun") catch {
     e => {

@@ -43,8 +43,6 @@ Both binaries must be on `PATH`: `bm2` launches `bm2d` by name.
 Create `bm2.toml` in the directory where you run `bm2`:
 
 ```toml
-state_dir = "~/.local/state/bm2"
-
 [[apps]]
 name = "api"
 cwd = "/srv/api"
@@ -57,8 +55,6 @@ restart_delay_ms = 1000
 min_uptime_ms = 10000
 stop_timeout_ms = 10000
 ```
-
-`state_dir` is optional. Its default is `$XDG_STATE_HOME/bm2`, or `~/.local/state/bm2` when `XDG_STATE_HOME` is unset.
 
 Every app requires these fields:
 
@@ -104,7 +100,7 @@ If a daemon dies abruptly and leaves a stale Unix socket, the next CLI request w
 
 ## State and logs
 
-Under `state_dir`:
+bm2 always stores its socket, PID, state, and management logs in `~/.bm2` for the current Linux user. A user therefore runs one bm2 daemon managing the apps in its `bm2.toml`:
 
 ```text
 bm2.sock                         # Unix socket, mode 0600
@@ -123,8 +119,8 @@ The two `*.events.jsonl` files contain one JSON object per line. They record man
 Useful commands:
 
 ```bash
-tail -f ~/.local/state/bm2/bm2d.events.jsonl
-jq -c . ~/.local/state/bm2/bm2.events.jsonl
+tail -f ~/.bm2/bm2d.events.jsonl
+jq -c . ~/.bm2/bm2.events.jsonl
 ```
 
 ## Verification

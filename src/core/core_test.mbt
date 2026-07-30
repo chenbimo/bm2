@@ -36,10 +36,10 @@ fn make_sv(
   root : String,
   apps : Array[@config.AppConfig],
 ) -> @core.Supervisor raise {
-  let config = @config.Config::{ state_dir: Some(root + "/state"), apps }
+  let config = @config.Config::{ apps, }
   @core.Supervisor::new(
     config,
-    state_dir=@core.resolve_state_dir(config.state_dir),
+    state_dir=root + "/state",
     bun_path="/bin/sh",
     memory_interval_ms=100,
   )
@@ -189,16 +189,11 @@ test "start conflicts while full restart is pending" {
 }
 
 ///|
-test "resolve_state_dir expands tilde and defaults" {
-  assert_eq(@core.resolve_state_dir(Some("/abs/dir")), "/abs/dir")
+test "resolve_state_dir uses fixed home directory" {
   match @env.get_env_var("HOME") {
-    Some(home) =>
-      assert_eq(@core.resolve_state_dir(Some("~/bm2x")), home + "/bm2x")
-    None => fail("HOME must be set in the test environment")
+    Some(home) => assert_eq(@core.resolve_state_dir(), home + "/.bm2")
+    None => assert_eq(@core.resolve_state_dir(), ".bm2")
   }
-  let resolved = @core.resolve_state_dir(None)
-  assert_true(resolved.has_suffix("/bm2"))
-  assert_false(resolved.contains("~"))
 }
 
 ///|

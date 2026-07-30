@@ -95,26 +95,11 @@ pub fn load_state(path : String) -> InstanceState raise {
 }
 
 ///|
-/// Default: $XDG_STATE_HOME/bm2, else ~/.local/state/bm2.
-pub fn resolve_state_dir(configured : String?) -> String {
-  match configured {
-    Some(dir) => expand_tilde(dir)
-    None =>
-      match @env.get_env_var("XDG_STATE_HOME") {
-        Some(xdg) => xdg + "/bm2"
-        None => expand_tilde("~/.local/state/bm2")
-      }
-  }
-}
-
-///|
-fn expand_tilde(path : String) -> String {
-  if path == "~" || path.has_prefix("~/") {
-    match @env.get_env_var("HOME") {
-      Some(home) => home + path[1:].to_owned()
-      None => path
-    }
-  } else {
-    path
+/// Fixed per-user state directory. bm2 deliberately manages one app set
+/// per Linux user, so configuration cannot override this path.
+pub fn resolve_state_dir() -> String {
+  match @env.get_env_var("HOME") {
+    Some(home) => home + "/.bm2"
+    None => ".bm2"
   }
 }

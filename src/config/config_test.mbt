@@ -1,7 +1,5 @@
 ///|
 const VALID_DOC : String =
-  #|state_dir = "~/.local/state/bm2"
-  #|
   #|[[apps]]
   #|name = "api"
   #|cwd = "/srv/yicode/api"
@@ -44,7 +42,6 @@ fn parse_error(doc : String) -> String raise {
 ///|
 test "parses valid bm2.toml" {
   let config = @config.parse(VALID_DOC)
-  assert_eq(config.state_dir, Some("~/.local/state/bm2"))
   assert_eq(config.apps.length(), 2)
   assert_eq(config.apps[0].name, "api")
   assert_eq(config.apps[0].instances, 4)
@@ -53,22 +50,9 @@ test "parses valid bm2.toml" {
 }
 
 ///|
-test "state_dir is optional" {
-  let doc =
-    #|[[apps]]
-    #|name = "api"
-    #|cwd = "/srv/api"
-    #|script = "index.ts"
-    #|instances = 1
-    #|base_port = 3000
-    #|max_memory_mb = 128
-    #|max_restarts = 3
-    #|restart_delay_ms = 500
-    #|min_uptime_ms = 1000
-    #|stop_timeout_ms = 1000
-    #|
-  let config = @config.parse(doc)
-  assert_eq(config.state_dir, None)
+test "rejects state_dir field" {
+  let message = parse_error("state_dir = \"/tmp/bm2\"\napps = []\n")
+  assert_true(message.contains("unknown field state_dir"))
 }
 
 ///|
@@ -78,9 +62,7 @@ test "rejects invalid toml document" {
 
 ///|
 test "rejects missing apps" {
-  assert_true(
-    parse_error("state_dir = \"/tmp/bm2\"\n").contains("apps is required"),
-  )
+  assert_true(parse_error("apps = []\n").contains("apps is required"))
 }
 
 ///|

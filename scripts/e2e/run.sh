@@ -5,6 +5,7 @@ set -u
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 fixtures="$root/scripts/e2e/fixtures"
 ACC=${BM2_E2E_DIR:-/tmp/bm2-e2e}
+export HOME="$ACC/home"
 bin_dir=${BM2_BIN_DIR:?BM2_BIN_DIR must point to bm2 and bm2d binaries}
 export PATH="$bin_dir:$HOME/.bun/bin:/usr/bin:/bin"
 
@@ -18,7 +19,7 @@ cleanup() {
 trap cleanup EXIT
 
 rm -rf "$ACC"
-mkdir -p "$ACC"
+mkdir -p "$ACC" "$HOME"
 cp "$fixtures"/*.ts "$ACC/"
 cd "$ACC"
 
@@ -53,8 +54,6 @@ wait_http() { # wait_http <port> <expected body>
 
 write_config() { # write_config <slow_stop_timeout> <slow_base_port> <slow_instances>
   cat > bm2.toml <<EOF
-state_dir = "$ACC/state"
-
 [[apps]]
 name = "crash"
 cwd = "$ACC"

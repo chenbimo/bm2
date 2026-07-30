@@ -14,7 +14,6 @@ pub(all) struct AppConfig {
 
 ///|
 pub(all) struct Config {
-  state_dir : String?
   apps : Array[AppConfig]
 } derive(Debug)
 

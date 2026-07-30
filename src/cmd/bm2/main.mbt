@@ -27,15 +27,15 @@ fn run() -> Int {
     }
   }
   let config_path = cwd + "/bm2.toml"
-  let config = try @config.load(config_path) catch {
+  try @config.load(config_path) catch {
     e => {
       @process.eprintln("bm2: " + e.to_string())
       return 1
     }
   } noraise {
-    loaded => loaded
+    _ => ()
   }
-  let state_dir = @core.resolve_state_dir(config.state_dir)
+  let state_dir = @core.resolve_state_dir()
   @core.log_event(state_dir, "bm2.events.jsonl", "daemon_connecting")
   let fd = try ensure_daemon(state_dir, config_path) catch {
     e => {

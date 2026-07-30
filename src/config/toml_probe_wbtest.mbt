@@ -1,7 +1,5 @@
 ///|
 const PROBE_DOC : String =
-  #|state_dir = "~/.local/state/bm2"
-  #|
   #|[[apps]]
   #|name = "api"
   #|cwd = "/srv/yicode/api"
@@ -28,5 +26,4 @@ test "bobzhang/toml parses bm2.toml shape on native" {
   guard apps[0] is @toml.TomlTable(first) else { fail("app must be a table") }
   assert_eq(first.get("name"), Some(@toml.TomlString("api")))
   assert_eq(first.get("base_port"), Some(@toml.TomlInteger(3000)))
-  assert_eq(root.get("state_dir"), Some(@toml.TomlString("~/.local/state/bm2")))
 }

@@ -1,5 +1,5 @@
 ///|
-let rootKeys : Array[String] = ["state_dir", "apps"]
+let rootKeys : Array[String] = ["apps"]
 
 ///|
 let appKeys : Array[String] = [
@@ -16,11 +16,6 @@ pub fn parse(doc : String) -> Config raise ConfigError {
     raise ConfigError::InvalidDocument("bm2.toml root must be a table")
   }
   reject_unknown_keys(root, rootKeys, "root")
-  let state_dir = match root.get("state_dir") {
-    None => None
-    Some(@toml.TomlString(dir)) => Some(dir)
-    Some(_) => raise ConfigError::InvalidField("state_dir must be a string")
-  }
   guard root.get("apps") is Some(@toml.TomlArray(app_values)) else {
     raise ConfigError::InvalidField("apps is required and must be an array")
   }
@@ -31,7 +26,7 @@ pub fn parse(doc : String) -> Config raise ConfigError {
   for i, app_value in app_values {
     apps.push(parse_app(app_value, i))
   }
-  let config = { state_dir, apps }
+  let config = { apps, }
   validate(config)
   config
 }
