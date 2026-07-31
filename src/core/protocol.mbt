@@ -7,6 +7,7 @@ pub(all) struct Request {
 ///|
 pub(all) struct InstanceInfo {
   app_name : String
+  cwd : String
   instance_id : Int
   pid : Int
   port : Int
@@ -43,6 +44,7 @@ pub fn InstanceInfo::of(inst : Instance, now : UInt64) -> InstanceInfo {
   }
   {
     app_name: inst.app_name,
+    cwd: inst.cwd,
     instance_id: inst.instance_id,
     pid: inst.pid,
     port: inst.port,

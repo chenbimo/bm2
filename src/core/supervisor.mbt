@@ -18,7 +18,7 @@ pub impl Show for SupervisorError with fn output(self, logger) {
       logger.write_string(name)
     }
     ConfigChanged =>
-      logger.write_string("config structure changed; run bm2 stop first")
+      logger.write_string("config structure changed; run bm2 kill <app> first")
     IoError(message) => {
       logger.write_string("io error: ")
       logger.write_string(message)
@@ -549,7 +549,12 @@ fn Supervisor::spawn_instance(
     cwd: app.cwd,
     out_log: base + ".out.log",
     err_log: base + ".error.log",
-    env_blob: @process.instance_env_blob(app.name, inst.instance_id, inst.port),
+    env_blob: @process.instance_env_blob(
+      app.name,
+      inst.instance_id,
+      inst.port,
+      app.env,
+    ),
   })
   inst.pid = pid
   inst.status = Online

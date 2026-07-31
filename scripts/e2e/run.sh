@@ -53,6 +53,18 @@ wait_http() { # wait_http <port> <expected body>
   done
   printf '%s' "$body"
 }
+wait_status() { # wait_status <app> <expected status> <max attempts>
+  for _ in $(seq 1 "$3"); do
+    local status
+    status=$(bm2 list "$1" | tail -1 | awk '{print $5}')
+    if [ "$status" = "$2" ]; then
+      printf '%s' "$status"
+      return 0
+    fi
+    sleep 0.5
+  done
+  printf '%s' "$status"
+}
 
 write_config() { # write_config <slow_stop_timeout> <slow_base_port> <slow_instances>
   cat > bm2.toml <<EOF
@@ -103,6 +115,9 @@ max_restarts = 2
 restart_delay_ms = 100
 min_uptime_ms = 60000
 stop_timeout_ms = $1
+
+[apps.env]
+BM2_E2E_ROLE = "slow"
 EOF
 }
 
@@ -110,17 +125,19 @@ echo "===== A. start all apps ====="
 write_config 1000 4231 1
 bm2 start
 check "start all exit" 0 "$?"
+bm2 status >/dev/null 2>&1
+check "status command rejected" 2 "$?"
 sleep 2
 
 echo "===== B. crash loop -> errored ====="
-bm2 status crash
-check "crash errored" "errored" "$(bm2 status crash | tail -1 | awk '{print $5}')"
-check "crash restart_count 3" "3" "$(bm2 status crash | tail -1 | awk '{print $6}')"
+bm2 list crash
+check "crash errored" "errored" "$(bm2 list crash | tail -1 | awk '{print $5}')"
+check "crash restart_count 3" "3" "$(bm2 list crash | tail -1 | awk '{print $6}')"
 contains "crash.log reason=exit_code" $state_dir/crash/logs/crash-0.crash.log "reason=exit_code"
 contains "crash.log restartCount=3" $state_dir/crash/logs/crash-0.crash.log "restartCount=3"
 
 echo "===== C. clean exit restarts without count ====="
-QCOUNT=$(bm2 status quick | tail -1 | awk '{print $6}')
+QCOUNT=$(bm2 list quick | tail -1 | awk '{print $6}')
 check "quick restart_count stays 0" "0" "$QCOUNT"
 if [ -s $state_dir/quick/logs/quick-0.crash.log ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: quick crash.log should be empty"
@@ -129,35 +146,32 @@ else
 fi
 
 echo "===== D. memory limit -> restart -> errored ====="
-sleep 14
-bm2 status hog
-check "hog errored" "errored" "$(bm2 status hog | tail -1 | awk '{print $5}')"
-check "hog restart_count 2" "2" "$(bm2 status hog | tail -1 | awk '{print $6}')"
+check "hog errored" "errored" "$(wait_status hog errored 40)"
+bm2 list hog
+check "hog restart_count 2" "2" "$(bm2 list hog | tail -1 | awk '{print $6}')"
 contains "hog crash.log memory_limit" $state_dir/hog/logs/hog-0.crash.log "reason=memory_limit"
 contains "hog crash.log rssMb" $state_dir/hog/logs/hog-0.crash.log "rssMb="
 
 echo "===== E. slow app serves HTTP ====="
-check "slow http" "slow slow-0" "$(wait_http 4231 "slow slow-0")"
+check "slow http" "slow slow-0 slow" "$(wait_http 4231 "slow slow-0 slow")"
 
-echo "===== F. stop quick (no auto-restart afterwards) ====="
-bm2 stop quick
-QPID1=$(bm2 status quick | tail -1 | awk '{print $3}')
-sleep 1
-QPID2=$(bm2 status quick | tail -1 | awk '{print $3}')
-check "quick stays stopped" "$QPID1" "$QPID2"
-check "quick stopped status" "stopped" "$(bm2 status quick | tail -1 | awk '{print $5}')"
+echo "===== F. kill quick hides it from list ====="
+bm2 kill quick
+check "quick omitted from list" "no instances" "$(bm2 list quick)"
+check "quick absent from all list" "0" "$(bm2 list | grep -c '^quick' || true)"
 
 echo "===== G. daemon restart adopts running instances ====="
-SLOW_PID_BEFORE=$(bm2 status slow | tail -1 | awk '{print $3}')
+SLOW_PID_BEFORE=$(bm2 list slow | tail -1 | awk '{print $3}')
 kill -9 "$(cat "$state_dir/bm2d.pid")"
 sleep 1
-bm2 status slow >/dev/null
-SLOW_PID_AFTER=$(bm2 status slow | tail -1 | awk '{print $3}')
+bm2 list slow >/dev/null
+SLOW_PID_AFTER=$(bm2 list slow | tail -1 | awk '{print $3}')
 check "slow adopted with same pid" "$SLOW_PID_BEFORE" "$SLOW_PID_AFTER"
-check "slow adopted online" "online" "$(bm2 status slow | tail -1 | awk '{print $5}')"
+check "slow adopted online" "online" "$(bm2 list slow | tail -1 | awk '{print $5}')"
+check "list cwd" "$ACC" "$(bm2 list slow | tail -1 | awk '{print $NF}')"
 contains "stale socket retry logged" $state_dir/bm2.events.jsonl "\"event\":\"stale_socket_removed\""
 contains "adoption event logged" $state_dir/bm2d.events.jsonl "\"event\":\"instance_adopted\""
-bm2 stop slow
+bm2 kill slow
 
 echo "===== H. pid reuse -> pid_conflict, foreign process untouched ====="
 sleep 300 &
@@ -167,8 +181,8 @@ cat > $state_dir/slow/slow-0.json <<EOF
 EOF
 kill -9 "$(cat "$state_dir/bm2d.pid")" 2>/dev/null
 sleep 1
-bm2 status slow >/dev/null
-check "pid_conflict status" "errored" "$(bm2 status slow | tail -1 | awk '{print $5}')"
+bm2 list slow >/dev/null
+check "pid_conflict status" "errored" "$(bm2 list slow | tail -1 | awk '{print $5}')"
 contains "pid_conflict crash.log" $state_dir/slow/logs/slow-0.crash.log "reason=pid_conflict"
 contains "pid_conflict event logged" $state_dir/bm2d.events.jsonl "\"event\":\"pid_conflict\""
 if kill -0 "$FOREIGN" 2>/dev/null; then
@@ -182,32 +196,32 @@ echo "===== I. config reload: numeric change accepted while running ====="
 write_config 2000 4231 1
 bm2 start slow
 check "numeric reload start" "started" "$(bm2 start slow)"
-check "slow still on 4231" "slow slow-0" "$(wait_http 4231 "slow slow-0")"
+check "slow still on 4231" "slow slow-0 slow" "$(wait_http 4231 "slow slow-0 slow")"
 
 echo "===== J. config reload: structural change rejected while running ====="
 write_config 2000 4241 1
 OUT=$(bm2 start slow 2>&1)
 check "structural reload rejected exit" 1 "$?"
-check "structural reload message" "config structure changed; run bm2 stop first" "$OUT"
+check "structural reload message" "config structure changed; run bm2 kill <app> first" "$OUT"
 write_config 2000 4231 1
 
 echo "===== K. structural change accepted when stopped ====="
-bm2 stop slow
+bm2 kill slow
 write_config 1000 4241 2
 bm2 start slow
 check "idle rebuild start" "started" "$(bm2 start slow)"
-bm2 status slow
-check "two instances after rebuild" "2" "$(bm2 status slow | grep -c '^slow')"
-check "rebuilt instance on 4241" "slow slow-0" "$(wait_http 4241 "slow slow-0")"
-check "rebuilt instance on 4242" "slow slow-1" "$(wait_http 4242 "slow slow-1")"
-bm2 stop slow
+bm2 list slow
+check "two instances after rebuild" "2" "$(bm2 list slow | grep -c '^slow')"
+check "rebuilt instance on 4241" "slow slow-0 slow" "$(wait_http 4241 "slow slow-0 slow")"
+check "rebuilt instance on 4242" "slow slow-1 slow" "$(wait_http 4242 "slow slow-1 slow")"
+bm2 kill slow
 
-echo "===== L. daemon SIGTERM graceful shutdown ====="
+echo "===== L. kill without app shuts down bm2d ====="
 bm2 start slow >/dev/null
 DPID=$(cat "$state_dir/bm2d.pid")
-kill -TERM "$DPID"
-sleep 3
-  if [ -S "$state_dir/bm2.sock" ] || [ -f "$state_dir/bm2d.pid" ]; then
+check "bare kill response" "bm2d stopping" "$(bm2 kill)"
+sleep 1
+if [ -S "$state_dir/bm2.sock" ] || [ -f "$state_dir/bm2d.pid" ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: sock/pid file not cleaned"
 else
   PASS=$((PASS + 1)); echo "PASS: sock and pid file cleaned"
@@ -218,7 +232,7 @@ else
   PASS=$((PASS + 1)); echo "PASS: bm2d exited"
 fi
 CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 localhost:4241 || true)
-check "slow stopped by daemon shutdown" "000" "$CODE"
+check "slow killed by daemon shutdown" "000" "$CODE"
 
 echo "===== summary: PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

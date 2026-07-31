@@ -6,11 +6,10 @@ const VALID_DOC : String =
   #|script = "index.ts"
   #|instances = 4
   #|base_port = 3000
-  #|max_memory_mb = 512
-  #|max_restarts = 10
-  #|restart_delay_ms = 1000
-  #|min_uptime_ms = 10000
-  #|stop_timeout_ms = 10000
+  #|
+  #|[apps.env]
+  #|NODE_ENV = "production"
+  #|FEATURE_CACHE = "true"
   #|
   #|[[apps]]
   #|name = "upload"
@@ -18,11 +17,6 @@ const VALID_DOC : String =
   #|script = "src/main.ts"
   #|instances = 2
   #|base_port = 3100
-  #|max_memory_mb = 256
-  #|max_restarts = 5
-  #|restart_delay_ms = 1000
-  #|min_uptime_ms = 10000
-  #|stop_timeout_ms = 10000
   #|
 
 ///|
@@ -47,6 +41,13 @@ test "parses valid bm2.toml" {
   assert_eq(config.apps[0].instances, 4)
   assert_eq(config.apps[0].base_port, 3000)
   assert_eq(config.apps[1].script, "src/main.ts")
+  assert_eq(config.apps[0].max_memory_mb, 512)
+  assert_eq(config.apps[0].max_restarts, 10)
+  assert_eq(config.apps[0].restart_delay_ms, 1000)
+  assert_eq(config.apps[0].min_uptime_ms, 10000)
+  assert_eq(config.apps[0].env["NODE_ENV"], "production")
+  assert_eq(config.apps[0].env["FEATURE_CACHE"], "true")
+  assert_true(config.apps[1].env.is_empty())
 }
 
 ///|
@@ -237,8 +238,89 @@ test "rejects script escaping cwd" {
 }
 
 ///|
-test "rejects unknown field" {
-  let message = parse_error(
+test "parses app env" {
+  let config = @config.parse(
+    (
+      #|[[apps]]
+      #|name = "api"
+      #|cwd = "/srv/api"
+      #|script = "index.ts"
+      #|instances = 1
+      #|base_port = 3000
+      #|
+      #|[apps.env]
+      #|NODE_ENV = "production"
+      #|FEATURE_CACHE = "true"
+      #|
+    ),
+  )
+  assert_eq(config.apps[0].env["NODE_ENV"], "production")
+  assert_eq(config.apps[0].env["FEATURE_CACHE"], "true")
+}
+
+///|
+test "rejects non-string app env value" {
+  assert_true(
+    parse_error(
+      (
+        #|[[apps]]
+        #|name = "api"
+        #|cwd = "/srv/api"
+        #|script = "index.ts"
+        #|instances = 1
+        #|base_port = 3000
+        #|
+        #|[apps.env]
+        #|NODE_ENV = 1
+        #|
+      ),
+    ).contains("apps[0].env.NODE_ENV must be a string"),
+  )
+}
+
+///|
+test "rejects reserved app env variable" {
+  assert_true(
+    parse_error(
+      (
+        #|[[apps]]
+        #|name = "api"
+        #|cwd = "/srv/api"
+        #|script = "index.ts"
+        #|instances = 1
+        #|base_port = 3000
+        #|
+        #|[apps.env]
+        #|PORT = "4000"
+        #|
+      ),
+    ).contains("apps[0].env.PORT is reserved"),
+  )
+}
+
+///|
+test "rejects invalid app env variable name" {
+  assert_true(
+    parse_error(
+      (
+        #|[[apps]]
+        #|name = "api"
+        #|cwd = "/srv/api"
+        #|script = "index.ts"
+        #|instances = 1
+        #|base_port = 3000
+        #|
+        #|[apps.env]
+        #|"BAD-NAME" = "value"
+        #|
+      ),
+    ).contains("apps[0].env has invalid variable name BAD-NAME"),
+  )
+}
+
+///|
+test "allows empty app env" {
+  let config = @config.parse(
     with_app(
       (
         #|name = "extra"
@@ -246,15 +328,10 @@ test "rejects unknown field" {
         #|script = "index.ts"
         #|instances = 1
         #|base_port = 4000
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
         #|env = {}
         #|
       ),
     ),
   )
-  assert_true(message.contains("unknown field env"))
+  assert_true(config.apps[2].env.is_empty())
 }

@@ -6,7 +6,9 @@ source_dir="$root/_build/native/debug/build/cmd"
 target_dir="$HOME/.local/bin"
 
 mkdir -p "$target_dir"
-cp "$source_dir/bm2/bm2.exe" "$target_dir/bm2"
-cp "$source_dir/bm2d/bm2d.exe" "$target_dir/bm2d"
-chmod +x "$target_dir/bm2" "$target_dir/bm2d"
+for command in bm2 bm2d; do
+  cp "$source_dir/$command/$command.exe" "$target_dir/$command.new"
+  chmod +x "$target_dir/$command.new"
+  mv -f "$target_dir/$command.new" "$target_dir/$command"
+done
 printf 'installed bm2 and bm2d to %s\n' "$target_dir"

@@ -10,7 +10,7 @@ It manages Bun processes only. Nginx remains responsible for reverse proxying an
 - One or more Bun applications, each with one or more independent instances.
 - Fixed launch command: `bun <script>`.
 - Crash restart budget, memory limit, graceful stop timeout, persisted state, and Unix socket control.
-- Commands: `start`, `stop`, `kill`, `status`.
+- Commands: `start`, `kill`, `list`.
 - `start` always performs a full restart for its target.
 
 It does not manage Nginx, domains, certificates, non-Bun runtimes, hot reload, boot startup, or remote administration.
@@ -49,14 +49,9 @@ cwd = "/srv/api"
 script = "src/index.ts"
 instances = 2
 base_port = 3000
-max_memory_mb = 512
-max_restarts = 10
-restart_delay_ms = 1000
-min_uptime_ms = 10000
-stop_timeout_ms = 10000
 ```
 
-Every app requires these fields:
+Every app requires these five fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -65,11 +60,16 @@ Every app requires these fields:
 | `script` | Relative Bun script path inside `cwd`; `..` is forbidden. |
 | `instances` | Number of instances; at least `1`. |
 | `base_port` | First instance port; later instances use consecutive ports. |
-| `max_memory_mb` | Maximum VmRSS in MiB; at least `1`. |
-| `max_restarts` | Allowed consecutive abnormal restarts; `0` disables retries. |
-| `restart_delay_ms` | Delay before an automatic restart. |
-| `min_uptime_ms` | A clean exit before this duration counts toward the restart budget. |
-| `stop_timeout_ms` | Grace period after SIGTERM before SIGKILL. |
+
+These optional fields override the built-in defaults:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `max_memory_mb` | `512` | Maximum VmRSS in MiB; at least `1`. |
+| `max_restarts` | `10` | Allowed consecutive abnormal restarts; `0` disables retries. |
+| `restart_delay_ms` | `1000` | Delay before an automatic restart. |
+| `min_uptime_ms` | `10000` | A clean exit before this duration counts toward the restart budget. |
+| `stop_timeout_ms` | `10000` | Grace period after SIGTERM before SIGKILL. |
 
 Port ranges across all apps must not overlap.
 
@@ -81,20 +81,41 @@ bm2 passes only `PATH`, `HOME`, and `TMPDIR` from its own environment to managed
 - `BM2_INSTANCE_ID`
 - `PORT`
 
-Bun automatically loads `.env` files from each application's `cwd`. Do not put application secrets in `bm2.toml`; keep them in the application's environment or `.env` files. Reserved bm2 variables take precedence over values from `.env`.
+Bun automatically loads `.env` files from each application's `cwd`. Do not put application secrets in `bm2.toml`; keep them in the application's environment or `.env` files. Reserved bm2 variables take precedence over values from `apps.env` and `.env`.
+
+## Per-app environment
+
+Each app may provide an optional string-only `[apps.env]` table. bm2 constructs a separate environment for every instance, so variables with the same name in different apps never overwrite each other:
+
+```toml
+[[apps]]
+name = "api"
+cwd = "/srv/api"
+script = "src/index.ts"
+instances = 2
+base_port = 3000
+
+[apps.env]
+NODE_ENV = "production"
+LOG_LEVEL = "info"
+```
+
+The effective precedence is `PORT` / `BM2_APP_NAME` / `BM2_INSTANCE_ID`, then `apps.env`, then Bun's project `.env`, then the inherited `PATH`, `HOME`, and `TMPDIR`. Environment names must use letters, digits, and underscores, cannot begin with a digit, and `PORT`, `BM2_APP_NAME`, and `BM2_INSTANCE_ID` are reserved. Values must be TOML strings. bm2 never writes environment values to state files, events, crash logs, or CLI output.
 
 ## Commands
 
 ```bash
 bm2 start             # fully restart all configured apps
 bm2 start api         # fully restart api only
-bm2 stop api          # SIGTERM, then SIGKILL after stop_timeout_ms
-bm2 kill api          # immediate SIGKILL
-bm2 status            # display all instance states
-bm2 status api        # display one app
+bm2 kill              # SIGKILL all managed apps and exit bm2d
+bm2 kill api          # immediately SIGKILL api only; bm2d stays running
+bm2 list              # display all instance states
+bm2 list api          # display one app
 ```
 
-`start` reloads `bm2.toml` every time. While any instance is running, only numeric limits may change (`max_memory_mb`, `max_restarts`, `restart_delay_ms`, `min_uptime_ms`, `stop_timeout_ms`). Changing an app name, working directory, script, instance count, or base port requires stopping the affected applications first.
+`list` prints one row per active or abnormal instance, including its PID, port, runtime status, memory, uptime, and the complete project working directory in the final `CWD` column. An app stopped by `bm2 kill <app>` is intentionally omitted; `restarting` and `errored` instances remain visible for diagnosis.
+
+`start` reloads `bm2.toml` every time. While any instance is running, only numeric limits may change (`max_memory_mb`, `max_restarts`, `restart_delay_ms`, `min_uptime_ms`, `stop_timeout_ms`). Changing an app name, working directory, script, instance count, or base port requires `bm2 kill <app>` first.
 
 If a daemon dies abruptly and leaves a stale Unix socket, the next CLI request waits at most three seconds for a response, removes the stale socket, starts one fresh daemon, and retries the request once.
 
@@ -131,4 +152,4 @@ From the Remote-WSL terminal, run the complete formatter, static check, native t
 bash scripts/verify.sh
 ```
 
-The script requires MoonBit at `~/.moon/bin/moon`, creates temporary fixtures under `/tmp`, and removes their runtime state afterward. It covers crash restart limits, clean exits, memory limits, HTTP readiness, stop semantics, stale socket recovery and daemon adoption, PID conflict safety, config reload rules, multi-instance rebuilds, graceful daemon shutdown, and structured event logs.
+The script requires MoonBit at `~/.moon/bin/moon`, creates temporary fixtures under `/tmp`, and removes their runtime state afterward. It covers crash restart limits, clean exits, memory limits, HTTP readiness, app kill semantics, stale socket recovery and daemon adoption, PID conflict safety, config reload rules, multi-instance rebuilds, daemon shutdown through bare `kill`, and structured event logs.

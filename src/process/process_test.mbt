@@ -23,7 +23,7 @@ test "spawn runs script with env, cwd and log redirection" {
     cwd: dir,
     out_log,
     err_log,
-    env_blob: @process.instance_env_blob("testapp", 2, 4001),
+    env_blob: @process.instance_env_blob("testapp", 2, 4001, Map([])),
   })
   assert_true(pid > 0)
   assert_true(@process.pid_alive(pid))
@@ -66,7 +66,7 @@ test "wait_child reports exit code" {
     cwd: dir,
     out_log: dir + "/o.log",
     err_log: dir + "/e.log",
-    env_blob: @process.instance_env_blob("t", 0, 1),
+    env_blob: @process.instance_env_blob("t", 0, 1, Map([])),
   })
   assert_eq(
     @process.wait_child(pid),
@@ -88,7 +88,7 @@ test "exec failure exits 127 and chdir failure exits 126" {
     cwd: dir,
     out_log: dir + "/o1.log",
     err_log: dir + "/e1.log",
-    env_blob: @process.instance_env_blob("t", 0, 1),
+    env_blob: @process.instance_env_blob("t", 0, 1, Map([])),
   })
   assert_eq(
     @process.wait_child(bad_exec),
@@ -100,7 +100,7 @@ test "exec failure exits 127 and chdir failure exits 126" {
     cwd: "/nonexistent/bm2-no-dir",
     out_log: dir + "/o2.log",
     err_log: dir + "/e2.log",
-    env_blob: @process.instance_env_blob("t", 0, 1),
+    env_blob: @process.instance_env_blob("t", 0, 1, Map([])),
   })
   assert_eq(
     @process.wait_child(bad_cwd),
@@ -131,8 +131,11 @@ test "write_atomic and append_file round-trip" {
 }
 
 ///|
-test "instance_env_blob contains reserved vars" {
-  let text = @utf8.decode(@process.instance_env_blob("myapp", 3, 5000))
+test "instance_env_blob contains app and reserved vars" {
+  let text = @utf8.decode(
+    @process.instance_env_blob("myapp", 3, 5000, { "NODE_ENV": "test" }),
+  )
+  assert_true(text.contains("NODE_ENV=test"))
   assert_true(text.contains("BM2_APP_NAME=myapp"))
   assert_true(text.contains("BM2_INSTANCE_ID=3"))
   assert_true(text.contains("PORT=5000"))

@@ -54,25 +54,38 @@ fn run() -> Int {
     } noraise {
       ready => ready
     }
-    if readable {
-      serve(listen_fd, sv, config_path, state_dir)
+    if readable && serve(listen_fd, sv, config_path, state_dir) {
+      break
     }
   }
   @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopping")
-  shutdown(sv, listen_fd, state_dir)
+  shutdown(sv, listen_fd, state_dir, @process.term_requested())
   @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopped")
   0
 }
 
 ///|
-/// SIGTERM received: stop every app, wait for the SIGKILL escalation to
-/// finish, sweep anything left and remove the socket and pid file.
-fn shutdown(sv : @core.Supervisor, listen_fd : Int, state_dir : String) -> Unit {
+/// The bare `kill` request forces every managed process group down before
+/// bm2d exits. SIGTERM to bm2d keeps the existing graceful shutdown path.
+fn shutdown(
+  sv : @core.Supervisor,
+  listen_fd : Int,
+  state_dir : String,
+  graceful : Bool,
+) -> Unit {
   let names = sv.app_names()
   for name in names {
-    discard(() => sv.stop_app(name))
+    if graceful {
+      discard(() => sv.stop_app(name))
+    } else {
+      discard(() => sv.kill_app(name))
+    }
   }
-  ignore(sv.wait_settled(names))
+  if graceful {
+    ignore(sv.wait_settled(names))
+  } else {
+    sv.tick()
+  }
   for inst in sv.snapshot() {
     if inst.alive() {
       discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
@@ -85,19 +98,20 @@ fn shutdown(sv : @core.Supervisor, listen_fd : Int, state_dir : String) -> Unit 
 
 ///|
 /// Serve one queued connection; the request loop stays single threaded
-/// so all supervisor mutations are serialized.
+/// so all supervisor mutations are serialized. Bare `kill` exits only after
+/// its success response has been written to the caller.
 fn serve(
   listen_fd : Int,
   sv : @core.Supervisor,
   config_path : String,
   state_dir : String,
-) -> Unit {
+) -> Bool {
   let fd = try @process.accept(listen_fd) catch {
-    _ => return
+    _ => return false
   } noraise {
     accepted => accepted
   }
-  let response = handle(fd, sv, config_path, state_dir)
+  let (response, shutdown_requested) = handle(fd, sv, config_path, state_dir)
   let sent = try {
     @process.send_msg(fd, @core.encode_response(response))
     true
@@ -116,6 +130,7 @@ fn serve(
     },
   )
   @process.close(fd)
+  sent && shutdown_requested
 }
 
 ///|
@@ -124,17 +139,17 @@ fn handle(
   sv : @core.Supervisor,
   config_path : String,
   state_dir : String,
-) -> @core.Response {
+) -> (@core.Response, Bool) {
   let peer = try @process.peer_uid(fd) catch {
     _ => -1
   } noraise {
     uid => uid
   }
   if peer != @process.get_uid() {
-    return @core.Response::error("permission denied: same-user only")
+    return (@core.Response::error("permission denied: same-user only"), false)
   }
   let req = try @core.decode_request(@process.recv_msg(fd)) catch {
-    _ => return @core.Response::error("invalid request")
+    _ => return (@core.Response::error("invalid request"), false)
   } noraise {
     parsed => parsed
   }
@@ -146,16 +161,15 @@ fn handle(
     detail=req.command,
   )
   match req.command {
-    "status" => cmd_status(sv, req.app)
-    "start" => cmd_start(sv, req.app, config_path)
-    "stop" => cmd_stop(sv, req.app, true)
-    "kill" => cmd_stop(sv, req.app, false)
-    _ => @core.Response::error("unknown command: " + req.command)
+    "list" => (cmd_list(sv, req.app), false)
+    "start" => (cmd_start(sv, req.app, config_path), false)
+    "kill" => cmd_kill(sv, req.app)
+    _ => (@core.Response::error("unknown command: " + req.command), false)
   }
 }
 
 ///|
-fn cmd_status(sv : @core.Supervisor, app : String?) -> @core.Response {
+fn cmd_list(sv : @core.Supervisor, app : String?) -> @core.Response {
   let names = try targets(sv, app) catch {
     e => return @core.Response::error(e.to_string())
   } noraise {
@@ -206,39 +220,31 @@ fn cmd_start(
 }
 
 ///|
-fn cmd_stop(
-  sv : @core.Supervisor,
-  app : String?,
-  graceful : Bool,
-) -> @core.Response {
-  let names = try targets(sv, app) catch {
-    e => return @core.Response::error(e.to_string())
-  } noraise {
-    found => found
-  }
-  for name in names {
-    try {
-      if graceful {
-        sv.stop_app(name)
-      } else {
-        sv.kill_app(name)
+/// Kill an app immediately, or request a complete bm2d shutdown when no app
+/// name was supplied. The daemon loop performs the all-app kill after reply.
+fn cmd_kill(sv : @core.Supervisor, app : String?) -> (@core.Response, Bool) {
+  match app {
+    None => (@core.Response::ok("bm2d stopping", []), true)
+    Some(name) => {
+      try sv.kill_app(name) catch {
+        e => return (@core.Response::error(e.to_string()), false)
+      } noraise {
+        _ => ()
       }
-    } catch {
-      e => return @core.Response::error(e.to_string())
-    } noraise {
-      _ => ()
+      let settled = sv.wait_settled([name])
+      (
+        @core.Response::ok(
+          if settled {
+            "killed"
+          } else {
+            "killed (timeout)"
+          },
+          infos_of(sv, [name]),
+        ),
+        false,
+      )
     }
   }
-  let settled = sv.wait_settled(names)
-  let verb = if graceful { "stopped" } else { "killed" }
-  @core.Response::ok(
-    if settled {
-      verb
-    } else {
-      verb + " (timeout)"
-    },
-    infos_of(sv, names),
-  )
 }
 
 ///|
@@ -255,6 +261,8 @@ fn targets(sv : @core.Supervisor, app : String?) -> Array[String] raise {
 }
 
 ///|
+/// List output excludes intentionally stopped instances. Other statuses,
+/// especially restarting and errored, remain visible for operational diagnosis.
 fn infos_of(
   sv : @core.Supervisor,
   names : Array[String],
@@ -264,7 +272,9 @@ fn infos_of(
   for name in names {
     try {
       for inst in sv.app_instances(name) {
-        infos.push(@core.InstanceInfo::of(inst, now))
+        if !(inst.status is @core.Status::Stopped) {
+          infos.push(@core.InstanceInfo::of(inst, now))
+        }
       }
     } catch {
       _ => ()

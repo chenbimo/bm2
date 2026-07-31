@@ -32,6 +32,7 @@ pub(all) enum ExitIntent {
 ///|
 pub(all) struct Instance {
   app_name : String
+  cwd : String
   instance_id : Int
   port : Int
   mut pid : Int
@@ -52,6 +53,7 @@ pub(all) struct Instance {
 pub fn Instance::new(app : @config.AppConfig, instance_id : Int) -> Instance {
   {
     app_name: app.name,
+    cwd: app.cwd,
     instance_id,
     port: app.base_port + instance_id,
     pid: 0,

@@ -12,7 +12,7 @@ fn run() -> Int {
   }
   let command = args[1]
   match command {
-    "start" | "stop" | "kill" | "status" => ()
+    "start" | "kill" | "list" => ()
     _ => {
       usage()
       return 2
@@ -108,8 +108,8 @@ fn run() -> Int {
     response => response
   }
   if resp.ok {
-    if command == "status" {
-      print_status(resp.instances)
+    if command == "list" {
+      print_list(resp.instances)
     } else {
       println(resp.message)
     }
@@ -184,13 +184,13 @@ fn connect(sock : String) -> Int? {
 }
 
 ///|
-fn print_status(instances : Array[@core.InstanceInfo]) -> Unit {
+fn print_list(instances : Array[@core.InstanceInfo]) -> Unit {
   if instances.length() == 0 {
     println("no instances")
     return
   }
   let header = [
-    "NAME", "ID", "PID", "PORT", "STATUS", "RESTARTS", "MEMORY", "UPTIME",
+    "NAME", "ID", "PID", "PORT", "STATUS", "RESTARTS", "MEMORY", "UPTIME", "CWD",
   ]
   let rows = []
   for info in instances {
@@ -210,9 +210,10 @@ fn print_status(instances : Array[@core.InstanceInfo]) -> Unit {
       info.restart_count.to_string(),
       memory,
       uptime,
+      info.cwd,
     ])
   }
-  let widths = [0, 0, 0, 0, 0, 0, 0, 0]
+  let widths = [0, 0, 0, 0, 0, 0, 0, 0, 0]
   for i in 0..<header.length() {
     widths[i] = header[i].length()
   }
@@ -277,8 +278,7 @@ fn usage() -> Unit {
     #|
     #|commands:
     #|  start [app]    start (or fully restart) one app or all apps
-    #|  stop [app]     gracefully stop one app or all apps
-    #|  kill [app]     immediately SIGKILL one app or all apps
-    #|  status [app]   show instance status
+    #|  kill [app]     SIGKILL one app, or stop bm2d and all apps
+    #|  list [app]     show instance list
   println(text)
 }

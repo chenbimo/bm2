@@ -10,6 +10,7 @@ pub(all) struct AppConfig {
   restart_delay_ms : Int
   min_uptime_ms : Int
   stop_timeout_ms : Int
+  env : Map[String, String]
 } derive(Debug)
 
 ///|

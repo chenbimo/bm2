@@ -28,6 +28,7 @@ fn app_config(
     restart_delay_ms,
     min_uptime_ms,
     stop_timeout_ms,
+    env: Map([]),
   }
 }
 

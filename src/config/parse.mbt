@@ -4,8 +4,23 @@ let rootKeys : Array[String] = ["apps"]
 ///|
 let appKeys : Array[String] = [
   "name", "cwd", "script", "instances", "base_port", "max_memory_mb", "max_restarts",
-  "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms",
+  "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "env",
 ]
+
+///|
+const DEFAULT_MAX_MEMORY_MB : Int = 512
+
+///|
+const DEFAULT_MAX_RESTARTS : Int = 10
+
+///|
+const DEFAULT_RESTART_DELAY_MS : Int = 1000
+
+///|
+const DEFAULT_MIN_UPTIME_MS : Int = 10000
+
+///|
+const DEFAULT_STOP_TIMEOUT_MS : Int = 10000
 
 ///|
 pub fn parse(doc : String) -> Config raise ConfigError {
@@ -47,11 +62,69 @@ fn parse_app(
     script: req_string(table, "script", ctx),
     instances: req_int(table, "instances", ctx),
     base_port: req_int(table, "base_port", ctx),
-    max_memory_mb: req_int(table, "max_memory_mb", ctx),
-    max_restarts: req_int(table, "max_restarts", ctx),
-    restart_delay_ms: req_int(table, "restart_delay_ms", ctx),
-    min_uptime_ms: req_int(table, "min_uptime_ms", ctx),
-    stop_timeout_ms: req_int(table, "stop_timeout_ms", ctx),
+    max_memory_mb: opt_int(table, "max_memory_mb", ctx, DEFAULT_MAX_MEMORY_MB),
+    max_restarts: opt_int(table, "max_restarts", ctx, DEFAULT_MAX_RESTARTS),
+    restart_delay_ms: opt_int(
+      table,
+      "restart_delay_ms",
+      ctx,
+      DEFAULT_RESTART_DELAY_MS,
+    ),
+    min_uptime_ms: opt_int(table, "min_uptime_ms", ctx, DEFAULT_MIN_UPTIME_MS),
+    stop_timeout_ms: opt_int(
+      table,
+      "stop_timeout_ms",
+      ctx,
+      DEFAULT_STOP_TIMEOUT_MS,
+    ),
+    env: opt_env(table, ctx),
+  }
+}
+
+///|
+/// App variables are string-only and cannot shadow bm2 instance metadata.
+fn opt_env(
+  table : Map[String, @toml.TomlValue],
+  ctx : String,
+) -> Map[String, String] raise ConfigError {
+  match table.get("env") {
+    None => Map([])
+    Some(@toml.TomlTable(values)) => {
+      let env : Map[String, String] = Map([])
+      for name, value in values {
+        validate_env_name(name, ctx)
+        match value {
+          @toml.TomlString(text) => env[name] = text
+          _ =>
+            raise ConfigError::InvalidField(
+              "\{ctx}.env.\{name} must be a string",
+            )
+        }
+      }
+      env
+    }
+    Some(_) => raise ConfigError::InvalidField("\{ctx}.env must be a table")
+  }
+}
+
+///|
+fn validate_env_name(name : String, ctx : String) -> Unit raise ConfigError {
+  if name.is_empty() {
+    raise ConfigError::InvalidField("\{ctx}.env has invalid variable name")
+  }
+  if name == "PORT" || name == "BM2_APP_NAME" || name == "BM2_INSTANCE_ID" {
+    raise ConfigError::InvalidField("\{ctx}.env.\{name} is reserved")
+  }
+  for i, c in name {
+    guard (i == 0 && (c is ('A'..='Z') || c is ('a'..='z') || c == '_')) ||
+      (
+        i > 0 &&
+        (c is ('A'..='Z') || c is ('a'..='z') || c is ('0'..='9') || c == '_')
+      ) else {
+      raise ConfigError::InvalidField(
+        "\{ctx}.env has invalid variable name \{name}",
+      )
+    }
   }
 }
 
@@ -65,6 +138,19 @@ fn req_string(
     Some(@toml.TomlString(value)) => value
     Some(_) => raise ConfigError::InvalidField("\{ctx}.\{key} must be a string")
     None => raise ConfigError::InvalidField("\{ctx}.\{key} is required")
+  }
+}
+
+///|
+fn opt_int(
+  table : Map[String, @toml.TomlValue],
+  key : String,
+  ctx : String,
+  default : Int,
+) -> Int raise ConfigError {
+  match table.get(key) {
+    None => default
+    Some(_) => req_int(table, key, ctx)
   }
 }
 
