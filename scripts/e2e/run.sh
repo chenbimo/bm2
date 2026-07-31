@@ -238,5 +238,18 @@ fi
 CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 localhost:4241 || true)
 check "slow killed by daemon shutdown" "000" "$CODE"
 
+echo "===== M. refresh swaps daemon while apps keep running ====="
+write_config 1000 4241 1
+bm2 start slow >/dev/null
+APID=$(bm2 list slow | sed -n '2p' | awk '{print $3}')
+DPID=$(cat "$state_dir/bm2d.pid")
+check "refresh response" "refreshed" "$(bm2 refresh)"
+sleep 1
+NDPID=$(cat "$state_dir/bm2d.pid")
+check "daemon pid changed" "changed" "$([ -n "$NDPID" ] && [ "$NDPID" != "$DPID" ] && echo changed || echo same)"
+check "app pid preserved" "$APID" "$(bm2 list slow | sed -n '2p' | awk '{print $3}')"
+check "slow still served" "slow slow-0 slow" "$(wait_http 4241 "slow slow-0 slow")"
+check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
+
 echo "===== summary: PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

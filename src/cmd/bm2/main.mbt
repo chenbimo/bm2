@@ -12,11 +12,15 @@ fn run() -> Int {
   }
   let command = args[1]
   match command {
-    "start" | "kill" | "list" => ()
+    "start" | "kill" | "list" | "refresh" => ()
     _ => {
       usage()
       return 2
     }
+  }
+  if command == "refresh" && args.length() != 2 {
+    usage()
+    return 2
   }
   let confirmed = command == "kill" && args.length() == 3 && args[2] == "-y"
   let app : String? = if confirmed {
@@ -127,14 +131,58 @@ fn run() -> Int {
   if resp.ok {
     if command == "list" {
       print_list(resp.instances)
+      0
+    } else if command == "refresh" {
+      if !wait_daemon_exit(state_dir) {
+        @process.eprintln("bm2: bm2d did not exit; refresh aborted")
+        return 1
+      }
+      let fresh_fd = try ensure_daemon(state_dir, config_path) catch {
+        e => {
+          @process.eprintln("bm2: " + e.to_string())
+          return 1
+        }
+      } noraise {
+        result => result
+      }
+      match fresh_fd {
+        Some(fd) => {
+          @process.close(fd)
+          println("refreshed")
+          0
+        }
+        None => {
+          @process.eprintln(
+            "bm2: bm2d did not start, see " + state_dir + "/bm2d.log",
+          )
+          1
+        }
+      }
     } else {
       println(resp.message)
+      0
     }
-    0
   } else {
     @process.eprintln(resp.message)
     1
   }
+}
+
+///|
+/// Wait for the refreshed daemon to detach (it removes its socket on the
+/// way out). Returns false when the daemon stays alive after five seconds.
+fn wait_daemon_exit(state_dir : String) -> Bool {
+  let sock = state_dir + "/bm2.sock"
+  for _ in 0..<100 {
+    match connect(sock) {
+      None => return true
+      Some(fd) => {
+        @process.close(fd)
+        @process.sleep_ms(50)
+      }
+    }
+  }
+  false
 }
 
 ///|
@@ -296,6 +344,7 @@ fn usage() -> Unit {
     #|commands:
     #|  start [app]    start (or fully restart) one app or all apps
     #|  kill [app]     SIGKILL one app; bare 'kill' needs -y to stop bm2d and all apps
+    #|  refresh        stop bm2d and start a fresh one; apps keep running
     #|  list [app]     show instance list
   println(text)
 }

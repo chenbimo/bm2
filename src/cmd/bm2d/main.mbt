@@ -1,4 +1,14 @@
 ///|
+enum Exit {
+  Stay
+  /// Bare `kill` or SIGTERM: stop all apps, then exit.
+  Shutdown
+  /// `refresh`: detach without stopping apps; the CLI starts a fresh bm2d
+  /// which adopts the surviving instances.
+  Detach
+}
+
+///|
 fn main {
   @process.exit(run())
 }
@@ -47,6 +57,7 @@ fn run() -> Int {
     fd => fd
   }
   @core.log_event(state_dir, "bm2d.events.jsonl", "socket_listening")
+  let mut exit_mode = Exit::Shutdown
   while !@process.term_requested() {
     sv.tick()
     let readable = try @process.poll_fd(listen_fd, 50) catch {
@@ -54,13 +65,31 @@ fn run() -> Int {
     } noraise {
       ready => ready
     }
-    if readable && serve(listen_fd, sv, config_path, state_dir) {
-      break
+    if readable {
+      let mode = serve(listen_fd, sv, config_path, state_dir)
+      match mode {
+        Exit::Stay => ()
+        _ => {
+          exit_mode = mode
+          break
+        }
+      }
     }
   }
-  @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopping")
-  shutdown(sv, listen_fd, state_dir, @process.term_requested())
-  @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopped")
+  match exit_mode {
+    Exit::Detach => {
+      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
+      @process.close(listen_fd)
+      discard(() => @process.unlink(state_dir + "/bm2.sock"))
+      discard(() => @process.unlink(state_dir + "/bm2d.pid"))
+      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detached")
+    }
+    _ => {
+      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopping")
+      shutdown(sv, listen_fd, state_dir, @process.term_requested())
+      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopped")
+    }
+  }
   0
 }
 
@@ -98,20 +127,20 @@ fn shutdown(
 
 ///|
 /// Serve one queued connection; the request loop stays single threaded
-/// so all supervisor mutations are serialized. Bare `kill` exits only after
-/// its success response has been written to the caller.
+/// so all supervisor mutations are serialized. Exit requests (kill/refresh)
+/// are honored only after their success response has reached the caller.
 fn serve(
   listen_fd : Int,
   sv : @core.Supervisor,
   config_path : String,
   state_dir : String,
-) -> Bool {
+) -> Exit {
   let fd = try @process.accept(listen_fd) catch {
-    _ => return false
+    _ => return Exit::Stay
   } noraise {
     accepted => accepted
   }
-  let (response, shutdown_requested) = handle(fd, sv, config_path, state_dir)
+  let (response, exit) = handle(fd, sv, config_path, state_dir)
   let sent = try {
     @process.send_msg(fd, @core.encode_response(response))
     true
@@ -130,7 +159,11 @@ fn serve(
     },
   )
   @process.close(fd)
-  sent && shutdown_requested
+  if sent {
+    exit
+  } else {
+    Exit::Stay
+  }
 }
 
 ///|
@@ -139,17 +172,20 @@ fn handle(
   sv : @core.Supervisor,
   config_path : String,
   state_dir : String,
-) -> (@core.Response, Bool) {
+) -> (@core.Response, Exit) {
   let peer = try @process.peer_uid(fd) catch {
     _ => -1
   } noraise {
     uid => uid
   }
   if peer != @process.get_uid() {
-    return (@core.Response::error("permission denied: same-user only"), false)
+    return (
+      @core.Response::error("permission denied: same-user only"),
+      Exit::Stay,
+    )
   }
   let req = try @core.decode_request(@process.recv_msg(fd)) catch {
-    _ => return (@core.Response::error("invalid request"), false)
+    _ => return (@core.Response::error("invalid request"), Exit::Stay)
   } noraise {
     parsed => parsed
   }
@@ -161,10 +197,11 @@ fn handle(
     detail=req.command,
   )
   match req.command {
-    "list" => (cmd_list(sv, req.app), false)
-    "start" => (cmd_start(sv, req.app, config_path), false)
+    "list" => (cmd_list(sv, req.app), Exit::Stay)
+    "start" => (cmd_start(sv, req.app, config_path), Exit::Stay)
     "kill" => cmd_kill(sv, req.app)
-    _ => (@core.Response::error("unknown command: " + req.command), false)
+    "refresh" => cmd_refresh()
+    _ => (@core.Response::error("unknown command: " + req.command), Exit::Stay)
   }
 }
 
@@ -222,12 +259,12 @@ fn cmd_start(
 ///|
 /// Kill an app immediately, or request a complete bm2d shutdown when no app
 /// name was supplied. The daemon loop performs the all-app kill after reply.
-fn cmd_kill(sv : @core.Supervisor, app : String?) -> (@core.Response, Bool) {
+fn cmd_kill(sv : @core.Supervisor, app : String?) -> (@core.Response, Exit) {
   match app {
-    None => (@core.Response::ok("bm2d stopping", []), true)
+    None => (@core.Response::ok("bm2d stopping", []), Exit::Shutdown)
     Some(name) => {
       try sv.kill_app(name) catch {
-        e => return (@core.Response::error(e.to_string()), false)
+        e => return (@core.Response::error(e.to_string()), Exit::Stay)
       } noraise {
         _ => ()
       }
@@ -241,10 +278,17 @@ fn cmd_kill(sv : @core.Supervisor, app : String?) -> (@core.Response, Bool) {
           },
           infos_of(sv, [name]),
         ),
-        false,
+        Exit::Stay,
       )
     }
   }
+}
+
+///|
+/// Refresh detaches bm2d without stopping apps; the CLI then starts a fresh
+/// daemon which adopts the surviving instances.
+fn cmd_refresh() -> (@core.Response, Exit) {
+  (@core.Response::ok("refreshing", []), Exit::Detach)
 }
 
 ///|

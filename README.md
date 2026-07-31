@@ -109,11 +109,14 @@ bm2 start             # fully restart all configured apps
 bm2 start api         # fully restart api only
 bm2 kill -y           # SIGKILL all managed apps and exit bm2d (bare `kill` refuses)
 bm2 kill api          # immediately SIGKILL api only; bm2d stays running
+bm2 refresh           # stop bm2d and start a fresh one; managed apps keep running
 bm2 list              # display all instance states
 bm2 list api          # display one app
 ```
 
 A bare `bm2 kill` without `-y` refuses to run and prints a hint, so a stray keystroke cannot take down the daemon and every app at once; `bm2 kill <app>` still needs no confirmation because it only stops one app.
+
+`refresh` swaps in a fresh bm2d (e.g. after installing a new build) without stopping managed apps: the old daemon detaches, the new one adopts the surviving instances with unchanged PIDs.
 
 `list` prints one row per active or abnormal instance, including its PID, port, runtime status, memory, uptime, and the complete project working directory in the final `CWD` column. An app stopped by `bm2 kill <app>` is intentionally omitted; `restarting` and `errored` instances remain visible for diagnosis.
 
