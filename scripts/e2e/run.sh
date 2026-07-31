@@ -122,7 +122,8 @@ EOF
 }
 
 echo "===== 0. version command ====="
-check "version output" "bm2 0.1.0" "$(bm2 version)"
+MV=$(sed -nE 's/^version = "([^"]+)"/\1/p' "$root/moon.mod")
+check "version output" "bm2 $MV" "$(bm2 version)"
 
 echo "===== A. start all apps ====="
 write_config 1000 4231 1
