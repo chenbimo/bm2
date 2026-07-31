@@ -197,7 +197,7 @@ kill "$FOREIGN" 2>/dev/null
 echo "===== I. config reload: numeric change accepted while running ====="
 write_config 2000 4231 1
 bm2 start slow
-check "numeric reload start" "started" "$(bm2 start slow)"
+check "numeric reload start" "started" "$(bm2 start slow | head -1)"
 check "slow still on 4231" "slow slow-0 slow 4231 0" "$(wait_http 4231 "slow slow-0 slow 4231 0")"
 
 echo "===== J. config reload: structural change rejected while running ====="
@@ -211,7 +211,7 @@ echo "===== K. structural change accepted when stopped ====="
 bm2 kill slow
 write_config 1000 4241 2
 bm2 start slow
-check "idle rebuild start" "started" "$(bm2 start slow)"
+check "idle rebuild start" "started" "$(bm2 start slow | head -1)"
 bm2 list slow
 check "two instances after rebuild" "2" "$(bm2 list slow | grep -c '^slow')"
 check "rebuilt instance on 4241" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"
@@ -271,7 +271,7 @@ EOF
 bm2 start stubborn >/dev/null
 sleep 1
 SPID=$(bm2 list stubborn | sed -n '2p' | awk '{print $3}')
-check "restart with ignored SIGTERM" "started" "$(bm2 start stubborn)"
+check "restart with ignored SIGTERM" "started" "$(bm2 start stubborn | head -1)"
 sleep 1
 check "stubborn old process SIGKILLed" 1 "$(kill -0 "$SPID" 2>/dev/null; echo $?)"
 check "stubborn new instance online" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $5}')"
@@ -340,7 +340,7 @@ EOF
 bm2 start stubborn >/dev/null
 sleep 1
 DPID1=$(cat "$state_dir/bm2d.pid")
-check "restart waits past 3s CLI timeout" "started" "$(bm2 start stubborn)"
+check "restart waits past 3s CLI timeout" "started" "$(bm2 start stubborn | head -1)"
 DPID2=$(cat "$state_dir/bm2d.pid")
 check "daemon pid unchanged" "$DPID1" "$DPID2"
 check "single daemon for this config" 1 "$(pgrep -f "$ACC/bm2.toml" | wc -l)"

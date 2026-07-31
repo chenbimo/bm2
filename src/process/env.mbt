@@ -17,6 +17,7 @@ pub fn instance_env_blob(
     ("BM2_INSTANCE_ID", instance_id.to_string()),
     ("BM2_APP_INSTANCE", instance_id.to_string()),
     ("BM2_APP_PORT", port.to_string()),
+    ("BM2_RUN_MODE", "production"),
   ]
   build_blob(app_env, reserved)
 }

@@ -291,6 +291,10 @@ fn run() -> Int {
       }
     } else {
       println(resp.message)
+      // A successful start shows the resulting state right away.
+      if command == "start" {
+        print_list(resp.instances)
+      }
       0
     }
   } else {

@@ -140,6 +140,7 @@ test "instance_env_blob contains app and reserved vars" {
   assert_true(text.contains("BM2_INSTANCE_ID=3"))
   assert_true(text.contains("BM2_APP_PORT=5000"))
   assert_true(text.contains("BM2_APP_INSTANCE=3"))
+  assert_true(text.contains("BM2_RUN_MODE=production"))
 }
 
 ///|
@@ -149,7 +150,7 @@ test "instance_env_blob carries only whitelist, app env and reserved vars" {
   )
   let allowed = [
     "PATH", "HOME", "TMPDIR", "APP_FLAG", "BM2_APP_NAME", "BM2_INSTANCE_ID", "BM2_APP_INSTANCE",
-    "BM2_APP_PORT",
+    "BM2_APP_PORT", "BM2_RUN_MODE",
   ]
   let mut seen = 0
   for entry in text.split("\u{0}") {

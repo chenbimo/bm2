@@ -117,6 +117,7 @@ fn validate_env_name(name : String, ctx : String) -> Unit raise ConfigError {
     name == "BM2_INSTANCE_ID" ||
     name == "BM2_APP_INSTANCE" ||
     name == "BM2_APP_PORT" ||
+    name == "BM2_RUN_MODE" ||
     name == "PATH" ||
     name == "HOME" ||
     name == "TMPDIR" {
