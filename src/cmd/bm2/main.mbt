@@ -18,7 +18,24 @@ fn run() -> Int {
       return 2
     }
   }
-  let app : String? = if args.length() == 3 { Some(args[2]) } else { None }
+  let confirmed = command == "kill" && args.length() == 3 && args[2] == "-y"
+  let app : String? = if confirmed {
+    None
+  } else if args.length() == 3 {
+    Some(args[2])
+  } else {
+    None
+  }
+  // Bare `kill` stops bm2d and all apps, so it requires the -y flag.
+  match (command, app) {
+    ("kill", None) if !confirmed => {
+      @process.eprintln(
+        "bm2: refusing to stop bm2d and all apps; use 'bm2 kill -y' to confirm",
+      )
+      return 1
+    }
+    _ => ()
+  }
   let cwd = match @env.current_dir() {
     Some(dir) => dir
     None => {
@@ -278,7 +295,7 @@ fn usage() -> Unit {
     #|
     #|commands:
     #|  start [app]    start (or fully restart) one app or all apps
-    #|  kill [app]     SIGKILL one app, or stop bm2d and all apps
+    #|  kill [app]     SIGKILL one app; bare 'kill' needs -y to stop bm2d and all apps
     #|  list [app]     show instance list
   println(text)
 }

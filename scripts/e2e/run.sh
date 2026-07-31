@@ -219,7 +219,11 @@ bm2 kill slow
 echo "===== L. kill without app shuts down bm2d ====="
 bm2 start slow >/dev/null
 DPID=$(cat "$state_dir/bm2d.pid")
-check "bare kill response" "bm2d stopping" "$(bm2 kill)"
+OUT=$(bm2 kill 2>&1)
+check "bare kill refused exit" 1 "$?"
+check "bare kill refused message" "bm2: refusing to stop bm2d and all apps; use 'bm2 kill -y' to confirm" "$OUT"
+check "daemon survives refused kill" 0 "$(kill -0 "$DPID" 2>/dev/null; echo $?)"
+check "bare kill response" "bm2d stopping" "$(bm2 kill -y)"
 sleep 1
 if [ -S "$state_dir/bm2.sock" ] || [ -f "$state_dir/bm2d.pid" ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: sock/pid file not cleaned"

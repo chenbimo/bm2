@@ -107,11 +107,13 @@ The effective precedence is `PORT` / `BM2_APP_NAME` / `BM2_INSTANCE_ID`, then `a
 ```bash
 bm2 start             # fully restart all configured apps
 bm2 start api         # fully restart api only
-bm2 kill              # SIGKILL all managed apps and exit bm2d
+bm2 kill -y           # SIGKILL all managed apps and exit bm2d (bare `kill` refuses)
 bm2 kill api          # immediately SIGKILL api only; bm2d stays running
 bm2 list              # display all instance states
 bm2 list api          # display one app
 ```
+
+A bare `bm2 kill` without `-y` refuses to run and prints a hint, so a stray keystroke cannot take down the daemon and every app at once; `bm2 kill <app>` still needs no confirmation because it only stops one app.
 
 `list` prints one row per active or abnormal instance, including its PID, port, runtime status, memory, uptime, and the complete project working directory in the final `CWD` column. An app stopped by `bm2 kill <app>` is intentionally omitted; `restarting` and `errored` instances remain visible for diagnosis.
 
