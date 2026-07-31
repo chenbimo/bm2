@@ -309,10 +309,10 @@ test "rejects reserved app env variable" {
         #|base_port = 3000
         #|
         #|[apps.env]
-        #|PORT = "4000"
+        #|BM2_APP_PORT = "4000"
         #|
       ),
-    ).contains("apps[0].env.PORT is reserved"),
+    ).contains("apps[0].env.BM2_APP_PORT is reserved"),
   )
 }
 

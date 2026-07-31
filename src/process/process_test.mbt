@@ -3,7 +3,7 @@ fn fixture_script() -> String {
   (
     #|#!/bin/sh
     #|echo "cwd=$(pwd)"
-    #|echo "port=$PORT app=$BM2_APP_NAME id=$BM2_INSTANCE_ID"
+    #|echo "port=$BM2_APP_PORT app=$BM2_APP_NAME id=$BM2_INSTANCE_ID"
     #|while true; do sleep 1; done
     #|
   )
@@ -138,7 +138,8 @@ test "instance_env_blob contains app and reserved vars" {
   assert_true(text.contains("NODE_ENV=test"))
   assert_true(text.contains("BM2_APP_NAME=myapp"))
   assert_true(text.contains("BM2_INSTANCE_ID=3"))
-  assert_true(text.contains("PORT=5000"))
+  assert_true(text.contains("BM2_APP_PORT=5000"))
+  assert_true(text.contains("BM2_APP_INSTANCE=3"))
 }
 
 ///|
@@ -147,7 +148,8 @@ test "instance_env_blob carries only whitelist, app env and reserved vars" {
     @process.instance_env_blob("myapp", 2, 5001, { "APP_FLAG": "1" }),
   )
   let allowed = [
-    "PATH", "HOME", "TMPDIR", "APP_FLAG", "BM2_APP_NAME", "BM2_INSTANCE_ID", "PORT",
+    "PATH", "HOME", "TMPDIR", "APP_FLAG", "BM2_APP_NAME", "BM2_INSTANCE_ID", "BM2_APP_INSTANCE",
+    "BM2_APP_PORT",
   ]
   let mut seen = 0
   for entry in text.split("\u{0}") {

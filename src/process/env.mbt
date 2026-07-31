@@ -15,7 +15,8 @@ pub fn instance_env_blob(
   let reserved = [
     ("BM2_APP_NAME", app_name),
     ("BM2_INSTANCE_ID", instance_id.to_string()),
-    ("PORT", port.to_string()),
+    ("BM2_APP_INSTANCE", instance_id.to_string()),
+    ("BM2_APP_PORT", port.to_string()),
   ]
   build_blob(app_env, reserved)
 }

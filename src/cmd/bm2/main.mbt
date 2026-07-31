@@ -406,10 +406,10 @@ fn usage() -> Unit {
     #|usage: bm2 <command> [app]
     #|
     #|commands:
-    #|  start [app]    start (or fully restart) one app or all apps
-    #|  kill [app]     SIGKILL one app; bare 'kill' needs -y to stop bm2d and all apps
-    #|  refresh        stop bm2d and start a fresh one; apps keep running
-    #|  version        print the bm2 version
-    #|  list [app]     show instance list
+    #|  start [app]    start apps (restart if already running)
+    #|  kill [app]     stop one app; use -y to stop everything
+    #|  refresh        restart the background service; apps keep running
+    #|  list [app]     show app status
+    #|  version        show version
   println(text)
 }

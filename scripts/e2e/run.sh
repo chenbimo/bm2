@@ -156,7 +156,7 @@ contains "hog crash.log memory_limit" $state_dir/hog/logs/hog-0.crash.log "reaso
 contains "hog crash.log rssMb" $state_dir/hog/logs/hog-0.crash.log "rssMb="
 
 echo "===== E. slow app serves HTTP ====="
-check "slow http" "slow slow-0 slow" "$(wait_http 4231 "slow slow-0 slow")"
+check "slow http" "slow slow-0 slow 4231 0" "$(wait_http 4231 "slow slow-0 slow 4231 0")"
 
 echo "===== F. kill quick hides it from list ====="
 bm2 kill quick
@@ -198,7 +198,7 @@ echo "===== I. config reload: numeric change accepted while running ====="
 write_config 2000 4231 1
 bm2 start slow
 check "numeric reload start" "started" "$(bm2 start slow)"
-check "slow still on 4231" "slow slow-0 slow" "$(wait_http 4231 "slow slow-0 slow")"
+check "slow still on 4231" "slow slow-0 slow 4231 0" "$(wait_http 4231 "slow slow-0 slow 4231 0")"
 
 echo "===== J. config reload: structural change rejected while running ====="
 write_config 2000 4241 1
@@ -214,8 +214,8 @@ bm2 start slow
 check "idle rebuild start" "started" "$(bm2 start slow)"
 bm2 list slow
 check "two instances after rebuild" "2" "$(bm2 list slow | grep -c '^slow')"
-check "rebuilt instance on 4241" "slow slow-0 slow" "$(wait_http 4241 "slow slow-0 slow")"
-check "rebuilt instance on 4242" "slow slow-1 slow" "$(wait_http 4242 "slow slow-1 slow")"
+check "rebuilt instance on 4241" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"
+check "rebuilt instance on 4242" "slow slow-1 slow 4242 1" "$(wait_http 4242 "slow slow-1 slow 4242 1")"
 bm2 kill slow
 
 echo "===== L. kill without app shuts down bm2d ====="
@@ -250,7 +250,7 @@ sleep 1
 NDPID=$(cat "$state_dir/bm2d.pid")
 check "daemon pid changed" "changed" "$([ -n "$NDPID" ] && [ "$NDPID" != "$DPID" ] && echo changed || echo same)"
 check "app pid preserved" "$APID" "$(bm2 list slow | sed -n '2p' | awk '{print $3}')"
-check "slow still served" "slow slow-0 slow" "$(wait_http 4241 "slow slow-0 slow")"
+check "slow still served" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"
 check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
 
 echo "===== N. ignored SIGTERM escalates to SIGKILL ====="
@@ -303,9 +303,9 @@ bm2 kill slow
 write_config 1000 4261 3
 bm2 start slow >/dev/null
 check "three instances online" "3" "$(bm2 list slow | grep -c '^slow')"
-check "instance on 4261" "slow slow-0 slow" "$(wait_http 4261 "slow slow-0 slow")"
-check "instance on 4262" "slow slow-1 slow" "$(wait_http 4262 "slow slow-1 slow")"
-check "instance on 4263" "slow slow-2 slow" "$(wait_http 4263 "slow slow-2 slow")"
+check "instance on 4261" "slow slow-0 slow 4261 0" "$(wait_http 4261 "slow slow-0 slow 4261 0")"
+check "instance on 4262" "slow slow-1 slow 4262 1" "$(wait_http 4262 "slow slow-1 slow 4262 1")"
+check "instance on 4263" "slow slow-2 slow 4263 2" "$(wait_http 4263 "slow slow-2 slow 4263 2")"
 bm2 kill slow
 
 echo "===== Q. CLI error paths ====="

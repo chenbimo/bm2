@@ -82,7 +82,8 @@ bm2 passes only `PATH`, `HOME`, and `TMPDIR` from its own environment to managed
 
 - `BM2_APP_NAME`
 - `BM2_INSTANCE_ID`
-- `PORT`
+- `BM2_APP_INSTANCE` (the instance number, `"0"` for the first instance; mirrors the PM2 `NODE_APP_INSTANCE` convention so cluster-aware apps can pick a primary)
+- `BM2_APP_PORT` (the port assigned to this instance)
 
 Bun automatically loads `.env` files from each application's `cwd`. Do not put application secrets in `bm2.toml`; keep them in the application's environment or `.env` files. Reserved bm2 variables take precedence over values from `apps.env` and `.env`.
 
@@ -103,7 +104,7 @@ NODE_ENV = "production"
 LOG_LEVEL = "info"
 ```
 
-The effective precedence is `PORT` / `BM2_APP_NAME` / `BM2_INSTANCE_ID`, then `apps.env`, then Bun's project `.env`, then the inherited `PATH`, `HOME`, and `TMPDIR`. Environment names must use letters, digits, and underscores, cannot begin with a digit, and `PORT`, `BM2_APP_NAME`, and `BM2_INSTANCE_ID` are reserved. Values must be TOML strings. bm2 never writes environment values to state files, events, crash logs, or CLI output.
+The effective precedence is `BM2_APP_NAME` / `BM2_INSTANCE_ID` / `BM2_APP_INSTANCE` / `BM2_APP_PORT`, then `apps.env`, then Bun's project `.env`, then the inherited `PATH`, `HOME`, and `TMPDIR`. Environment names must use letters, digits, and underscores, cannot begin with a digit, and `BM2_APP_NAME`, `BM2_INSTANCE_ID`, `BM2_APP_INSTANCE`, `BM2_APP_PORT`, `PATH`, `HOME`, and `TMPDIR` are reserved. Values must be TOML strings. bm2 never writes environment values to state files, events, crash logs, or CLI output.
 
 ## Commands
 

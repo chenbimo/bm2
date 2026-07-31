@@ -113,9 +113,10 @@ fn validate_env_name(name : String, ctx : String) -> Unit raise ConfigError {
   if name.is_empty() {
     raise ConfigError::InvalidField("\{ctx}.env has invalid variable name")
   }
-  if name == "PORT" ||
-    name == "BM2_APP_NAME" ||
+  if name == "BM2_APP_NAME" ||
     name == "BM2_INSTANCE_ID" ||
+    name == "BM2_APP_INSTANCE" ||
+    name == "BM2_APP_PORT" ||
     name == "PATH" ||
     name == "HOME" ||
     name == "TMPDIR" {
