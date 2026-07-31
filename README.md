@@ -7,7 +7,8 @@ It manages Bun processes only. Nginx remains responsible for reverse proxying an
 ## Scope
 
 - Linux only; development and verification target WSL Debian. Non-Linux
-  builds refuse to run with a clear message.
+  builds refuse to run with a clear message. Requires Linux kernel >= 5.3
+  (pidfd process tracking).
 - One or more Bun (or Node) applications, each with one or more independent instances.
 - Fixed launch command: `<runtime> <script>`.
 - Crash restart budget, memory limit, graceful stop timeout, persisted state, and Unix socket control.

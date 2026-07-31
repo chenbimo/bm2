@@ -218,6 +218,13 @@ pub fn Supervisor::stop_app(self : Supervisor, app_name : String) -> Unit raise 
     } else if !(inst.status is Errored) {
       inst.status = Stopped
       inst.exit_intent = Stop
+      // A pidfd may still be held when liveness was lost without a reap
+      // (e.g. the process was stopped externally); release it so it can
+      // never leak.
+      if inst.pidfd > 0 {
+        @process.close(inst.pidfd)
+        inst.pidfd = 0
+      }
       discard(() => save_state(self.state_dir, inst))
     }
   }
@@ -237,6 +244,10 @@ pub fn Supervisor::kill_app(self : Supervisor, app_name : String) -> Unit raise 
     } else if !(inst.status is Errored) {
       inst.status = Stopped
       inst.exit_intent = Stop
+      if inst.pidfd > 0 {
+        @process.close(inst.pidfd)
+        inst.pidfd = 0
+      }
       discard(() => save_state(self.state_dir, inst))
     }
   }

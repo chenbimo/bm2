@@ -192,6 +192,10 @@ fn run() -> Int {
         @process.eprintln("bm2: bm2d did not exit; refresh aborted")
         return 1
       }
+      // The old daemon unlinks its socket just before exiting; give its
+      // process a moment to fully terminate so its flock is released
+      // before the fresh daemon tries to take it.
+      @process.sleep_ms(50)
       let fresh_fd = try ensure_daemon(state_dir, config_path) catch {
         e => {
           @process.eprintln("bm2: " + e.to_string())
