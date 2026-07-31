@@ -82,42 +82,93 @@ fn run() -> Int {
     }
   }
   let config_path = cwd + "/bm2.toml"
+  // list/kill/refresh work from any directory while a daemon is running;
+  // only start requires a bm2.toml here (they may need to spawn the
+  // daemon from this config).
   let config = try @config.load(config_path) catch {
     e => {
-      @process.eprintln("bm2: " + e.to_string())
-      return 1
+      if command == "start" {
+        @process.eprintln("bm2: " + e.to_string())
+        return 1
+      }
+      None
     }
   } noraise {
-    loaded => loaded
+    loaded => Some(loaded)
   }
   // Requests must wait out the slowest possible daemon operation (a full
   // restart waiting on stop_timeout) plus margin, so a slow-but-healthy
-  // daemon is never mistaken for a dead one.
-  let mut timeout_ms = 3000
-  for app in config.apps {
-    let need = app.stop_timeout_ms + 3000
-    if need > timeout_ms {
-      timeout_ms = need
+  // daemon is never mistaken for a dead one. Without a config here the
+  // slowest plausible stop timeout is assumed.
+  let mut timeout_ms = 60000
+  match config {
+    Some(cfg) => {
+      timeout_ms = 3000
+      for app in cfg.apps {
+        let need = app.stop_timeout_ms + 3000
+        if need > timeout_ms {
+          timeout_ms = need
+        }
+      }
     }
+    None => ()
   }
   let state_dir = @core.resolve_state_dir()
   @core.log_event(state_dir, "bm2.events.jsonl", "daemon_connecting")
-  let fd = try ensure_daemon(state_dir, config_path) catch {
-    e => {
-      @process.eprintln("bm2: " + e.to_string())
-      return 1
-    }
-  } noraise {
-    result => result
+  let fd = match config {
+    Some(_) =>
+      try ensure_daemon(state_dir, config_path) catch {
+        e => {
+          @process.eprintln("bm2: " + e.to_string())
+          return 1
+        }
+      } noraise {
+        result => result
+      }
+    None =>
+      // No config here: auto-restore the daemon from the config path it
+      // was last started with, when one exists.
+      match remembered_config_path(state_dir) {
+        Some(path) =>
+          try ensure_daemon(state_dir, path) catch {
+            _ => connect(state_dir + "/bm2.sock")
+          } noraise {
+            result => result
+          }
+        None => connect(state_dir + "/bm2.sock")
+      }
   }
   let fd = match fd {
     Some(connected) => connected
     None => {
+      if command == "list" {
+        println("no instances")
+        return 0
+      }
       @process.eprintln(
-        "bm2: bm2d did not start, see " + state_dir + "/bm2d.log",
+        if config is None {
+          "bm2: no daemon is running; run bm2 start from the project directory"
+        } else {
+          "bm2: bm2d did not start, see " + state_dir + "/bm2d.log"
+        },
       )
       return 1
     }
+  }
+  // Resolve the daemon's own config path before the refresh request:
+  // the daemon removes its pid file the moment it detaches, so reading
+  // it after the response would race with the detach.
+  let refresh_config = if command == "refresh" {
+    match daemon_config_path(state_dir) {
+      Some(path) => Some(path)
+      None =>
+        match config {
+          Some(_) => Some(config_path)
+          None => None
+        }
+    }
+  } else {
+    None
   }
   @core.log_event(
     state_dir,
@@ -152,19 +203,29 @@ fn run() -> Int {
         _ => ()
       }
       @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
-      let retry_fd = try ensure_daemon(state_dir, config_path) catch {
-        retry => {
-          @process.eprintln("bm2: " + retry.to_string())
-          return 1
-        }
-      } noraise {
-        connected => connected
+      // Without a config here there is nothing to rebuild the daemon
+      // from, so the retry can only work when a config is available.
+      let retry_fd = match config {
+        Some(_) =>
+          try ensure_daemon(state_dir, config_path) catch {
+            retry => {
+              @process.eprintln("bm2: " + retry.to_string())
+              return 1
+            }
+          } noraise {
+            connected => connected
+          }
+        None => None
       }
       let retry_fd = match retry_fd {
         Some(connected) => connected
         None => {
           @process.eprintln(
-            "bm2: bm2d did not start, see " + state_dir + "/bm2d.log",
+            if config is None {
+              "bm2: daemon stopped; run bm2 start from the project directory"
+            } else {
+              "bm2: bm2d did not start, see " + state_dir + "/bm2d.log"
+            },
           )
           return 1
         }
@@ -188,6 +249,8 @@ fn run() -> Int {
       print_list(resp.instances)
       0
     } else if command == "refresh" {
+      // refresh_config was resolved before the request was sent: it is
+      // the daemon's own config path (local bm2.toml as a fallback).
       if !wait_daemon_exit(state_dir) {
         @process.eprintln("bm2: bm2d did not exit; refresh aborted")
         return 1
@@ -196,6 +259,15 @@ fn run() -> Int {
       // process a moment to fully terminate so its flock is released
       // before the fresh daemon tries to take it.
       @process.sleep_ms(50)
+      let config_path = match refresh_config {
+        Some(path) => path
+        None => {
+          @process.eprintln(
+            "bm2: cannot determine daemon config; run bm2 start from the project directory",
+          )
+          return 1
+        }
+      }
       let fresh_fd = try ensure_daemon(state_dir, config_path) catch {
         e => {
           @process.eprintln("bm2: " + e.to_string())
@@ -242,6 +314,71 @@ fn wait_daemon_exit(state_dir : String) -> Bool {
     }
   }
   false
+}
+
+///|
+/// The config path recorded by the last daemon start (bm2d.config).
+/// Kept across crashes so the daemon can be auto-restored from any
+/// directory; removed on explicit shutdown.
+fn remembered_config_path(state_dir : String) -> String? {
+  let text = try @fs.read_file_to_string(state_dir + "/bm2d.config") catch {
+    _ => return None
+  } noraise {
+    data => data
+  }
+  let path = text.trim().to_owned()
+  if path.is_empty() {
+    None
+  } else {
+    Some(path)
+  }
+}
+
+///|
+/// Parse the leading decimal digits of `text` (a pid file's content).
+fn parse_leading_int(text : String) -> Int {
+  let mut pid = 0
+  for c in text {
+    if c is ('0'..='9') {
+      pid = pid * 10 + c.to_int() - 48
+    } else {
+      break
+    }
+  }
+  pid
+}
+
+///|
+/// The config path the running daemon was started with, read from its
+/// process cmdline (`bm2d <config-path>`). Lets refresh rebuild the
+/// daemon from any directory, using the same config the daemon actually
+/// runs. None when no daemon is running.
+fn daemon_config_path(state_dir : String) -> String? {
+  let pid_text = try @fs.read_file_to_string(state_dir + "/bm2d.pid") catch {
+    _ => return None
+  } noraise {
+    text => text
+  }
+  let pid = parse_leading_int(pid_text.trim().to_owned())
+  if pid <= 0 {
+    return None
+  }
+  let cmdline = try @process.read_small("/proc/\{pid}/cmdline") catch {
+    _ => return None
+  } noraise {
+    data => data
+  }
+  // argv: "bm2d\0<config-path>\0"; take the second NUL-separated entry.
+  let mut count = 0
+  let mut result : String? = None
+  for part in @utf8.decode_lossy(cmdline).split("\u{0}") {
+    count += 1
+    if count == 2 {
+      result = Some(part.to_owned())
+      break
+    }
+  }
+  result
 }
 
 ///|

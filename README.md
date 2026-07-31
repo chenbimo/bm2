@@ -121,6 +121,8 @@ bm2 list api          # display one app
 
 A bare `bm2 kill` without `-y` refuses to run and prints a hint, so a stray keystroke cannot take down the daemon and every app at once; `bm2 kill <app>` still needs no confirmation because it only stops one app.
 
+`bm2 list`, `bm2 kill`, `bm2 refresh`, and `bm2 version` work from any directory. When no daemon is running, they auto-restore it from the config path recorded at its last start (`~/.bm2/bm2d.config`), so a crashed daemon is revived with one command; an explicit `bm2 kill -y` removes that record, so a deliberately stopped daemon stays stopped. Only `bm2 start` must run in the directory containing `bm2.toml`, because it may need to (re)build the daemon from that config. `refresh` rebuilds the daemon from the config path the running daemon was started with.
+
 `refresh` swaps in a fresh bm2d (e.g. after installing a new build) without stopping managed apps: the old daemon detaches, the new one adopts the surviving instances with unchanged PIDs.
 
 `list` prints one row per active or abnormal instance, including its PID, port, runtime status, memory, uptime, and the complete project working directory in the final `CWD` column. An app stopped by `bm2 kill <app>` is intentionally omitted; `restarting` and `errored` instances remain visible for diagnosis.

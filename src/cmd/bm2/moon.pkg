@@ -3,6 +3,8 @@ import {
   "chensuiyi/bm2/core",
   "chensuiyi/bm2/process",
   "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/x/fs",
 }
 
 pkgtype(kind: "executable")

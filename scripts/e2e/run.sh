@@ -317,9 +317,9 @@ check "refresh extra arg rejected" 2 "$?"
 OUT=$(bm2 kill -y slow 2>&1)
 check "kill -y with app rejected" 2 "$?"
 mkdir -p "$ACC/noconfig"
-OUT=$(cd "$ACC/noconfig" && bm2 list 2>&1)
-check "missing config rejected" 1 "$?"
-check "missing config message" "bm2: InvalidDocument: cannot read config file: $ACC/noconfig/bm2.toml" "$OUT"
+OUT=$(cd "$ACC/noconfig" && bm2 start 2>&1)
+check "start without config rejected" 1 "$?"
+check "start without config message" "bm2: InvalidDocument: cannot read config file: $ACC/noconfig/bm2.toml" "$OUT"
 rm -rf "$ACC/noconfig"
 
 echo "===== S1. long stop_timeout must not split the daemon (H1) ====="
@@ -389,6 +389,28 @@ for _ in $(seq 1 30); do bm2 list slow >/dev/null 2>&1; done
 sleep 1
 FD_AFTER=$(ls "/proc/$DPID/fd" | wc -l)
 check "daemon fd count stable" "$FD_BEFORE" "$FD_AFTER"
+
+echo "===== U. list/kill/version work from any directory ====="
+write_config 1000 4271 1
+bm2 start slow >/dev/null
+sleep 1
+check "list from /" "online" "$(cd / && bm2 list slow | tail -1 | awk '{print $5}')"
+check "version from /" "bm2 $MV" "$(cd / && bm2 version)"
+check "refresh from /" "refreshed" "$(cd / && bm2 refresh)"
+sleep 1
+check "kill from /" "killed" "$(cd / && bm2 kill slow)"
+bm2 kill -y >/dev/null 2>&1
+sleep 1
+check "list with no daemon from /" "no instances" "$(cd / && bm2 list)"
+
+echo "===== V. daemon auto-restored from any directory after a crash ====="
+bm2 start slow >/dev/null
+sleep 1
+kill -9 "$(cat "$state_dir/bm2d.pid")"
+sleep 1
+(cd / && bm2 list slow >/dev/null 2>&1)
+check "daemon auto-restored from /" 1 "$(pgrep -f "$ACC/bm2.toml" | wc -l)"
+check "slow online after auto-restore" "online" "$(wait_status slow online 20)"
 
 echo "===== summary: PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

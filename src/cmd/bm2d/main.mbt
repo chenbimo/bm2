@@ -96,6 +96,15 @@ fn run() -> Int {
       @utf8.encode(@process.get_pid().to_string() + "\n"),
     )
   })
+  // Remember the config path so list/kill/refresh can auto-restore the
+  // daemon from any directory. Deleted on explicit shutdown, kept on
+  // crashes so a dead daemon can be revived.
+  @core.discard(() => {
+    @process.write_atomic(
+      state_dir + "/bm2d.config",
+      @utf8.encode(config_path + "\n"),
+    )
+  })
   @core.log_event(state_dir, "bm2d.events.jsonl", "socket_listening")
   let mut exit_mode = Exit::Shutdown
   while !@process.term_requested() {
@@ -127,6 +136,9 @@ fn run() -> Int {
     _ => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopping")
       shutdown(sv, listen_fd, state_dir, @process.term_requested())
+      // Explicit shutdown: forget the config so list/kill/refresh do not
+      // silently revive a daemon the user deliberately stopped.
+      @core.discard(() => @process.unlink(state_dir + "/bm2d.config"))
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopped")
     }
   }
