@@ -95,6 +95,24 @@ extern "C" fn c_getuid() -> Int = "bm2_getuid"
 
 ///|
 #borrow(buf)
+extern "C" fn c_uname(buf : Bytes, cap : Int) -> Int = "bm2_uname"
+
+///|
+extern "C" fn c_pidfd_open(pid : Int) -> Int = "bm2_pidfd_open"
+
+///|
+#borrow(out)
+extern "C" fn c_wait_pidfd(fd : Int, nohang : Int, out : Bytes) -> Int = "bm2_wait_pidfd"
+
+///|
+extern "C" fn c_pidfd_alive(fd : Int) -> Int = "bm2_pidfd_alive"
+
+///|
+#borrow(path)
+extern "C" fn c_lock_exclusive(path : Bytes) -> Int = "bm2_lock_exclusive"
+
+///|
+#borrow(buf)
 extern "C" fn c_self_exe(buf : Bytes, cap : Int) -> Int = "bm2_self_exe"
 
 ///|

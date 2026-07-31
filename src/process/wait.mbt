@@ -13,6 +13,38 @@ fn get_i32_le(bytes : Bytes, offset : Int) -> Int {
 }
 
 ///|
+/// Reap a process through a pidfd (waitid P_PIDFD). Works for adopted
+/// (non-child) processes too. ECHILD means the exit was already reaped,
+/// which is reported as None rather than an error.
+pub fn wait_pidfd(
+  fd : Int,
+  nohang? : Bool = false,
+) -> (Int, ChildExit)? raise ProcessError {
+  let out = Bytes::make(12, b'\x00')
+  ignore(c_wait_pidfd(fd, if nohang { 1 } else { 0 }, out))
+  let reaped = get_i32_le(out, 0)
+  if reaped == 0 {
+    return None
+  }
+  if reaped < 0 {
+    let errno = get_i32_le(out, 8)
+    if errno == 10 {
+      // ECHILD: exit already reaped earlier; treat as no event.
+      return None
+    }
+    raise Failed(op="wait_pidfd", errno~)
+  }
+  // Linux wait status ABI: low 7 bits select the exit kind.
+  let status = get_i32_le(out, 4)
+  let kind = status & 0x7f
+  if kind == 0 {
+    Some((reaped, Exited((status >> 8) & 0xff)))
+  } else {
+    Some((reaped, Signaled(kind)))
+  }
+}
+
+///|
 /// Reap a child with waitpid. `pid = -1` reaps any child.
 /// Returns None when `nohang` is set and no child has exited.
 pub fn wait_child(

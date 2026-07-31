@@ -10,8 +10,15 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
     let app = self.apps[name]
     for inst in arr {
       let path = state_path(self.state_dir, name, inst.instance_id)
+      if !@fs.path_exists(path) {
+        // Never started under a previous daemon: nothing to reconcile.
+        continue
+      }
       let state = try load_state(path) catch {
         e => {
+          // Corrupt state can never be reconciled; remove it so it stops
+          // blocking future recoveries with repeated noise.
+          discard(() => @process.unlink(path))
           log_event(
             self.state_dir,
             "bm2d.events.jsonl",
@@ -38,11 +45,33 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
         )
         continue
       }
+      // Pin the recorded process with a pidfd before trusting the pid:
+      // a pid that was reused by an unrelated process must never be managed.
+      let pidfd = try @process.pidfd_open(state.pid) catch {
+        _ => {
+          discard(() => @process.unlink(path))
+          log_event(
+            self.state_dir,
+            "bm2d.events.jsonl",
+            "state_discarded",
+            app=Some(name),
+            instance=inst.instance_id,
+            pid=state.pid,
+            detail="pidfd_open_failed",
+          )
+          continue
+        }
+      } noraise {
+        fd => fd
+      }
       inst.pid = state.pid
+      inst.pidfd = pidfd
       let cmdline = try
         @process.read_small("/proc/\{state.pid}/cmdline")
       catch {
         _ => {
+          @process.close(pidfd)
+          inst.pidfd = 0
           self.mark_pid_conflict(inst)
           continue
         }
@@ -64,6 +93,8 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
           pid=state.pid,
         )
       } else {
+        @process.close(pidfd)
+        inst.pidfd = 0
         self.mark_pid_conflict(inst)
       }
     }

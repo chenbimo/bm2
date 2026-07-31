@@ -6,14 +6,15 @@ It manages Bun processes only. Nginx remains responsible for reverse proxying an
 
 ## Scope
 
-- Linux only; development and verification target WSL Debian.
-- One or more Bun applications, each with one or more independent instances.
-- Fixed launch command: `bun <script>`.
+- Linux only; development and verification target WSL Debian. Non-Linux
+  builds refuse to run with a clear message.
+- One or more Bun (or Node) applications, each with one or more independent instances.
+- Fixed launch command: `<runtime> <script>`.
 - Crash restart budget, memory limit, graceful stop timeout, persisted state, and Unix socket control.
-- Commands: `start`, `kill`, `list`.
+- Commands: `start`, `kill`, `refresh`, `version`, `list`.
 - `start` always performs a full restart for its target.
 
-It does not manage Nginx, domains, certificates, non-Bun runtimes, hot reload, boot startup, or remote administration.
+It does not manage Nginx, domains, certificates, hot reload, boot startup, or remote administration.
 
 ## Requirements
 
@@ -57,14 +58,15 @@ Every app requires these five fields:
 | --- | --- |
 | `name` | Lowercase letters, digits, and hyphens only; unique across apps. |
 | `cwd` | Absolute application working directory. |
-| `script` | Relative Bun script path inside `cwd`; `..` is forbidden. |
-| `instances` | Number of instances; at least `1`. |
+| `script` | Relative script path inside `cwd`; `..` is forbidden. |
+| `instances` | Number of instances; `1..1024`. |
 | `base_port` | First instance port; later instances use consecutive ports. |
 
 These optional fields override the built-in defaults:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
+| `runtime` | `bun` | Runtime executable: `bun` or `node`. |
 | `max_memory_mb` | `512` | Maximum VmRSS in MiB; at least `1`. |
 | `max_restarts` | `10` | Allowed consecutive abnormal restarts; `0` disables retries. |
 | `restart_delay_ms` | `1000` | Delay before an automatic restart. |

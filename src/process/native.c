@@ -9,10 +9,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -187,7 +190,11 @@ int32_t bm2_write_atomic(moonbit_bytes_t path, moonbit_bytes_t data) {
     unlink(tmp);
     return rc;
   }
-  if (rename(tmp, (char *)path) != 0) return -errno;
+  if (rename(tmp, (char *)path) != 0) {
+    int err = errno;
+    unlink(tmp);
+    return -err;
+  }
   return 0;
 }
 
@@ -226,13 +233,16 @@ static void ignore_sigpipe(void) {
   sigaction(SIGPIPE, &sa, NULL);
 }
 
-/* Listen on a fresh AF_UNIX socket at path (stale path unlinked, 0600). */
+/* Listen on a fresh AF_UNIX socket at path (stale path unlinked, 0600).
+ * SOCK_CLOEXEC keeps the listening fd out of spawned apps: otherwise an
+ * app would keep the socket alive after bm2d dies, so the CLI would hang
+ * for its full timeout before declaring the socket stale. */
 MOONBIT_FFI_EXPORT
 int32_t bm2_socket_listen(moonbit_bytes_t path) {
   ignore_sigpipe();
   struct sockaddr_un addr;
   if (make_addr(path, &addr) != 0) return -ENAMETOOLONG;
-  int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0) return -errno;
   unlink((char *)path);
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
@@ -254,7 +264,7 @@ int32_t bm2_socket_connect(moonbit_bytes_t path) {
   ignore_sigpipe();
   struct sockaddr_un addr;
   if (make_addr(path, &addr) != 0) return -ENAMETOOLONG;
-  int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0) return -errno;
   if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
     int err = errno;
@@ -282,7 +292,7 @@ int32_t bm2_poll_fd(int32_t fd, int32_t timeout_ms) {
 
 MOONBIT_FFI_EXPORT
 int32_t bm2_accept(int32_t listen_fd) {
-  int fd = accept(listen_fd, NULL, NULL);
+  int fd = accept4(listen_fd, NULL, NULL, SOCK_CLOEXEC);
   return fd < 0 ? -errno : fd;
 }
 
@@ -350,9 +360,93 @@ int32_t bm2_peer_uid(int32_t fd) {
   return (int32_t)cred.uid;
 }
 
+/*
+ * pidfd: a kernel handle pinned to one process. Unlike a raw pid it never
+ * gets reused for a different process, so exit detection and liveness stay
+ * correct even for adopted (non-child) instances. Requires Linux >= 5.3.
+ */
+MOONBIT_FFI_EXPORT
+int32_t bm2_pidfd_open(int32_t pid) {
+  int fd = (int)syscall(SYS_pidfd_open, (pid_t)pid, 0);
+  return fd < 0 ? -errno : fd;
+}
+
+/* Like bm2_waitpid but through a pidfd (waitid P_PIDFD); same output layout.
+ * waitid reports si_status raw (exit code or signal number), so it is
+ * converted here to the waitpid-compatible wait status encoding. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_wait_pidfd(int32_t fd, int32_t nohang, moonbit_bytes_t out) {
+  siginfo_t info;
+  memset(&info, 0, sizeof(info));
+  int flags = WEXITED | (nohang ? WNOHANG : 0);
+  int rc = waitid(P_PIDFD, (id_t)fd, &info, flags);
+  int32_t vals[3];
+  if (rc != 0) {
+    vals[0] = -1;
+    vals[1] = 0;
+    vals[2] = (int32_t)errno;
+  } else if (info.si_pid == 0) {
+    vals[0] = 0;
+    vals[1] = 0;
+    vals[2] = 0;
+  } else {
+    vals[0] = (int32_t)info.si_pid;
+    int32_t raw;
+    if (info.si_code == CLD_EXITED) {
+      raw = (int32_t)(info.si_status & 0xff) << 8;
+    } else {
+      raw = (int32_t)info.si_status & 0x7f;
+    }
+    vals[1] = raw;
+    vals[2] = 0;
+  }
+  memcpy(out, vals, sizeof(vals));
+  return 0;
+}
+
+/* 1 while the pidfd's process is alive, 0 once it has exited, -errno. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_pidfd_alive(int32_t fd) {
+  struct pollfd pfd;
+  pfd.fd = fd;
+  pfd.events = POLLIN;
+  pfd.revents = 0;
+  int rc = poll(&pfd, 1, 0);
+  if (rc < 0) return -errno;
+  return rc == 0 ? 1 : 0;
+}
+
+/* Take a non-blocking exclusive flock on path; caller keeps the fd. The
+ * fd is CLOEXEC so spawned apps never inherit it: otherwise an app would
+ * keep holding the lock after bm2d dies (e.g. SIGKILL), blocking the
+ * next daemon from starting. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_lock_exclusive(moonbit_bytes_t path) {
+  int fd = open((char *)path, O_RDWR | O_CREAT, 0600);
+  if (fd < 0) return -errno;
+  fcntl(fd, F_SETFD, FD_CLOEXEC);
+  if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+    int err = errno;
+    close(fd);
+    return -err;
+  }
+  return fd;
+}
+
 MOONBIT_FFI_EXPORT
 int32_t bm2_getuid(void) {
   return (int32_t)getuid();
+}
+
+/* Kernel name from uname(2), e.g. "Linux", for platform gating. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_uname(moonbit_bytes_t buf, int32_t cap) {
+  struct utsname uts;
+  if (uname(&uts) != 0) return -errno;
+  size_t n = strlen(uts.sysname);
+  if ((int32_t)n >= cap) return -ENAMETOOLONG;
+  memcpy(buf, uts.sysname, n + 1);
+  return (int32_t)n;
 }
 
 /* ---------------- daemon helpers ---------------- */

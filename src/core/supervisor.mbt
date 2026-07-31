@@ -30,7 +30,7 @@ pub impl Show for SupervisorError with fn output(self, logger) {
 pub struct Supervisor {
   mut apps : Map[String, @config.AppConfig]
   mut instances : Map[String, Array[Instance]]
-  mut pending_restart : Map[String, Bool]
+  mut pending_restart : Map[String, Unit]
   state_dir : String
   bun_path : String
   memory_interval_ms : Int
@@ -198,7 +198,7 @@ pub fn Supervisor::start_app(
     }
   }
   if any_running {
-    self.pending_restart[app_name] = true
+    self.pending_restart[app_name] = ()
   } else {
     self.spawn_fresh(app_name)
   }
@@ -271,29 +271,39 @@ fn Supervisor::app_config(
 }
 
 ///|
-fn Supervisor::find_by_pid(self : Supervisor, pid : Int) -> Instance? {
+/// Reap exited instances. Child processes report their exit code through
+/// waitid(P_PIDFD); adopted (reparented) instances are not waitable
+/// (ECHILD), so their exit is detected with the pidfd readability check
+/// and recorded as an unknown exit.
+fn Supervisor::reap(self : Supervisor) -> Unit {
   for pair in self.instances.iter() {
     let (_, arr) = pair
     for inst in arr {
-      if inst.pid == pid {
-        return Some(inst)
+      if inst.pidfd > 0 {
+        // Child processes (including zombies) are reaped by waitid.
+        let reaped = try @process.wait_pidfd(inst.pidfd, nohang=true) catch {
+          _ => None
+        } noraise {
+          result => result
+        }
+        match reaped {
+          Some((pid, exit)) => {
+            @process.close(inst.pidfd)
+            inst.pidfd = 0
+            self.handle_exit(inst, pid, Some(exit))
+          }
+          None =>
+            // waitid reports nothing: alive, stopped, or an adopted
+            // (non-waitable) instance. The pidfd readability check plus
+            // pid liveness distinguishes a real exit from a stop event.
+            if !@process.pidfd_alive(inst.pidfd) &&
+              !@process.pid_alive(inst.pid) {
+              @process.close(inst.pidfd)
+              inst.pidfd = 0
+              self.handle_exit(inst, inst.pid, None)
+            }
+        }
       }
-    }
-  }
-  None
-}
-
-///|
-fn Supervisor::reap(self : Supervisor) -> Unit {
-  while true {
-    let result = try @process.wait_child(-1, nohang=true) catch {
-      _ => None
-    } noraise {
-      reaped => reaped
-    }
-    match result {
-      Some((pid, exit)) => self.handle_exit(pid, exit)
-      None => break
     }
   }
 }
@@ -301,28 +311,30 @@ fn Supervisor::reap(self : Supervisor) -> Unit {
 ///|
 fn Supervisor::handle_exit(
   self : Supervisor,
+  inst : Instance,
   pid : Int,
-  exit : @process.ChildExit,
+  exit : @process.ChildExit?,
 ) -> Unit {
-  let inst = match self.find_by_pid(pid) {
-    Some(found) => found
-    None => return
-  }
   let app = self.apps[inst.app_name]
   let now = now_ms()
   match exit {
-    Exited(code) => {
+    None => {
+      inst.last_exit_code = None
+      inst.last_signal = None
+    }
+    Some(@process.ChildExit::Exited(code)) => {
       inst.last_exit_code = Some(code)
       inst.last_signal = None
     }
-    Signaled(sig) => {
+    Some(@process.ChildExit::Signaled(sig)) => {
       inst.last_exit_code = None
       inst.last_signal = Some(sig)
     }
   }
   let exit_detail = match exit {
-    Exited(code) => "exit_code=" + code.to_string()
-    Signaled(sig) => "signal=" + signal_name(sig)
+    None => "unknown"
+    Some(@process.ChildExit::Exited(code)) => "exit_code=" + code.to_string()
+    Some(@process.ChildExit::Signaled(sig)) => "signal=" + signal_name(sig)
   }
   log_event(
     self.state_dir,
@@ -349,22 +361,33 @@ fn Supervisor::handle_exit(
     Idle => {
       let uptime = now - inst.started_at_ms
       let abnormal = match exit {
-        Exited(0) => uptime < app.min_uptime_ms.to_uint64()
+        Some(@process.ChildExit::Exited(0)) =>
+          uptime < app.min_uptime_ms.to_uint64()
         _ => true
       }
       if abnormal {
         let reason = match exit {
-          Exited(0) => "quick_exit"
-          Exited(_) => "exit_code"
-          Signaled(_) => "signal"
+          Some(@process.ChildExit::Exited(0)) => "quick_exit"
+          Some(@process.ChildExit::Exited(_)) => "exit_code"
+          Some(@process.ChildExit::Signaled(_)) => "signal"
+          None => "terminated"
         }
         self.counted_exit(app, inst, now, reason)
       } else {
         // Clean self-exit after min_uptime: keep the service alive per
-        // plan, but do not burn the consecutive-restart budget.
+        // plan, but do not burn the consecutive-restart budget. Still
+        // log the restart so silent restart storms stay observable.
         inst.status = Restarting
         inst.pid = 0
         inst.restart_at_ms = now + app.restart_delay_ms.to_uint64()
+        log_event(
+          self.state_dir,
+          "bm2d.events.jsonl",
+          "instance_restart_scheduled",
+          app=Some(inst.app_name),
+          instance=inst.instance_id,
+          detail="clean_exit",
+        )
         discard(() => save_state(self.state_dir, inst))
       }
     }
@@ -543,8 +566,9 @@ fn Supervisor::spawn_instance(
   @process.mkdir_p(logs, mode=0o700)
   let base = "\{logs}/\{app.name}-\{inst.instance_id}"
   inst.status = Starting
+  let runtime = if app.runtime == "node" { "node" } else { self.bun_path }
   let pid = @process.spawn({
-    bun_path: self.bun_path,
+    bun_path: runtime,
     script: app.script,
     cwd: app.cwd,
     out_log: base + ".out.log",
@@ -557,6 +581,18 @@ fn Supervisor::spawn_instance(
     ),
   })
   inst.pid = pid
+  // Pin the process with a pidfd so liveness and exit detection stay
+  // correct even if the pid gets reused later. Failure (kernel < 5.3)
+  // is treated as a spawn failure: an unmanaged process is unacceptable.
+  let pidfd = try @process.pidfd_open(pid) catch {
+    e => {
+      discard(() => @process.kill_group(pid, @process.SIGKILL))
+      raise IoError(e.to_string())
+    }
+  } noraise {
+    fd => fd
+  }
+  inst.pidfd = pidfd
   inst.status = Online
   inst.started_at_ms = now_ms()
   inst.exit_intent = Idle
@@ -631,15 +667,5 @@ fn signal_name(sig : Int) -> String {
     6 => "SIGABRT"
     11 => "SIGSEGV"
     _ => "SIG\{sig}"
-  }
-}
-
-///|
-/// Run a side effect whose failure must not abort a supervisor tick.
-fn discard(f : () -> Unit raise) -> Unit {
-  try f() catch {
-    _ => ()
-  } noraise {
-    _ => ()
   }
 }

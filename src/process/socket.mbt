@@ -81,6 +81,17 @@ pub fn get_uid() -> Int {
 }
 
 ///|
+/// Kernel name from uname(2), e.g. "Linux".
+pub fn uname() -> String raise ProcessError {
+  let buf = Bytes::make(64, b'\x00')
+  let len = c_uname(buf, 64)
+  if len < 0 {
+    raise Failed(op="uname", errno=-len)
+  }
+  @utf8.decode_lossy(buf[:len])
+}
+
+///|
 /// Absolute path of the running executable (/proc/self/exe).
 pub fn self_exe() -> String raise ProcessError {
   let buf = Bytes::make(4096, b'\x00')

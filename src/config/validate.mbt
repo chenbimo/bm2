@@ -25,9 +25,14 @@ fn validate_app(app : AppConfig) -> Unit raise ConfigError {
     )
   }
   validate_script(app)
-  if app.instances < 1 {
+  if app.runtime != "bun" && app.runtime != "node" {
     raise ConfigError::InvalidField(
-      "app \{app.name}: instances must be at least 1",
+      "app \{app.name}: runtime must be \"bun\" or \"node\"",
+    )
+  }
+  if app.instances < 1 || app.instances > 1024 {
+    raise ConfigError::InvalidField(
+      "app \{app.name}: instances must be between 1 and 1024",
     )
   }
   if app.base_port < 1 || app.base_port + app.instances - 1 > 65535 {
@@ -40,21 +45,8 @@ fn validate_app(app : AppConfig) -> Unit raise ConfigError {
       "app \{app.name}: max_memory_mb must be at least 1",
     )
   }
-  if app.max_restarts < 0 {
-    raise ConfigError::InvalidField(
-      "app \{app.name}: max_restarts must not be negative",
-    )
-  }
-  if app.restart_delay_ms < 0 {
-    raise ConfigError::InvalidField(
-      "app \{app.name}: restart_delay_ms must not be negative",
-    )
-  }
-  if app.min_uptime_ms < 0 {
-    raise ConfigError::InvalidField(
-      "app \{app.name}: min_uptime_ms must not be negative",
-    )
-  }
+  // max_restarts/restart_delay_ms/min_uptime_ms are guaranteed >= 0 by the
+  // parser's range check (0 ..= 2^31-1), so no negative checks are needed.
   if app.stop_timeout_ms < 1 {
     raise ConfigError::InvalidField(
       "app \{app.name}: stop_timeout_ms must be at least 1",

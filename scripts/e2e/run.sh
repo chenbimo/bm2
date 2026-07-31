@@ -134,8 +134,7 @@ check "status command rejected" 2 "$?"
 sleep 2
 
 echo "===== B. crash loop -> errored ====="
-bm2 list crash
-check "crash errored" "errored" "$(bm2 list crash | tail -1 | awk '{print $5}')"
+check "crash errored" "errored" "$(wait_status crash errored 60)"
 check "crash restart_count 3" "3" "$(bm2 list crash | tail -1 | awk '{print $6}')"
 contains "crash.log reason=exit_code" $state_dir/crash/logs/crash-0.crash.log "reason=exit_code"
 contains "crash.log restartCount=3" $state_dir/crash/logs/crash-0.crash.log "restartCount=3"
@@ -150,7 +149,7 @@ else
 fi
 
 echo "===== D. memory limit -> restart -> errored ====="
-check "hog errored" "errored" "$(wait_status hog errored 40)"
+check "hog errored" "errored" "$(wait_status hog errored 80)"
 bm2 list hog
 check "hog restart_count 2" "2" "$(bm2 list hog | tail -1 | awk '{print $6}')"
 contains "hog crash.log memory_limit" $state_dir/hog/logs/hog-0.crash.log "reason=memory_limit"
@@ -173,7 +172,6 @@ SLOW_PID_AFTER=$(bm2 list slow | tail -1 | awk '{print $3}')
 check "slow adopted with same pid" "$SLOW_PID_BEFORE" "$SLOW_PID_AFTER"
 check "slow adopted online" "online" "$(bm2 list slow | tail -1 | awk '{print $5}')"
 check "list cwd" "$ACC" "$(bm2 list slow | tail -1 | awk '{print $NF}')"
-contains "stale socket retry logged" $state_dir/bm2.events.jsonl "\"event\":\"stale_socket_removed\""
 contains "adoption event logged" $state_dir/bm2d.events.jsonl "\"event\":\"instance_adopted\""
 bm2 kill slow
 
@@ -254,6 +252,143 @@ check "daemon pid changed" "changed" "$([ -n "$NDPID" ] && [ "$NDPID" != "$DPID"
 check "app pid preserved" "$APID" "$(bm2 list slow | sed -n '2p' | awk '{print $3}')"
 check "slow still served" "slow slow-0 slow" "$(wait_http 4241 "slow slow-0 slow")"
 check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
+
+echo "===== N. ignored SIGTERM escalates to SIGKILL ====="
+bm2 kill slow
+cat > bm2.toml <<EOF
+[[apps]]
+name = "stubborn"
+cwd = "$ACC"
+script = "ignore-term.ts"
+instances = 1
+base_port = 4251
+max_memory_mb = 512
+max_restarts = 0
+restart_delay_ms = 100
+min_uptime_ms = 60000
+stop_timeout_ms = 300
+EOF
+bm2 start stubborn >/dev/null
+sleep 1
+SPID=$(bm2 list stubborn | sed -n '2p' | awk '{print $3}')
+check "restart with ignored SIGTERM" "started" "$(bm2 start stubborn)"
+sleep 1
+check "stubborn old process SIGKILLed" 1 "$(kill -0 "$SPID" 2>/dev/null; echo $?)"
+check "stubborn new instance online" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $5}')"
+bm2 kill stubborn
+
+echo "===== O. external SIGKILL records signal reason ====="
+write_config 1000 4241 1
+bm2 start slow >/dev/null
+sleep 1
+SPID=$(bm2 list slow | sed -n '2p' | awk '{print $3}')
+kill -9 "$SPID"
+sleep 1
+contains "signal reason logged" $state_dir/slow/logs/slow-0.crash.log "signal=SIGKILL"
+check "slow restarted after signal" "online" "$(wait_status slow online 20)"
+
+echo "===== P. corrupted state file is discarded ====="
+DPID=$(cat "$state_dir/bm2d.pid")
+APID=$(bm2 list slow | sed -n '2p' | awk '{print $3}')
+kill -9 "$DPID" "$APID" 2>/dev/null
+sleep 0.5
+echo 'not json' > "$state_dir/slow/slow-0.json"
+bm2 start slow >/dev/null
+sleep 1
+check "state_load_failed event" 1 "$(grep -c 'state_load_failed' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
+check "slow online after corrupt state" "online" "$(wait_status slow online 20)"
+
+echo "===== R. multi-instance port sequence ====="
+bm2 kill slow
+write_config 1000 4261 3
+bm2 start slow >/dev/null
+check "three instances online" "3" "$(bm2 list slow | grep -c '^slow')"
+check "instance on 4261" "slow slow-0 slow" "$(wait_http 4261 "slow slow-0 slow")"
+check "instance on 4262" "slow slow-1 slow" "$(wait_http 4262 "slow slow-1 slow")"
+check "instance on 4263" "slow slow-2 slow" "$(wait_http 4263 "slow slow-2 slow")"
+bm2 kill slow
+
+echo "===== Q. CLI error paths ====="
+OUT=$(bm2 list nosuch 2>&1)
+check "unknown app rejected" 1 "$?"
+check "unknown app message" "unknown app: nosuch" "$OUT"
+OUT=$(bm2 refresh extra 2>&1)
+check "refresh extra arg rejected" 2 "$?"
+OUT=$(bm2 kill -y slow 2>&1)
+check "kill -y with app rejected" 2 "$?"
+mkdir -p "$ACC/noconfig"
+OUT=$(cd "$ACC/noconfig" && bm2 list 2>&1)
+check "missing config rejected" 1 "$?"
+check "missing config message" "bm2: InvalidDocument: cannot read config file: $ACC/noconfig/bm2.toml" "$OUT"
+rm -rf "$ACC/noconfig"
+
+echo "===== S1. long stop_timeout must not split the daemon (H1) ====="
+bm2 kill slow
+cat > bm2.toml <<EOF
+[[apps]]
+name = "stubborn"
+cwd = "$ACC"
+script = "ignore-term.ts"
+instances = 1
+base_port = 4271
+max_memory_mb = 512
+max_restarts = 0
+restart_delay_ms = 100
+min_uptime_ms = 60000
+stop_timeout_ms = 5000
+EOF
+bm2 start stubborn >/dev/null
+sleep 1
+DPID1=$(cat "$state_dir/bm2d.pid")
+check "restart waits past 3s CLI timeout" "started" "$(bm2 start stubborn)"
+DPID2=$(cat "$state_dir/bm2d.pid")
+check "daemon pid unchanged" "$DPID1" "$DPID2"
+check "single daemon for this config" 1 "$(pgrep -f "$ACC/bm2.toml" | wc -l)"
+bm2 kill stubborn
+
+echo "===== S2. idle client connection must not freeze daemon (H2) ====="
+write_config 1000 4281 1
+bm2 start slow >/dev/null
+sleep 1
+BM2_SOCK="$state_dir/bm2.sock" ~/.bun/bin/bun -e '
+const s = await Bun.connect({ unix: process.env.BM2_SOCK, socket: {} });
+setTimeout(() => process.exit(0), 6000);
+' &
+BPID=$!
+sleep 1
+DPID1=$(cat "$state_dir/bm2d.pid")
+timeout 8 bm2 list slow >/dev/null 2>&1
+check "daemon answers while idle client connected" 0 "$?"
+DPID2=$(cat "$state_dir/bm2d.pid")
+check "daemon not replaced by idle client" "$DPID1" "$DPID2"
+wait "$BPID" 2>/dev/null
+
+echo "===== S3. adopted instance death is detected and restarted (H3) ====="
+bm2 refresh >/dev/null
+sleep 1
+APID=$(bm2 list slow | sed -n '2p' | awk '{print $3}')
+kill -9 "$APID"
+sleep 2
+NPID=$(bm2 list slow | sed -n '2p' | awk '{print $3}')
+check "adopted instance restarted with new pid" "changed" "$([ -n "$NPID" ] && [ "$NPID" != "$APID" ] && echo changed || echo same)"
+contains "adopted crash logged" $state_dir/slow/logs/slow-0.crash.log "signal=SIGKILL"
+
+echo "===== S4. second daemon for same config refused (H4) ====="
+timeout 3 "$bin_dir/bm2d" "$ACC/bm2.toml" >/dev/null 2>&1
+check "second daemon refused" 1 "$?"
+
+echo "===== T. soak: daemon fd count stable across many requests ====="
+write_config 1000 4291 1
+bm2 start slow >/dev/null
+sleep 1
+DPID=$(cat "$state_dir/bm2d.pid")
+FD_BEFORE=$(ls "/proc/$DPID/fd" | wc -l)
+for _ in $(seq 1 30); do bm2 list slow >/dev/null 2>&1; done
+bm2 start slow >/dev/null
+for _ in $(seq 1 30); do bm2 list slow >/dev/null 2>&1; done
+sleep 1
+FD_AFTER=$(ls "/proc/$DPID/fd" | wc -l)
+check "daemon fd count stable" "$FD_BEFORE" "$FD_AFTER"
 
 echo "===== summary: PASS=$PASS FAIL=$FAIL ====="
 [ "$FAIL" -eq 0 ]

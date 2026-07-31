@@ -21,6 +21,7 @@ fn app_config(
     name,
     cwd,
     script: "fixture.sh",
+    runtime: "bun",
     instances: 1,
     base_port,
     max_memory_mb,
@@ -204,4 +205,32 @@ test "iso8601 formats epoch and current time" {
   assert_eq(now.length(), 24)
   assert_true(now.has_prefix("20"))
   assert_true(now.has_suffix("Z"))
+}
+
+///|
+test "protocol request and response round-trip" {
+  let req : @core.Request = { command: "start", app: Some("api") }
+  assert_eq(@core.decode_request(@core.encode_request(req)), req)
+  let bare : @core.Request = { command: "kill", app: None }
+  assert_eq(@core.decode_request(@core.encode_request(bare)), bare)
+  let resp = @core.Response::ok("started", [])
+  assert_eq(@core.decode_response(@core.encode_response(resp)), resp)
+  let err = @core.Response::error("boom")
+  assert_eq(@core.decode_response(@core.encode_response(err)), err)
+}
+
+///|
+test "protocol rejects garbage payloads" {
+  let req_ok = try @core.decode_request(@utf8.encode("not json")) catch {
+    _ => false
+  } noraise {
+    _ => true
+  }
+  assert_false(req_ok)
+  let resp_ok = try @core.decode_response(@utf8.encode("{}")) catch {
+    _ => false
+  } noraise {
+    _ => true
+  }
+  assert_false(resp_ok)
 }

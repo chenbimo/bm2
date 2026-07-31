@@ -3,6 +3,7 @@ pub(all) struct AppConfig {
   name : String
   cwd : String
   script : String
+  runtime : String
   instances : Int
   base_port : Int
   max_memory_mb : Int

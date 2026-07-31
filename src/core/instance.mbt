@@ -36,6 +36,8 @@ pub(all) struct Instance {
   instance_id : Int
   port : Int
   mut pid : Int
+  /// pidfd pinned to `pid` (0 when not running); never pid-reused.
+  mut pidfd : Int
   mut status : Status
   mut started_at_ms : UInt64
   mut restart_count : Int
@@ -57,6 +59,7 @@ pub fn Instance::new(app : @config.AppConfig, instance_id : Int) -> Instance {
     instance_id,
     port: app.base_port + instance_id,
     pid: 0,
+    pidfd: 0,
     status: Stopped,
     started_at_ms: 0UL,
     restart_count: 0,
@@ -72,7 +75,16 @@ pub fn Instance::new(app : @config.AppConfig, instance_id : Int) -> Instance {
 }
 
 ///|
-/// True while the OS process exists (pgid == pid, set up by setsid).
+/// True while the OS process exists. The pidfd is authoritative (it is
+/// pinned to the original process, so a reused pid cannot be mistaken for
+/// a live instance); pid_alive is only a fallback when no pidfd exists.
 pub fn Instance::alive(self : Instance) -> Bool {
-  self.pid > 0 && @process.pid_alive(self.pid)
+  if self.pid <= 0 {
+    return false
+  }
+  if self.pidfd > 0 {
+    @process.pidfd_alive(self.pidfd)
+  } else {
+    @process.pid_alive(self.pid)
+  }
 }

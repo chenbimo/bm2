@@ -142,6 +142,33 @@ test "instance_env_blob contains app and reserved vars" {
 }
 
 ///|
+test "instance_env_blob carries only whitelist, app env and reserved vars" {
+  let text = @utf8.decode(
+    @process.instance_env_blob("myapp", 2, 5001, { "APP_FLAG": "1" }),
+  )
+  let allowed = [
+    "PATH", "HOME", "TMPDIR", "APP_FLAG", "BM2_APP_NAME", "BM2_INSTANCE_ID", "PORT",
+  ]
+  let mut seen = 0
+  for entry in text.split("\u{0}") {
+    if entry.is_empty() {
+      continue
+    }
+    seen += 1
+    let mut key = entry.to_owned()
+    for part in entry.split("=") {
+      key = part.to_owned()
+      break
+    }
+    assert_true(allowed.contains(key))
+  }
+  // whitelist (PATH/HOME/TMPDIR, present in the test environment) + 1 app
+  // env + 3 reserved vars; at least 4 entries must exist.
+  assert_true(seen >= 4)
+  assert_true(text.contains("APP_FLAG=1"))
+}
+
+///|
 test "unix socket send/recv round-trip with peer uid" {
   let path = "/tmp/bm2-process-test-\{@process.get_pid()}.sock"
   let listen_fd = @process.socket_listen(path)

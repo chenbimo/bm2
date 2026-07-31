@@ -1,4 +1,23 @@
 ///|
+/// bm2 is Linux-only; refuse to run elsewhere with a clear message
+/// instead of failing on the first POSIX-specific syscall.
+/// Returns None when the platform is supported.
+fn platform_error() -> String? {
+  try {
+    let name = @process.uname()
+    if name == "Linux" {
+      None
+    } else {
+      Some("this build supports Linux only (detected: \{name})")
+    }
+  } catch {
+    e => Some("cannot detect platform: \{e.to_string()}")
+  } noraise {
+    ok => ok
+  }
+}
+
+///|
 enum Exit {
   Stay
   /// Bare `kill` or SIGTERM: stop all apps, then exit.
@@ -15,6 +34,13 @@ fn main {
 
 ///|
 fn run() -> Int {
+  match platform_error() {
+    None => ()
+    Some(msg) => {
+      @process.eprintln("bm2d: " + msg)
+      return 1
+    }
+  }
   let args = @env.args()
   if args.length() != 2 {
     @process.eprintln("usage: bm2d <config-path>")
@@ -30,6 +56,18 @@ fn run() -> Int {
     loaded => loaded
   }
   let state_dir = @core.resolve_state_dir()
+  @core.discard(() => @process.mkdir_p(state_dir, mode=0o700))
+  // One daemon per state directory: the flock is released automatically
+  // when the holder exits, even on SIGKILL, so a crash never leaves a
+  // permanent lock behind.
+  let _lock_fd = try @process.lock_exclusive(state_dir + "/bm2d.lock") catch {
+    _ => {
+      @process.eprintln("bm2d: another daemon is already running")
+      return 1
+    }
+  } noraise {
+    fd => fd
+  }
   @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_starting")
   let sv = try @core.Supervisor::new(config, state_dir~, bun_path="bun") catch {
     e => {
@@ -41,12 +79,6 @@ fn run() -> Int {
   }
   sv.recover()
   @core.log_event(state_dir, "bm2d.events.jsonl", "recovery_complete")
-  discard(() => {
-    @process.write_atomic(
-      state_dir + "/bm2d.pid",
-      @utf8.encode(@process.get_pid().to_string() + "\n"),
-    )
-  })
   @process.install_term_handler()
   let listen_fd = try @process.socket_listen(state_dir + "/bm2.sock") catch {
     e => {
@@ -56,6 +88,14 @@ fn run() -> Int {
   } noraise {
     fd => fd
   }
+  // Only claim the pid file once the socket is bound: a daemon that
+  // fails to bind must not overwrite the pid of a live daemon.
+  @core.discard(() => {
+    @process.write_atomic(
+      state_dir + "/bm2d.pid",
+      @utf8.encode(@process.get_pid().to_string() + "\n"),
+    )
+  })
   @core.log_event(state_dir, "bm2d.events.jsonl", "socket_listening")
   let mut exit_mode = Exit::Shutdown
   while !@process.term_requested() {
@@ -80,8 +120,8 @@ fn run() -> Int {
     Exit::Detach => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
       @process.close(listen_fd)
-      discard(() => @process.unlink(state_dir + "/bm2.sock"))
-      discard(() => @process.unlink(state_dir + "/bm2d.pid"))
+      @core.discard(() => @process.unlink(state_dir + "/bm2.sock"))
+      @core.discard(() => @process.unlink(state_dir + "/bm2d.pid"))
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detached")
     }
     _ => {
@@ -105,9 +145,9 @@ fn shutdown(
   let names = sv.app_names()
   for name in names {
     if graceful {
-      discard(() => sv.stop_app(name))
+      @core.discard(() => sv.stop_app(name))
     } else {
-      discard(() => sv.kill_app(name))
+      @core.discard(() => sv.kill_app(name))
     }
   }
   if graceful {
@@ -117,12 +157,12 @@ fn shutdown(
   }
   for inst in sv.snapshot() {
     if inst.alive() {
-      discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
+      @core.discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
     }
   }
   @process.close(listen_fd)
-  discard(() => @process.unlink(state_dir + "/bm2.sock"))
-  discard(() => @process.unlink(state_dir + "/bm2d.pid"))
+  @core.discard(() => @process.unlink(state_dir + "/bm2.sock"))
+  @core.discard(() => @process.unlink(state_dir + "/bm2d.pid"))
 }
 
 ///|
@@ -139,6 +179,17 @@ fn serve(
     _ => return Exit::Stay
   } noraise {
     accepted => accepted
+  }
+  // A client that connects and stays silent must not freeze the
+  // single-threaded loop; drop it after five seconds.
+  let readable = try @process.poll_fd(fd, 5000) catch {
+    _ => false
+  } noraise {
+    ready => ready
+  }
+  if !readable {
+    @process.close(fd)
+    return Exit::Stay
   }
   let (response, exit) = handle(fd, sv, config_path, state_dir)
   let sent = try {
@@ -327,14 +378,4 @@ fn infos_of(
     }
   }
   infos
-}
-
-///|
-/// Run a side effect whose failure must not abort request handling.
-fn discard(f : () -> Unit raise) -> Unit {
-  try f() catch {
-    _ => ()
-  } noraise {
-    _ => ()
-  }
 }

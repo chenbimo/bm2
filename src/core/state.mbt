@@ -9,6 +9,16 @@ pub(all) struct Event {
 } derive(ToJson)
 
 ///|
+/// Run a side effect whose failure must not abort the caller.
+pub fn discard(f : () -> Unit raise) -> Unit {
+  try f() catch {
+    _ => ()
+  } noraise {
+    _ => ()
+  }
+}
+
+///|
 /// Append one management event. Logging failures never interrupt process
 /// supervision, and event data deliberately excludes environment values and
 /// protocol payloads.

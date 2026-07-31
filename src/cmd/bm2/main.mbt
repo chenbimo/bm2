@@ -4,11 +4,37 @@ fn main {
 }
 
 ///|
+/// bm2 is Linux-only; refuse to run elsewhere with a clear message
+/// instead of failing on the first POSIX-specific syscall.
+/// Returns None when the platform is supported.
+fn platform_error() -> String? {
+  try {
+    let name = @process.uname()
+    if name == "Linux" {
+      None
+    } else {
+      Some("this build supports Linux only (detected: \{name})")
+    }
+  } catch {
+    e => Some("cannot detect platform: \{e.to_string()}")
+  } noraise {
+    ok => ok
+  }
+}
+
+///|
 /// Keep in sync with moon.mod `version`.
 const VERSION : String = "0.1.0"
 
 ///|
 fn run() -> Int {
+  match platform_error() {
+    None => ()
+    Some(msg) => {
+      @process.eprintln("bm2: " + msg)
+      return 1
+    }
+  }
   let args = @env.args()
   if args.length() < 2 || args.length() > 3 {
     usage()
@@ -56,13 +82,23 @@ fn run() -> Int {
     }
   }
   let config_path = cwd + "/bm2.toml"
-  try @config.load(config_path) catch {
+  let config = try @config.load(config_path) catch {
     e => {
       @process.eprintln("bm2: " + e.to_string())
       return 1
     }
   } noraise {
-    _ => ()
+    loaded => loaded
+  }
+  // Requests must wait out the slowest possible daemon operation (a full
+  // restart waiting on stop_timeout) plus margin, so a slow-but-healthy
+  // daemon is never mistaken for a dead one.
+  let mut timeout_ms = 3000
+  for app in config.apps {
+    let need = app.stop_timeout_ms + 3000
+    if need > timeout_ms {
+      timeout_ms = need
+    }
   }
   let state_dir = @core.resolve_state_dir()
   @core.log_event(state_dir, "bm2.events.jsonl", "daemon_connecting")
@@ -90,7 +126,7 @@ fn run() -> Int {
     app~,
     detail=command,
   )
-  let resp = try request(fd, command, app) catch {
+  let resp = try request(fd, command, app, timeout_ms) catch {
     e => {
       @process.close(fd)
       @core.log_event(
@@ -99,6 +135,17 @@ fn run() -> Int {
         "protocol_failed",
         detail=e.to_string(),
       )
+      // The daemon may simply be slow (waiting out a long stop timeout).
+      // Only treat the socket as stale when nothing is listening anymore;
+      // otherwise refuse instead of splitting the daemon in two.
+      match connect(state_dir + "/bm2.sock") {
+        Some(alive_fd) => {
+          @process.close(alive_fd)
+          @process.eprintln("bm2: daemon is busy; try again in a moment")
+          return 1
+        }
+        None => ()
+      }
       try @process.unlink(state_dir + "/bm2.sock") catch {
         _ => ()
       } noraise {
@@ -123,7 +170,7 @@ fn run() -> Int {
         }
       }
       @core.log_event(state_dir, "bm2.events.jsonl", "protocol_retry")
-      try request(retry_fd, command, app) catch {
+      try request(retry_fd, command, app, timeout_ms) catch {
         retry => {
           @process.eprintln("bm2: " + retry.to_string())
           @process.close(retry_fd)
@@ -194,12 +241,17 @@ fn wait_daemon_exit(state_dir : String) -> Bool {
 }
 
 ///|
-/// Send one request and wait at most three seconds for the daemon's first
+/// Send one request and wait at most timeout_ms for the daemon's first
 /// response byte. A stale Unix socket can accept a connection without a
 /// server, so waiting unboundedly would leave the CLI hung forever.
-fn request(fd : Int, command : String, app : String?) -> @core.Response raise {
+fn request(
+  fd : Int,
+  command : String,
+  app : String?,
+  timeout_ms : Int,
+) -> @core.Response raise {
   @process.send_msg(fd, @core.encode_request({ command, app }))
-  if !@process.poll_fd(fd, 3000) {
+  if !@process.poll_fd(fd, timeout_ms) {
     raise @process.ProcessError::Failed(op="recv_msg", errno=110)
   }
   let data = @process.recv_msg(fd)
