@@ -110,6 +110,7 @@ bm2 start api         # fully restart api only
 bm2 kill -y           # SIGKILL all managed apps and exit bm2d (bare `kill` refuses)
 bm2 kill api          # immediately SIGKILL api only; bm2d stays running
 bm2 refresh           # stop bm2d and start a fresh one; managed apps keep running
+bm2 version           # print the bm2 version
 bm2 list              # display all instance states
 bm2 list api          # display one app
 ```

@@ -4,6 +4,10 @@ fn main {
 }
 
 ///|
+/// Keep in sync with moon.mod `version`.
+const VERSION : String = "0.1.0"
+
+///|
 fn run() -> Int {
   let args = @env.args()
   if args.length() < 2 || args.length() > 3 {
@@ -13,6 +17,10 @@ fn run() -> Int {
   let command = args[1]
   match command {
     "start" | "kill" | "list" | "refresh" => ()
+    "version" => {
+      println("bm2 " + VERSION)
+      return 0
+    }
     _ => {
       usage()
       return 2
@@ -345,6 +353,7 @@ fn usage() -> Unit {
     #|  start [app]    start (or fully restart) one app or all apps
     #|  kill [app]     SIGKILL one app; bare 'kill' needs -y to stop bm2d and all apps
     #|  refresh        stop bm2d and start a fresh one; apps keep running
+    #|  version        print the bm2 version
     #|  list [app]     show instance list
   println(text)
 }
