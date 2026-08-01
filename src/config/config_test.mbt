@@ -8,7 +8,7 @@ const VALID_DOC : String =
   #|base_port = 3000
   #|
   #|[apps.env]
-  #|NODE_ENV = "production"
+  #|APP_ENV = "production"
   #|FEATURE_CACHE = "true"
   #|
   #|[[apps]]
@@ -45,7 +45,7 @@ test "parses valid bm2.toml" {
   assert_eq(config.apps[0].max_restarts, 10)
   assert_eq(config.apps[0].restart_delay_ms, 1000)
   assert_eq(config.apps[0].min_uptime_ms, 10000)
-  assert_eq(config.apps[0].env["NODE_ENV"], "production")
+  assert_eq(config.apps[0].env["APP_ENV"], "production")
   assert_eq(config.apps[0].env["FEATURE_CACHE"], "true")
   assert_true(config.apps[1].env.is_empty())
 }
@@ -267,12 +267,12 @@ test "parses app env" {
       #|base_port = 3000
       #|
       #|[apps.env]
-      #|NODE_ENV = "production"
+      #|APP_ENV = "production"
       #|FEATURE_CACHE = "true"
       #|
     ),
   )
-  assert_eq(config.apps[0].env["NODE_ENV"], "production")
+  assert_eq(config.apps[0].env["APP_ENV"], "production")
   assert_eq(config.apps[0].env["FEATURE_CACHE"], "true")
 }
 
@@ -289,10 +289,10 @@ test "rejects non-string app env value" {
         #|base_port = 3000
         #|
         #|[apps.env]
-        #|NODE_ENV = 1
+        #|APP_ENV = 1
         #|
       ),
-    ).contains("apps[0].env.NODE_ENV must be a string"),
+    ).contains("apps[0].env.APP_ENV must be a string"),
   )
 }
 
