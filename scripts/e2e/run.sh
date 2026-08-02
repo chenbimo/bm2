@@ -77,7 +77,7 @@ write_project() {
 name = "$2"
 script = "$4"
 instances = $5
-base_port = $3
+port = $3
 max_memory_mb = 512
 max_restarts = 2
 restart_delay_ms = 100
@@ -176,13 +176,13 @@ sed -i 's/stop_timeout_ms = 1000/stop_timeout_ms = 2000/' "$ACC/slow/bm2.toml"
 check "slow still on 4231" "slow slow-0 slow 4231 0" "$(wait_http 4231 "slow slow-0 slow 4231 0")"
 
 echo "===== J. structural change restarts on the new port ====="
-sed -i 's/base_port = 4231/base_port = 4241/' "$ACC/slow/bm2.toml"
+sed -i 's/port = 4231/port = 4241/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "structural restart on new port" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"
 
 echo "===== K. structural change accepted when stopped ====="
 bm2 kill slow
-sed -i 's/base_port = 4241/base_port = 4241/; s/instances = [0-9]*/instances = 2/' "$ACC/slow/bm2.toml"
+sed -i 's/port = 4241/port = 4241/; s/instances = [0-9]*/instances = 2/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "two instances after rebuild" "2" "$(bm2 list slow | grep -c '^slow ')"
 check "rebuilt instance on 4241" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"

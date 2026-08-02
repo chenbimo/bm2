@@ -109,15 +109,15 @@ fn Supervisor::reject_port_conflict(
   self : Supervisor,
   config : @config.Config,
 ) -> Unit raise {
-  let start = config.base_port
-  let end = config.base_port + config.instances - 1
+  let start = config.port
+  let end = config.port + config.instances - 1
   for pair in self.apps.iter() {
     let (_, other) = pair
     if other.name != config.name &&
-      start <= other.base_port + other.instances - 1 &&
-      other.base_port <= end {
+      start <= other.port + other.instances - 1 &&
+      other.port <= end {
       raise PortConflict(
-        "\{config.name} port range \{start}~\{end} overlaps \{other.name} \{other.base_port}~\{other.base_port + other.instances - 1}",
+        "\{config.name} port range \{start}~\{end} overlaps \{other.name} \{other.port}~\{other.port + other.instances - 1}",
       )
     }
   }

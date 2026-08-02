@@ -4,7 +4,7 @@ const VALID_DOC : String =
   #|cwd = "/srv/yicode/blog"
   #|script = "index.ts"
   #|instances = 4
-  #|base_port = 3000
+  #|port = 3000
   #|
   #|[env]
   #|APP_ENV = "production"
@@ -30,7 +30,7 @@ test "parses valid bm2.toml" {
   assert_eq(config.cwd, "/srv/yicode/blog")
   assert_eq(config.script, "index.ts")
   assert_eq(config.instances, 4)
-  assert_eq(config.base_port, 3000)
+  assert_eq(config.port, 3000)
   assert_eq(config.max_memory_mb, 512)
   assert_eq(config.max_restarts, 10)
   assert_eq(config.restart_delay_ms, 1000)
@@ -47,7 +47,7 @@ test "cwd defaults to the config directory" {
       #|name = "blog"
       #|script = "index.ts"
       #|instances = 2
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
     "/srv/yicode/blog",
@@ -63,7 +63,7 @@ test "rejects unknown top-level field" {
       #|state_dir = "/tmp/bm2"
       #|script = "index.ts"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
   )
@@ -79,23 +79,23 @@ test "rejects invalid toml document" {
 ///|
 test "rejects missing required fields" {
   assert_true(
-    parse_error("script = \"x\"\ninstances = 1\nbase_port = 1\n").contains(
+    parse_error("script = \"x\"\ninstances = 1\nport = 1\n").contains(
       "name is required",
     ),
   )
   assert_true(
-    parse_error("name = \"x\"\ninstances = 1\nbase_port = 1\n").contains(
+    parse_error("name = \"x\"\ninstances = 1\nport = 1\n").contains(
       "script is required",
     ),
   )
   assert_true(
-    parse_error("name = \"x\"\nscript = \"s\"\nbase_port = 1\n").contains(
+    parse_error("name = \"x\"\nscript = \"s\"\nport = 1\n").contains(
       "instances is required",
     ),
   )
   assert_true(
     parse_error("name = \"x\"\nscript = \"s\"\ninstances = 1\n").contains(
-      "base_port is required",
+      "port is required",
     ),
   )
 }
@@ -113,7 +113,7 @@ test "rejects invalid project name" {
   for pair in cases {
     let (name, expect) = pair
     let message = parse_error(
-      "name = \"\{name}\"\nscript = \"s\"\ninstances = 1\nbase_port = 3000\n",
+      "name = \"\{name}\"\nscript = \"s\"\ninstances = 1\nport = 3000\n",
     )
     assert_true(message.contains(expect))
   }
@@ -126,7 +126,7 @@ test "allows uppercase letters and underscores in project name" {
       #|name = "Blog_API_2"
       #|script = "index.ts"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
     BASE_DIR,
@@ -142,7 +142,7 @@ test "rejects non-absolute cwd" {
       #|cwd = "srv/blog"
       #|script = "index.ts"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
   )
@@ -156,7 +156,7 @@ test "rejects script escaping cwd" {
       #|name = "blog"
       #|script = "../evil.ts"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
   )
@@ -166,7 +166,7 @@ test "rejects script escaping cwd" {
       #|name = "blog"
       #|script = "/etc/evil.ts"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
   )
@@ -181,7 +181,7 @@ test "rejects invalid runtime" {
       #|script = "index.ts"
       #|runtime = "python"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
   )
@@ -192,7 +192,7 @@ test "rejects invalid runtime" {
       #|script = "index.ts"
       #|runtime = "node"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
     BASE_DIR,
@@ -207,7 +207,7 @@ test "rejects zero or excessive instances" {
       #|name = "blog"
       #|script = "index.ts"
       #|instances = 0
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
   )
@@ -217,7 +217,7 @@ test "rejects zero or excessive instances" {
       #|name = "blog"
       #|script = "index.ts"
       #|instances = 2000
-      #|base_port = 3000
+      #|port = 3000
       #|
     ),
   )
@@ -231,7 +231,7 @@ test "rejects port range overflow" {
       #|name = "blog"
       #|script = "index.ts"
       #|instances = 2
-      #|base_port = 65535
+      #|port = 65535
       #|
     ),
   )
@@ -250,7 +250,7 @@ test "rejects invalid numeric limits" {
   ]
   for pair in cases {
     let (line, expect) = pair
-    let doc = "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nbase_port = 3000\n" +
+    let doc = "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\n" +
       line +
       "\n"
     assert_true(parse_error(doc).contains(expect))
@@ -264,7 +264,7 @@ test "parses app env" {
       #|name = "blog"
       #|script = "index.ts"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|
       #|[env]
       #|APP_ENV = "production"
@@ -283,7 +283,7 @@ test "rejects non-string app env value" {
         #|name = "blog"
         #|script = "index.ts"
         #|instances = 1
-        #|base_port = 3000
+        #|port = 3000
         #|
         #|[env]
         #|APP_ENV = 1
@@ -301,7 +301,7 @@ test "rejects reserved app env variable" {
         #|name = "blog"
         #|script = "index.ts"
         #|instances = 1
-        #|base_port = 3000
+        #|port = 3000
         #|
         #|[env]
         #|BM2_APP_PORT = "4000"
@@ -319,7 +319,7 @@ test "rejects invalid app env variable name" {
         #|name = "blog"
         #|script = "index.ts"
         #|instances = 1
-        #|base_port = 3000
+        #|port = 3000
         #|
         #|[env]
         #|"BAD-NAME" = "value"
@@ -337,7 +337,7 @@ test "rejects app env value containing NUL" {
         #|name = "blog"
         #|script = "index.ts"
         #|instances = 1
-        #|base_port = 3000
+        #|port = 3000
         #|
         #|[env]
         #|APP_ENV = "a\u0000b"
@@ -354,7 +354,7 @@ test "allows empty app env" {
       #|name = "blog"
       #|script = "index.ts"
       #|instances = 1
-      #|base_port = 3000
+      #|port = 3000
       #|env = {}
       #|
     ),
@@ -369,7 +369,7 @@ test "load reads and validates a file with cwd default" {
   @fs.create_dir(dir)
   @fs.write_string_to_file(
     dir + "/bm2.toml",
-    "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nbase_port = 3000\n",
+    "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\n",
   )
   let config = @config.load(dir + "/bm2.toml")
   assert_eq(config.name, "blog")

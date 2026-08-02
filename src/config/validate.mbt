@@ -33,9 +33,9 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
       "project \{config.name}: instances must be between 1 and 1024",
     )
   }
-  if config.base_port < 1 || config.base_port + config.instances - 1 > 65535 {
+  if config.port < 1 || config.port + config.instances - 1 > 65535 {
     raise ConfigError::InvalidField(
-      "project \{config.name}: port range \{config.base_port} ~ \{config.base_port + config.instances - 1} is out of 1 ~ 65535",
+      "project \{config.name}: port range \{config.port} ~ \{config.port + config.instances - 1} is out of 1 ~ 65535",
     )
   }
   if config.max_memory_mb < 1 {

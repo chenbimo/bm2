@@ -56,7 +56,7 @@ name = "api"
 cwd = "/srv/api"             # optional; defaults to this file's directory
 script = "src/index.ts"
 instances = 2
-base_port = 3000
+port = 3000
 ```
 
 Required fields:
@@ -66,7 +66,7 @@ Required fields:
 | `name` | Project/app name. Letter first, then letters, digits and underscores; unique across all registered projects. |
 | `script` | Relative script path inside `cwd`; `..` is forbidden. |
 | `instances` | Number of instances; `1..1024`. |
-| `base_port` | First instance port; later instances use consecutive ports. |
+| `port` | First instance port; later instances use consecutive ports. |
 
 Optional fields (with defaults):
 

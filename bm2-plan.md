@@ -282,7 +282,7 @@ name = "api"
 cwd = "/srv/yicode/api"
 script = "index.ts"
 instances = 4
-base_port = 3000
+port = 3000
 max_memory_mb = 512
 max_restarts = 10
 restart_delay_ms = 1000
@@ -294,7 +294,7 @@ name = "upload"
 cwd = "/srv/yicode/upload"
 script = "index.ts"
 instances = 2
-base_port = 3100
+port = 3100
 max_memory_mb = 256
 max_restarts = 5
 restart_delay_ms = 1000
@@ -317,7 +317,7 @@ stop_timeout_ms = 10000
 | `cwd`              | string  | 启动 Bun 进程时使用的项目根目录                |
 | `script`           | string  | 相对于 `cwd` 的 Bun 入口文件                   |
 | `instances`        | integer | 实例数量，最小为 `1`                           |
-| `base_port`        | integer | 第一个实例使用的本地端口                       |
+| `port`        | integer | 第一个实例使用的本地端口                       |
 | `max_memory_mb`    | integer | 单实例最大 RSS 内存，单位 MB                   |
 | `max_restarts`     | integer | 单实例最大连续异常重启次数                     |
 | `restart_delay_ms` | integer | 异常退出后的重启等待时间                       |
@@ -333,14 +333,14 @@ stop_timeout_ms = 10000
 实例端口固定按以下公式生成：
 
 ```text
-instancePort = base_port + instanceId
+instancePort = port + instanceId
 ```
 
 例如：
 
 ```text
 api.instances = 4
-api.base_port = 3000
+api.port = 3000
 
 api-0 → 3000
 api-1 → 3001
@@ -388,7 +388,7 @@ bm2 负责的基础环境由以下数据组成：
 ```text
 BM2_APP_NAME=<app name>
 BM2_INSTANCE_ID=<instance id>
-PORT=<base_port + instanceId>
+PORT=<port + instanceId>
 ```
 
 这三个名称是保留变量，由 bm2 在进程环境中显式注入。
@@ -823,7 +823,7 @@ tail -f ~/.local/state/bm2/api/logs/api-0.crash.log
 
 Nginx 不由 bm2 生成或修改。
 
-部署人员根据 bm2 配置中固定的 `base_port` 与 `instances` 手动维护 Nginx upstream。
+部署人员根据 bm2 配置中固定的 `port` 与 `instances` 手动维护 Nginx upstream。
 
 API 的 Nginx 示例：
 

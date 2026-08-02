@@ -8,7 +8,7 @@ pub(all) struct Config {
   script : String
   runtime : String
   instances : Int
-  base_port : Int
+  port : Int
   max_memory_mb : Int
   max_restarts : Int
   restart_delay_ms : Int

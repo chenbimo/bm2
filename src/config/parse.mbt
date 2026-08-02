@@ -1,7 +1,7 @@
 ///|
 let rootKeys : Array[String] = [
-  "name", "cwd", "script", "runtime", "instances", "base_port", "max_memory_mb",
-  "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "env",
+  "name", "cwd", "script", "runtime", "instances", "port", "max_memory_mb", "max_restarts",
+  "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "env",
 ]
 
 ///|
@@ -36,7 +36,7 @@ pub fn parse(doc : String, base_dir : String) -> Config raise ConfigError {
     script: req_string(table, "script", "root"),
     runtime: opt_string(table, "runtime", "root", "bun"),
     instances: req_int(table, "instances", "root"),
-    base_port: req_int(table, "base_port", "root"),
+    port: req_int(table, "port", "root"),
     max_memory_mb: opt_int(
       table,
       "max_memory_mb",

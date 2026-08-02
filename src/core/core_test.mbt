@@ -10,7 +10,7 @@ fn make_app_dir(root : String, name : String, script : String) -> String raise {
 fn app_config(
   name : String,
   cwd : String,
-  base_port : Int,
+  port : Int,
   max_memory_mb? : Int = 512,
   max_restarts? : Int = 2,
   restart_delay_ms? : Int = 150,
@@ -25,7 +25,7 @@ fn app_config(
     script,
     runtime: "bun",
     instances,
-    base_port,
+    port,
     max_memory_mb,
     max_restarts,
     restart_delay_ms,
@@ -46,7 +46,7 @@ fn make_sv(root : String, config : @config.Config) -> @core.Supervisor raise {
   @process.mkdir_p(root)
   @fs.write_string_to_file(
     root + "/bm2.toml",
-    "name = \"\{config.name}\"\ncwd = \"\{config.cwd}\"\nscript = \"\{config.script}\"\ninstances = \{config.instances}\nbase_port = \{config.base_port}\n",
+    "name = \"\{config.name}\"\ncwd = \"\{config.cwd}\"\nscript = \"\{config.script}\"\ninstances = \{config.instances}\nport = \{config.port}\n",
   )
   sv.register(config, root + "/bm2.toml")
   sv
