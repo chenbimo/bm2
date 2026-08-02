@@ -30,3 +30,35 @@ pub fn unlink(path : String) -> Unit raise ProcessError {
     raise Failed(op="unlink", errno=-rc)
   }
 }
+
+///|
+/// File size in bytes; None when the file does not exist or is unreadable.
+pub fn file_size(path : String) -> Int64? {
+  let size = c_file_size(cstr(path))
+  if size < 0L {
+    None
+  } else {
+    Some(size)
+  }
+}
+
+///|
+/// Shift the rotation chain and rename path to path.1 (drops path.10).
+/// For logs written by this daemon, where no fd survives the rename.
+pub fn rotate(path : String) -> Unit raise ProcessError {
+  let rc = c_rotate(cstr(path))
+  if rc < 0 {
+    raise Failed(op="rotate", errno=-rc)
+  }
+}
+
+///|
+/// Copy path into path.1 (shifting the chain) and truncate path to zero.
+/// For logs held open by app processes, which keep writing to the old
+/// inode; a few bytes written during the copy are lost.
+pub fn copytruncate(path : String) -> Unit raise ProcessError {
+  let rc = c_copytruncate(cstr(path))
+  if rc < 0 {
+    raise Failed(op="copytruncate", errno=-rc)
+  }
+}

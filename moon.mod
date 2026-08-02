@@ -1,6 +1,6 @@
 name = "chensuiyi/bm2"
 
-version = "0.1.0"
+version = "0.2.0"
 
 source = "src"
 
@@ -9,6 +9,10 @@ preferred_target = "native"
 supported_targets = "native"
 
 license = "Apache-2.0"
+
+readme = "README.md"
+
+repository = "https://github.com/chenbimo/bm2"
 
 description = "A lightweight Linux process manager for Bun applications, written in MoonBit"
 

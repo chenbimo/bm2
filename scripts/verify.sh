@@ -9,6 +9,15 @@ bin_dir=$(mktemp -d "$root/_build/bm2-e2e-bin.XXXXXX")
 trap 'rm -rf "$bin_dir"' EXIT
 
 cd "$root"
+
+# The CLI's VERSION constant must match moon.mod so `bm2 version` and
+# mooncakes releases never drift apart.
+MV=$(sed -nE 's/^version = "([^"]+)"/\1/p' "$root/moon.mod")
+if ! grep -q "const VERSION : String = \"$MV\"" "$root/src/cmd/bm2/main.mbt"; then
+  echo "VERSION mismatch: moon.mod says $MV but src/cmd/bm2/main.mbt differs"
+  exit 1
+fi
+
 moon fmt
 moon check --target native --deny-warn
 moon test --target native

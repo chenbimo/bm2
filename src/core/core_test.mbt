@@ -16,13 +16,15 @@ fn app_config(
   restart_delay_ms? : Int = 150,
   min_uptime_ms? : Int = 60000,
   stop_timeout_ms? : Int = 500,
-) -> @config.AppConfig {
+  script? : String = "fixture.sh",
+  instances? : Int = 1,
+) -> @config.Config {
   {
     name,
     cwd,
-    script: "fixture.sh",
+    script,
     runtime: "bun",
-    instances: 1,
+    instances,
     base_port,
     max_memory_mb,
     max_restarts,
@@ -34,17 +36,20 @@ fn app_config(
 }
 
 ///|
-fn make_sv(
-  root : String,
-  apps : Array[@config.AppConfig],
-) -> @core.Supervisor raise {
-  let config = @config.Config::{ apps, }
-  @core.Supervisor::new(
-    config,
+fn make_sv(root : String, config : @config.Config) -> @core.Supervisor raise {
+  let sv = @core.Supervisor::new(
     state_dir=root + "/state",
     bun_path="/bin/sh",
     memory_interval_ms=100,
   )
+  // Persist a real config file so load_projects can reload the project.
+  @process.mkdir_p(root)
+  @fs.write_string_to_file(
+    root + "/bm2.toml",
+    "name = \"\{config.name}\"\ncwd = \"\{config.cwd}\"\nscript = \"\{config.script}\"\ninstances = \{config.instances}\nbase_port = \{config.base_port}\n",
+  )
+  sv.register(config, root + "/bm2.toml")
+  sv
 }
 
 ///|
@@ -70,7 +75,7 @@ fn stop_all(sv : @core.Supervisor, app : String) -> Unit {
 test "crash loop restarts then reaches errored" {
   let root = "/tmp/bm2-core-test-errored"
   let dir = make_app_dir(root, "api", "exit 1\n")
-  let sv = make_sv(root, [app_config("api", dir, 4100)])
+  let sv = make_sv(root, app_config("api", dir, 4100))
   sv.start_app("api")
   let inst = sv.instance("api", 0)
   let deadline = @core.now_ms() + 5000UL
@@ -90,9 +95,10 @@ test "crash loop restarts then reaches errored" {
 test "clean exit after min uptime restarts without count" {
   let root = "/tmp/bm2-core-test-clean"
   let dir = make_app_dir(root, "api", "exit 0\n")
-  let sv = make_sv(root, [
+  let sv = make_sv(
+    root,
     app_config("api", dir, 4110, min_uptime_ms=0, restart_delay_ms=100),
-  ])
+  )
   sv.start_app("api")
   drive(sv, 800)
   let inst = sv.instance("api", 0)
@@ -106,7 +112,7 @@ test "clean exit after min uptime restarts without count" {
 test "stable run over min uptime resets restart count" {
   let root = "/tmp/bm2-core-test-reset"
   let dir = make_app_dir(root, "api", "sleep 30\n")
-  let sv = make_sv(root, [app_config("api", dir, 4120, min_uptime_ms=300)])
+  let sv = make_sv(root, app_config("api", dir, 4120, min_uptime_ms=300))
   sv.start_app("api")
   drive(sv, 500)
   let inst = sv.instance("api", 0)
@@ -122,9 +128,10 @@ test "stable run over min uptime resets restart count" {
 test "memory limit terminates instance and counts restarts" {
   let root = "/tmp/bm2-core-test-memory"
   let dir = make_app_dir(root, "api", "sleep 30\n")
-  let sv = make_sv(root, [
+  let sv = make_sv(
+    root,
     app_config("api", dir, 4130, max_memory_mb=0, max_restarts=1),
-  ])
+  )
   sv.start_app("api")
   drive(sv, 2500)
   let inst = sv.instance("api", 0)
@@ -136,26 +143,28 @@ test "memory limit terminates instance and counts restarts" {
 }
 
 ///|
-test "kill marks manual and never restarts" {
+test "kill marks manual, never restarts, and unregisters the project" {
   let root = "/tmp/bm2-core-test-kill"
   let dir = make_app_dir(root, "api", "sleep 30\n")
-  let sv = make_sv(root, [app_config("api", dir, 4140)])
+  let sv = make_sv(root, app_config("api", dir, 4140))
   sv.start_app("api")
   drive(sv, 300)
+  assert_eq(sv.app_names().length(), 1)
   sv.kill_app("api")
   drive(sv, 800)
-  let inst = sv.instance("api", 0)
-  assert_eq(inst.status, @core.Status::Stopped)
-  assert_eq(inst.last_reason, Some("manual_kill"))
-  assert_eq(inst.restart_count, 0)
-  assert_false(inst.alive())
+  // The project leaves the registry once its instance stopped.
+  assert_eq(sv.app_names().length(), 0)
+  assert_false(@fs.path_exists(root + "/state/api/project.json"))
+  // More time must not resurrect the killed app.
+  drive(sv, 800)
+  assert_eq(sv.app_names().length(), 0)
 }
 
 ///|
 test "state file reflects online then stopped" {
   let root = "/tmp/bm2-core-test-state"
   let dir = make_app_dir(root, "api", "sleep 30\n")
-  let sv = make_sv(root, [app_config("api", dir, 4150)])
+  let sv = make_sv(root, app_config("api", dir, 4150))
   sv.start_app("api")
   drive(sv, 300)
   let path = root + "/state/api/api-0.json"
@@ -176,7 +185,7 @@ test "state file reflects online then stopped" {
 test "start conflicts while full restart is pending" {
   let root = "/tmp/bm2-core-test-conflict"
   let dir = make_app_dir(root, "api", "sleep 30\n")
-  let sv = make_sv(root, [app_config("api", dir, 4160, stop_timeout_ms=3000)])
+  let sv = make_sv(root, app_config("api", dir, 4160, stop_timeout_ms=3000))
   sv.start_app("api")
   drive(sv, 300)
   sv.start_app("api")
@@ -191,10 +200,160 @@ test "start conflicts while full restart is pending" {
 }
 
 ///|
+test "kill during pending restart does not resurrect the app" {
+  let root = "/tmp/bm2-core-test-kill-pending"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = make_sv(root, app_config("api", dir, 4170, stop_timeout_ms=1000))
+  sv.start_app("api")
+  drive(sv, 300)
+  // Trigger a full restart: the old instance is stopping and the fresh
+  // spawn is still pending.
+  sv.start_app("api")
+  // Kill while the restart is pending; pending_restart must be cleared.
+  sv.kill_app("api")
+  drive(sv, 1500)
+  // The project is gone entirely: a kill during a pending restart must
+  // never be resurrected by check_pending.
+  assert_eq(sv.app_names().length(), 0)
+  assert_false(@fs.path_exists(root + "/state/api/project.json"))
+  // More time must not bring it back.
+  drive(sv, 1000)
+  assert_eq(sv.app_names().length(), 0)
+}
+
+///|
+test "kill clears a stale pid so removal never blocks" {
+  let root = "/tmp/bm2-core-test-stale-pid"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = make_sv(root, app_config("api", dir, 4330))
+  sv.start_app("api")
+  drive(sv, 300)
+  let inst = sv.instance("api", 0)
+  // Kill the process behind the instance without letting the supervisor
+  // reap it first: the pidfd still exists, so alive() reads dead.
+  @process.kill_group(inst.pid, @process.SIGKILL)
+  sv.kill_app("api")
+  drive(sv, 600)
+  assert_eq(sv.app_names().length(), 0)
+  assert_false(@fs.path_exists(root + "/state/api/project.json"))
+}
+
+///|
+test "register writes the project registration file" {
+  let root = "/tmp/bm2-core-test-register"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = @core.Supervisor::new(
+    state_dir=root + "/state",
+    bun_path="/bin/sh",
+    memory_interval_ms=100,
+  )
+  sv.register(app_config("api", dir, 4180), "/srv/blog/bm2.toml")
+  let info = @core.load_project(root + "/state/api/project.json")
+  assert_eq(info.config_path, "/srv/blog/bm2.toml")
+  assert_eq(sv.app_names(), ["api"])
+}
+
+///|
+test "register rejects overlapping port ranges across projects" {
+  let root = "/tmp/bm2-core-test-portconflict"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = make_sv(root, app_config("api", dir, 4200))
+  let rejected = try
+    sv.register(app_config("other", dir, 4200), root + "/other.toml")
+  catch {
+    e => e.to_string()
+  } noraise {
+    _ => "no error"
+  }
+  assert_true(rejected.contains("port conflict"))
+  assert_eq(sv.app_names(), ["api"])
+  // A non-overlapping registration succeeds.
+  sv.register(app_config("other", dir, 4300), root + "/other.toml")
+  assert_eq(sv.app_names().length(), 2)
+  stop_all(sv, "api")
+  stop_all(sv, "other")
+}
+
+///|
+test "register accepts structural change and restart applies it" {
+  let root = "/tmp/bm2-core-test-reload-struct"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = make_sv(root, app_config("api", dir, 4190))
+  sv.start_app("api")
+  drive(sv, 300)
+  let before = sv.instance("api", 0).pid
+  assert_true(before > 0)
+  // A structural change (script) is accepted while instances are alive...
+  let err = try
+    sv.register(
+      app_config("api", dir, 4190, script="other.sh"),
+      root + "/bm2.toml",
+    )
+  catch {
+    e => e.to_string()
+  } noraise {
+    _ => "ok"
+  }
+  assert_eq(err, "ok")
+  assert_eq(sv.app_config("api").script, "other.sh")
+  // ...and the full restart spawns from the new config.
+  sv.start_app("api")
+  drive(sv, 1000)
+  assert_false(sv.instance("api", 0).alive())
+  stop_all(sv, "api")
+}
+
+///|
+test "restart rebuilds instances from the updated config" {
+  let root = "/tmp/bm2-core-test-rebuild"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = make_sv(root, app_config("api", dir, 4290))
+  sv.start_app("api")
+  drive(sv, 300)
+  // Re-register with more instances; the array is rebuilt on restart.
+  sv.register(app_config("api", dir, 4290, instances=2), root + "/bm2.toml")
+  sv.start_app("api")
+  drive(sv, 1500)
+  assert_eq(sv.app_instances("api").length(), 2)
+  assert_true(sv.instance("api", 1).port > 0)
+  stop_all(sv, "api")
+}
+
+///|
+test "load_projects restores registered projects" {
+  let root = "/tmp/bm2-core-test-loadprojects"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = make_sv(root, app_config("api", dir, 4220))
+  sv.start_app("api")
+  drive(sv, 300)
+  let pid = sv.instance("api", 0).pid
+  assert_true(pid > 0)
+  // A fresh supervisor (like a restarted daemon) restores the project.
+  let fresh = @core.Supervisor::new(
+    state_dir=root + "/state",
+    bun_path="/bin/sh",
+    memory_interval_ms=100,
+  )
+  fresh.load_projects()
+  fresh.recover()
+  assert_eq(fresh.app_names(), ["api"])
+  let inst = fresh.instance("api", 0)
+  assert_eq(inst.pid, pid)
+  assert_eq(inst.status, @core.Status::Online)
+  fresh.kill_app("api")
+  drive(fresh, 1200)
+}
+
+///|
 test "resolve_state_dir uses fixed home directory" {
   match @env.get_env_var("HOME") {
-    Some(home) => assert_eq(@core.resolve_state_dir(), home + "/.bm2")
-    None => assert_eq(@core.resolve_state_dir(), ".bm2")
+    Some(home) if !home.is_empty() =>
+      assert_eq(@core.resolve_state_dir(), home + "/.bm2")
+    _ =>
+      assert_eq(
+        @core.resolve_state_dir(),
+        "/tmp/bm2-" + @process.get_uid().to_string(),
+      )
   }
 }
 
@@ -209,9 +368,13 @@ test "iso8601 formats epoch and current time" {
 
 ///|
 test "protocol request and response round-trip" {
-  let req : @core.Request = { command: "start", app: Some("api") }
+  let req : @core.Request = {
+    command: "start",
+    app: Some("api"),
+    config_path: Some("/srv/blog/bm2.toml"),
+  }
   assert_eq(@core.decode_request(@core.encode_request(req)), req)
-  let bare : @core.Request = { command: "kill", app: None }
+  let bare : @core.Request = { command: "kill", app: None, config_path: None }
   assert_eq(@core.decode_request(@core.encode_request(bare)), bare)
   let resp = @core.Response::ok("started", [])
   assert_eq(@core.decode_response(@core.encode_response(resp)), resp)

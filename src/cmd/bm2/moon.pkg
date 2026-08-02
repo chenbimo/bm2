@@ -4,6 +4,7 @@ import {
   "chensuiyi/bm2/process",
   "moonbitlang/core/env",
   "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/json",
   "moonbitlang/x/fs",
 }
 

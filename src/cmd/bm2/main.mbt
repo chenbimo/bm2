@@ -24,7 +24,7 @@ fn platform_error() -> String? {
 
 ///|
 /// Keep in sync with moon.mod `version`.
-const VERSION : String = "0.1.0"
+const VERSION : String = "0.2.0"
 
 ///|
 fn run() -> Int {
@@ -41,8 +41,16 @@ fn run() -> Int {
     return 2
   }
   let command = args[1]
+  let state_dir = @core.resolve_state_dir()
   match command {
-    "start" | "kill" | "list" | "refresh" => ()
+    "start" | "kill" | "list" | "reload" => ()
+    "upgrade" => {
+      if args.length() != 2 {
+        usage()
+        return 2
+      }
+      return cmd_upgrade(state_dir)
+    }
     "version" => {
       println("bm2 " + VERSION)
       return 0
@@ -52,12 +60,14 @@ fn run() -> Int {
       return 2
     }
   }
-  if command == "refresh" && args.length() != 2 {
+  // start/reload take no arguments; kill takes a name or -y; list may
+  // filter by name.
+  if (command == "start" || command == "reload") && args.length() != 2 {
     usage()
     return 2
   }
   let confirmed = command == "kill" && args.length() == 3 && args[2] == "-y"
-  let app : String? = if confirmed {
+  let app_arg : String? = if confirmed {
     None
   } else if args.length() == 3 {
     Some(args[2])
@@ -65,7 +75,7 @@ fn run() -> Int {
     None
   }
   // Bare `kill` stops bm2d and all apps, so it requires the -y flag.
-  match (command, app) {
+  match (command, app_arg) {
     ("kill", None) if !confirmed => {
       @process.eprintln(
         "bm2: refusing to stop bm2d and all apps; use 'bm2 kill -y' to confirm",
@@ -82,9 +92,8 @@ fn run() -> Int {
     }
   }
   let config_path = cwd + "/bm2.toml"
-  // list/kill/refresh work from any directory while a daemon is running;
-  // only start requires a bm2.toml here (they may need to spawn the
-  // daemon from this config).
+  // Only start needs a local bm2.toml: list/kill/reload address the
+  // daemon's registered projects from any directory.
   let config = try @config.load(config_path) catch {
     e => {
       if command == "start" {
@@ -96,6 +105,16 @@ fn run() -> Int {
   } noraise {
     loaded => Some(loaded)
   }
+  // start targets the project itself (single-app config); kill filters by
+  // name; kill -y has no target.
+  let app : String? = if command == "start" {
+    match config {
+      Some(cfg) => Some(cfg.name)
+      None => None
+    }
+  } else {
+    app_arg
+  }
   // Requests must wait out the slowest possible daemon operation (a full
   // restart waiting on stop_timeout) plus margin, so a slow-but-healthy
   // daemon is never mistaken for a dead one. Without a config here the
@@ -104,39 +123,21 @@ fn run() -> Int {
   match config {
     Some(cfg) => {
       timeout_ms = 3000
-      for app in cfg.apps {
-        let need = app.stop_timeout_ms + 3000
-        if need > timeout_ms {
-          timeout_ms = need
-        }
+      let need = cfg.stop_timeout_ms + 3000
+      if need > timeout_ms {
+        timeout_ms = need
       }
     }
     None => ()
   }
-  let state_dir = @core.resolve_state_dir()
   @core.log_event(state_dir, "bm2.events.jsonl", "daemon_connecting")
-  let fd = match config {
-    Some(_) =>
-      try ensure_daemon(state_dir, config_path) catch {
-        e => {
-          @process.eprintln("bm2: " + e.to_string())
-          return 1
-        }
-      } noraise {
-        result => result
-      }
-    None =>
-      // No config here: auto-restore the daemon from the config path it
-      // was last started with, when one exists.
-      match remembered_config_path(state_dir) {
-        Some(path) =>
-          try ensure_daemon(state_dir, path) catch {
-            _ => connect(state_dir + "/bm2.sock")
-          } noraise {
-            result => result
-          }
-        None => connect(state_dir + "/bm2.sock")
-      }
+  let fd = try ensure_daemon(state_dir) catch {
+    e => {
+      @process.eprintln("bm2: " + e.to_string())
+      return 1
+    }
+  } noraise {
+    result => result
   }
   let fd = match fd {
     Some(connected) => connected
@@ -146,29 +147,10 @@ fn run() -> Int {
         return 0
       }
       @process.eprintln(
-        if config is None {
-          "bm2: no daemon is running; run bm2 start from the project directory"
-        } else {
-          "bm2: bm2d did not start, see " + state_dir + "/bm2d.log"
-        },
+        "bm2: bm2d did not start, see " + state_dir + "/bm2d.log",
       )
       return 1
     }
-  }
-  // Resolve the daemon's own config path before the refresh request:
-  // the daemon removes its pid file the moment it detaches, so reading
-  // it after the response would race with the detach.
-  let refresh_config = if command == "refresh" {
-    match daemon_config_path(state_dir) {
-      Some(path) => Some(path)
-      None =>
-        match config {
-          Some(_) => Some(config_path)
-          None => None
-        }
-    }
-  } else {
-    None
   }
   @core.log_event(
     state_dir,
@@ -177,7 +159,16 @@ fn run() -> Int {
     app~,
     detail=command,
   )
-  let resp = try request(fd, command, app, timeout_ms) catch {
+  // start carries the caller's config path so the daemon can register the
+  // project; other commands leave it unset.
+  let request_config_path : String? = if command == "start" {
+    Some(config_path)
+  } else {
+    None
+  }
+  let resp = try
+    request(fd, command, app, request_config_path, timeout_ms)
+  catch {
     e => {
       @process.close(fd)
       @core.log_event(
@@ -203,35 +194,27 @@ fn run() -> Int {
         _ => ()
       }
       @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
-      // Without a config here there is nothing to rebuild the daemon
-      // from, so the retry can only work when a config is available.
-      let retry_fd = match config {
-        Some(_) =>
-          try ensure_daemon(state_dir, config_path) catch {
-            retry => {
-              @process.eprintln("bm2: " + retry.to_string())
-              return 1
-            }
-          } noraise {
-            connected => connected
-          }
-        None => None
+      let retry_fd = try ensure_daemon(state_dir) catch {
+        retry => {
+          @process.eprintln("bm2: " + retry.to_string())
+          return 1
+        }
+      } noraise {
+        connected => connected
       }
       let retry_fd = match retry_fd {
         Some(connected) => connected
         None => {
           @process.eprintln(
-            if config is None {
-              "bm2: daemon stopped; run bm2 start from the project directory"
-            } else {
-              "bm2: bm2d did not start, see " + state_dir + "/bm2d.log"
-            },
+            "bm2: bm2d did not start, see " + state_dir + "/bm2d.log",
           )
           return 1
         }
       }
       @core.log_event(state_dir, "bm2.events.jsonl", "protocol_retry")
-      try request(retry_fd, command, app, timeout_ms) catch {
+      try
+        request(retry_fd, command, app, request_config_path, timeout_ms)
+      catch {
         retry => {
           @process.eprintln("bm2: " + retry.to_string())
           @process.close(retry_fd)
@@ -248,38 +231,32 @@ fn run() -> Int {
     if command == "list" {
       print_list(resp.instances)
       0
-    } else if command == "refresh" {
-      // refresh_config was resolved before the request was sent: it is
-      // the daemon's own config path (local bm2.toml as a fallback).
+    } else if command == "reload" {
+      // The old daemon unlinks its socket just before exiting; wait for
+      // it, then start the fresh daemon which adopts the running apps.
       if !wait_daemon_exit(state_dir) {
-        @process.eprintln("bm2: bm2d did not exit; refresh aborted")
+        @process.eprintln("bm2: bm2d did not exit; reload aborted")
         return 1
       }
-      // The old daemon unlinks its socket just before exiting; give its
-      // process a moment to fully terminate so its flock is released
-      // before the fresh daemon tries to take it.
       @process.sleep_ms(50)
-      let config_path = match refresh_config {
-        Some(path) => path
-        None => {
-          @process.eprintln(
-            "bm2: cannot determine daemon config; run bm2 start from the project directory",
-          )
-          return 1
+      // The old daemon's flock is released on exit; retry briefly in case
+      // it has not fully terminated yet.
+      let mut fresh_fd : Int? = None
+      for _ in 0..<3 {
+        fresh_fd = try ensure_daemon(state_dir) catch {
+          _ => None
+        } noraise {
+          result => result
         }
-      }
-      let fresh_fd = try ensure_daemon(state_dir, config_path) catch {
-        e => {
-          @process.eprintln("bm2: " + e.to_string())
-          return 1
+        match fresh_fd {
+          Some(_) => break
+          None => @process.sleep_ms(100)
         }
-      } noraise {
-        result => result
       }
       match fresh_fd {
         Some(fd) => {
           @process.close(fd)
-          println("refreshed")
+          println("reloaded")
           0
         }
         None => {
@@ -290,10 +267,24 @@ fn run() -> Int {
         }
       }
     } else {
-      println(resp.message)
-      // A successful start shows the resulting state right away.
-      if command == "start" {
-        print_list(resp.instances)
+      // start/kill <name> are async on the daemon side: poll `list` until
+      // the target settles so the user sees the final state, while the
+      // daemon loop never blocks on stop timeouts. kill -y only requests
+      // the daemon shutdown and needs no polling.
+      let infos = if command == "start" || app is Some(_) {
+        poll_settled(state_dir, command, app, timeout_ms)
+      } else {
+        resp.instances
+      }
+      println(
+        if settled(infos, app) {
+          resp.message
+        } else {
+          resp.message + " (timed out waiting)"
+        },
+      )
+      if app is Some(_) {
+        print_list(infos)
       }
       0
     }
@@ -304,7 +295,224 @@ fn run() -> Int {
 }
 
 ///|
-/// Wait for the refreshed daemon to detach (it removes its socket on the
+/// Upgrade bm2 itself: refresh the mooncakes index, compare the latest
+/// published version with the running one, and run `moon install` into
+/// bm2's own directory when a newer release exists. Requires the moon
+/// toolchain (which is also how bm2 was installed).
+fn cmd_upgrade(state_dir : String) -> Int {
+  let home = match @env.get_env_var("HOME") {
+    Some(h) if !h.is_empty() => h
+    _ => {
+      @process.eprintln("bm2: cannot determine HOME (moon toolchain required)")
+      return 1
+    }
+  }
+  if !run_moon(state_dir, "update" + "\u{0}") {
+    @process.eprintln("bm2: 'moon update' failed; run it manually and retry")
+    return 1
+  }
+  let index_path = home + "/.moon/registry/index/user/chensuiyi/bm2.index"
+  let text = try @fs.read_file_to_string(index_path) catch {
+    _ => {
+      @process.eprintln("bm2: no release on mooncakes yet")
+      return 1
+    }
+  } noraise {
+    loaded => loaded
+  }
+  let latest = match latest_version(text) {
+    Some(v) => v
+    None => {
+      @process.eprintln("bm2: cannot read the mooncakes index")
+      return 1
+    }
+  }
+  if semver_cmp(latest, VERSION) <= 0 {
+    println("bm2 is up to date (" + VERSION + ")")
+    return 0
+  }
+  println("new version " + latest + " available (current " + VERSION + ")")
+  let args = "install" +
+    "\u{0}" +
+    "chensuiyi/bm2/..." +
+    "\u{0}" +
+    "--bin" +
+    "\u{0}" +
+    self_dir() +
+    "\u{0}"
+  if !run_moon(state_dir, args) {
+    @process.eprintln(
+      "bm2: 'moon install' failed; run it manually:\n  moon install chensuiyi/bm2/... --bin " +
+      self_dir(),
+    )
+    return 1
+  }
+  println("updated to " + latest + "; run 'bm2 reload' to apply")
+  0
+}
+
+///|
+struct IndexEntry {
+  version : String
+} derive(FromJson)
+
+///|
+/// Latest version from the mooncakes index JSONL (last line wins).
+fn latest_version(text : String) -> String? {
+  let mut latest : String? = None
+  for line in text.split("\n") {
+    if line.trim().is_empty() {
+      continue
+    }
+    let entry : IndexEntry = try @json.from_json(@json.parse(line)) catch {
+      _ => continue
+    } noraise {
+      loaded => loaded
+    }
+    latest = Some(entry.version)
+  }
+  latest
+}
+
+///|
+/// Compare two "x.y.z" versions: -1, 0, 1.
+fn semver_cmp(a : String, b : String) -> Int {
+  let pa = a.split(".").to_array()
+  let pb = b.split(".").to_array()
+  for i in 0..<3 {
+    let x = if i < pa.length() { parse_num(pa[i].to_owned()) } else { 0 }
+    let y = if i < pb.length() { parse_num(pb[i].to_owned()) } else { 0 }
+    if x != y {
+      return if x < y { -1 } else { 1 }
+    }
+  }
+  0
+}
+
+///|
+fn parse_num(s : String) -> Int {
+  let mut n = 0
+  for c in s {
+    n = n * 10 + c.to_int() - 48
+  }
+  n
+}
+
+///|
+/// Directory containing the running bm2 binary, where moon install
+/// replaces it (and bm2d) in place.
+fn self_dir() -> String {
+  let exe = try @process.self_exe() catch {
+    _ => return "."
+  } noraise {
+    found => found
+  }
+  let mut idx = -1
+  for i, c in exe {
+    if c == '/' {
+      idx = i
+    }
+  }
+  if idx >= 0 {
+    exe[:idx].to_owned()
+  } else {
+    "."
+  }
+}
+
+///|
+/// Run moon with NUL-separated arguments; true on exit code 0. Output
+/// goes to the state dir so a failure can be inspected there.
+fn run_moon(state_dir : String, args_blob : String) -> Bool {
+  let pid = try
+    @process.spawn({
+      bun_path: "moon",
+      script: args_blob,
+      cwd: "/",
+      out_log: state_dir + "/upgrade.log",
+      err_log: state_dir + "/upgrade.log",
+      env_blob: @process.base_env_blob(),
+    })
+  catch {
+    _ => return false
+  } noraise {
+    spawned => spawned
+  }
+  let reaped = try @process.wait_child(pid) catch {
+    _ => None
+  } noraise {
+    result => result
+  }
+  match reaped {
+    Some((_, @process.ChildExit::Exited(0))) => true
+    _ => false
+  }
+}
+
+///|
+/// Poll `list` until every instance of the target app reaches a terminal
+/// status (or leaves the listing after a stop), or the deadline passes.
+/// For a kill the goal state is the project disappearing: an unknown-app
+/// error response means the daemon finished unregistering it.
+fn poll_settled(
+  state_dir : String,
+  command : String,
+  app : String?,
+  timeout_ms : Int,
+) -> Array[@core.InstanceInfo] {
+  let sock = state_dir + "/bm2.sock"
+  let deadline = @core.now_ms() + timeout_ms.to_uint64()
+  let mut last : Array[@core.InstanceInfo] = []
+  while true {
+    @process.sleep_ms(200)
+    let resp = try {
+      let fd = @process.socket_connect(sock)
+      let result = request(fd, "list", app, None, 3000)
+      Some(result)
+    } catch {
+      _ => None
+    } noraise {
+      r => r
+    }
+    match resp {
+      Some(r) if r.ok => {
+        last = r.instances
+        // For a start, terminal statuses finish the wait. For a kill the
+        // instances disappear first; the project is only gone once the
+        // daemon answers with unknown-app, so keep polling until then.
+        if command != "kill" && settled(r.instances, app) {
+          break
+        }
+      }
+      Some(r) if !r.ok && command == "kill" => break
+      _ => ()
+    }
+    if @core.now_ms() > deadline {
+      break
+    }
+  }
+  last
+}
+
+///|
+/// True when every instance of the target app is in a terminal status.
+/// Stopped instances leave the listing entirely, so an empty match set
+/// also counts as settled.
+fn settled(infos : Array[@core.InstanceInfo], app : String?) -> Bool {
+  let relevant = infos.filter(fn(info) {
+    match app {
+      None => true
+      Some(name) => info.app_name == name
+    }
+  })
+  if relevant.is_empty() {
+    return true
+  }
+  relevant.all(fn(info) { info.status == "online" || info.status == "errored" })
+}
+
+///|
+/// Wait for the reloaded daemon to detach (it removes its socket on the
 /// way out). Returns false when the daemon stays alive after five seconds.
 fn wait_daemon_exit(state_dir : String) -> Bool {
   let sock = state_dir + "/bm2.sock"
@@ -321,71 +529,6 @@ fn wait_daemon_exit(state_dir : String) -> Bool {
 }
 
 ///|
-/// The config path recorded by the last daemon start (bm2d.config).
-/// Kept across crashes so the daemon can be auto-restored from any
-/// directory; removed on explicit shutdown.
-fn remembered_config_path(state_dir : String) -> String? {
-  let text = try @fs.read_file_to_string(state_dir + "/bm2d.config") catch {
-    _ => return None
-  } noraise {
-    data => data
-  }
-  let path = text.trim().to_owned()
-  if path.is_empty() {
-    None
-  } else {
-    Some(path)
-  }
-}
-
-///|
-/// Parse the leading decimal digits of `text` (a pid file's content).
-fn parse_leading_int(text : String) -> Int {
-  let mut pid = 0
-  for c in text {
-    if c is ('0'..='9') {
-      pid = pid * 10 + c.to_int() - 48
-    } else {
-      break
-    }
-  }
-  pid
-}
-
-///|
-/// The config path the running daemon was started with, read from its
-/// process cmdline (`bm2d <config-path>`). Lets refresh rebuild the
-/// daemon from any directory, using the same config the daemon actually
-/// runs. None when no daemon is running.
-fn daemon_config_path(state_dir : String) -> String? {
-  let pid_text = try @fs.read_file_to_string(state_dir + "/bm2d.pid") catch {
-    _ => return None
-  } noraise {
-    text => text
-  }
-  let pid = parse_leading_int(pid_text.trim().to_owned())
-  if pid <= 0 {
-    return None
-  }
-  let cmdline = try @process.read_small("/proc/\{pid}/cmdline") catch {
-    _ => return None
-  } noraise {
-    data => data
-  }
-  // argv: "bm2d\0<config-path>\0"; take the second NUL-separated entry.
-  let mut count = 0
-  let mut result : String? = None
-  for part in @utf8.decode_lossy(cmdline).split("\u{0}") {
-    count += 1
-    if count == 2 {
-      result = Some(part.to_owned())
-      break
-    }
-  }
-  result
-}
-
-///|
 /// Send one request and wait at most timeout_ms for the daemon's first
 /// response byte. A stale Unix socket can accept a connection without a
 /// server, so waiting unboundedly would leave the CLI hung forever.
@@ -393,9 +536,10 @@ fn request(
   fd : Int,
   command : String,
   app : String?,
+  config_path : String?,
   timeout_ms : Int,
 ) -> @core.Response raise {
-  @process.send_msg(fd, @core.encode_request({ command, app }))
+  @process.send_msg(fd, @core.encode_request({ command, app, config_path }))
   if !@process.poll_fd(fd, timeout_ms) {
     raise @process.ProcessError::Failed(op="recv_msg", errno=110)
   }
@@ -408,7 +552,7 @@ fn request(
 /// Connect to the running daemon, spawning bm2d when the socket is not
 /// answering. bm2d is resolved through PATH (execvpe). Returns None when
 /// the daemon did not come up in time.
-fn ensure_daemon(state_dir : String, config_path : String) -> Int? raise {
+fn ensure_daemon(state_dir : String) -> Int? raise {
   let sock = state_dir + "/bm2.sock"
   match connect(sock) {
     Some(fd) => {
@@ -421,7 +565,7 @@ fn ensure_daemon(state_dir : String, config_path : String) -> Int? raise {
       ignore(
         @process.spawn({
           bun_path: "bm2d",
-          script: config_path,
+          script: "",
           cwd: "/",
           out_log: state_dir + "/bm2d.log",
           err_log: state_dir + "/bm2d.log",
@@ -544,13 +688,14 @@ fn pad2(n : Int) -> String {
 ///|
 fn usage() -> Unit {
   let text =
-    #|usage: bm2 <command> [app]
+    #|usage: bm2 <command>
     #|
     #|commands:
-    #|  start [app]    start apps (restart if already running)
-    #|  kill [app]     stop one app; use -y to stop everything
-    #|  refresh        restart the background service; apps keep running
-    #|  list [app]     show app status
+    #|  start          register and start the project in the current directory
+    #|  kill <name>    stop and unregister one project; use -y to stop everything
+    #|  reload         restart the background service with a fresh binary; apps keep running
+    #|  list [name]    show project status
+    #|  upgrade        update bm2 to the latest mooncakes release
     #|  version        show version
   println(text)
 }

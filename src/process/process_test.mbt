@@ -196,3 +196,43 @@ test "self_exe and read_small work on proc files" {
   let cmdline = @utf8.decode_lossy(@process.read_small("/proc/self/cmdline"))
   assert_true(cmdline.length() > 0)
 }
+
+///|
+test "rotate keeps at most ten generations" {
+  let dir = "/tmp/bm2-process-test-rotate"
+  @process.mkdir_p(dir)
+  let path = dir + "/app.log"
+  for i in 0..<12 {
+    @fs.write_string_to_file(path, "gen\{i}")
+    @process.rotate(path)
+  }
+  assert_false(@fs.path_exists(path))
+  assert_true(@fs.path_exists(path + ".1"))
+  assert_true(@fs.path_exists(path + ".10"))
+  assert_false(@fs.path_exists(path + ".11"))
+  // Eleven generations were written; the oldest (gen1) fell off at the
+  // twelfth rotation, so .10 holds gen2 and .1 holds gen11.
+  assert_eq(@fs.read_file_to_string(path + ".10"), "gen2")
+  assert_eq(@fs.read_file_to_string(path + ".1"), "gen11")
+}
+
+///|
+test "copytruncate copies and truncates in place" {
+  let dir = "/tmp/bm2-process-test-copytruncate"
+  @process.mkdir_p(dir)
+  let path = dir + "/app.log"
+  @fs.write_string_to_file(path, "content")
+  @process.copytruncate(path)
+  assert_eq(@fs.read_file_to_string(path), "")
+  assert_eq(@fs.read_file_to_string(path + ".1"), "content")
+}
+
+///|
+test "file_size reports bytes and missing files" {
+  let dir = "/tmp/bm2-process-test-size"
+  @process.mkdir_p(dir)
+  let path = dir + "/app.log"
+  @fs.write_string_to_file(path, "12345")
+  assert_eq(@process.file_size(path), Some(5L))
+  assert_eq(@process.file_size(path + "/none"), None)
+}

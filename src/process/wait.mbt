@@ -45,6 +45,24 @@ pub fn wait_pidfd(
 }
 
 ///|
+/// Reap a just-killed child until it is gone (bounded), so a failed spawn
+/// attempt never leaves a zombie behind. Returns immediately when the
+/// child is not reapable (already reaped, adopted, or not ours).
+pub fn drain_child(pid : Int) -> Unit {
+  for _ in 0..<50 {
+    let reaped = try wait_child(pid, nohang=true) catch {
+      _ => return
+    } noraise {
+      r => r
+    }
+    match reaped {
+      Some(_) => return
+      None => sleep_ms(10)
+    }
+  }
+}
+
+///|
 /// Reap a child with waitpid. `pid = -1` reaps any child.
 /// Returns None when `nohang` is set and no child has exited.
 pub fn wait_child(

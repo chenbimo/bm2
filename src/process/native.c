@@ -75,7 +75,35 @@ int32_t bm2_spawn(moonbit_bytes_t bun_path, moonbit_bytes_t script,
     }
     if (redirect_fd((char *)out_path, STDOUT_FILENO) != 0) _exit(126);
     if (redirect_fd((char *)err_path, STDERR_FILENO) != 0) _exit(126);
-    char *argv[] = {(char *)bun_path, (char *)script, NULL};
+    /* script is a NUL-terminated cstr. The first entry is the single
+     * argument of a managed app; extra argv entries may follow, separated
+     * by NUL, so the CLI can run commands with arguments (moon update,
+     * moon install ...). An empty script means no arguments at all. */
+    int argc;
+    size_t slen = Moonbit_array_length(script);
+    if (slen <= 1) {
+      argc = 1;
+    } else {
+      argc = 2;
+      for (size_t i = 0; i + 1 < slen; i++) {
+        if (script[i] == 0) argc++;
+      }
+    }
+    char **argv = malloc(sizeof(char *) * (size_t)(argc + 1));
+    if (argv == NULL) _exit(126);
+    argv[0] = (char *)bun_path;
+    if (argc > 1) {
+      char *p = (char *)script;
+      char *end = p + slen;
+      int idx = 1;
+      while (p < end && *p != 0) {
+        argv[idx++] = p;
+        p += strlen(p) + 1;
+      }
+      argv[idx] = NULL;
+    } else {
+      argv[1] = NULL;
+    }
     /* execvpe: resolve a bare "bun" via PATH from envp (_GNU_SOURCE). */
     execvpe((char *)bun_path, argv, envp);
     _exit(127);
@@ -160,9 +188,41 @@ int32_t bm2_mkdir_p(moonbit_bytes_t path, int32_t mode) {
   return 0;
 }
 
+/* Deadlines for socket reads/writes. A peer that sends a partial message
+ * and stalls must not freeze the single-threaded daemon loop (or hang the
+ * CLI), so every read/write step is bounded by poll. */
+#define SOCK_TIMEOUT_MS 5000
+
+static int poll_in(int fd, int timeout_ms) {
+  struct pollfd pfd;
+  pfd.fd = fd;
+  pfd.events = POLLIN;
+  pfd.revents = 0;
+  int rc;
+  do {
+    rc = poll(&pfd, 1, timeout_ms);
+  } while (rc < 0 && errno == EINTR);
+  return rc;
+}
+
+static int poll_out(int fd, int timeout_ms) {
+  struct pollfd pfd;
+  pfd.fd = fd;
+  pfd.events = POLLOUT;
+  pfd.revents = 0;
+  int rc;
+  do {
+    rc = poll(&pfd, 1, timeout_ms);
+  } while (rc < 0 && errno == EINTR);
+  return rc;
+}
+
 static int write_all(int fd, const uint8_t *data, size_t len) {
   size_t off = 0;
   while (off < len) {
+    int rc = poll_out(fd, SOCK_TIMEOUT_MS);
+    if (rc < 0) return -errno;
+    if (rc == 0) return -ETIMEDOUT;
     ssize_t n = write(fd, data + off, len - off);
     if (n < 0) {
       if (errno == EINTR) continue;
@@ -236,7 +296,8 @@ static void ignore_sigpipe(void) {
 /* Listen on a fresh AF_UNIX socket at path (stale path unlinked, 0600).
  * SOCK_CLOEXEC keeps the listening fd out of spawned apps: otherwise an
  * app would keep the socket alive after bm2d dies, so the CLI would hang
- * for its full timeout before declaring the socket stale. */
+ * for its full timeout before declaring the socket stale. Only a socket
+ * at the path is ever unlinked: a user file must not be removed. */
 MOONBIT_FFI_EXPORT
 int32_t bm2_socket_listen(moonbit_bytes_t path) {
   ignore_sigpipe();
@@ -244,7 +305,10 @@ int32_t bm2_socket_listen(moonbit_bytes_t path) {
   if (make_addr(path, &addr) != 0) return -ENAMETOOLONG;
   int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0) return -errno;
-  unlink((char *)path);
+  struct stat st;
+  if (lstat((char *)path, &st) != 0 || S_ISSOCK(st.st_mode)) {
+    unlink((char *)path);
+  }
   if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
     int err = errno;
     close(fd);
@@ -266,11 +330,39 @@ int32_t bm2_socket_connect(moonbit_bytes_t path) {
   if (make_addr(path, &addr) != 0) return -ENAMETOOLONG;
   int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
   if (fd < 0) return -errno;
-  if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+  /* Non-blocking connect with a 2s deadline: a full backlog (daemon busy
+   * or wedged) must fail the CLI instead of hanging it forever. */
+  int flags = fcntl(fd, F_GETFL, 0);
+  fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+  int rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+  if (rc != 0 && errno != EINPROGRESS) {
     int err = errno;
     close(fd);
     return -err;
   }
+  if (rc != 0) {
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLOUT;
+    pfd.revents = 0;
+    int prc;
+    do {
+      prc = poll(&pfd, 1, 2000);
+    } while (prc < 0 && errno == EINTR);
+    if (prc <= 0) {
+      int err = prc == 0 ? ETIMEDOUT : errno;
+      close(fd);
+      return -err;
+    }
+    int soerr = 0;
+    socklen_t slen = sizeof(soerr);
+    getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &slen);
+    if (soerr != 0) {
+      close(fd);
+      return -soerr;
+    }
+  }
+  fcntl(fd, F_SETFL, flags);
   return fd;
 }
 
@@ -306,6 +398,9 @@ int32_t bm2_close(int32_t fd) {
 static int read_exact(int fd, uint8_t *buf, size_t len) {
   size_t off = 0;
   while (off < len) {
+    int rc = poll_in(fd, SOCK_TIMEOUT_MS);
+    if (rc < 0) return -errno;
+    if (rc == 0) return -ETIMEDOUT;
     ssize_t n = read(fd, buf + off, len - off);
     if (n < 0) {
       if (errno == EINTR) continue;
@@ -411,7 +506,10 @@ int32_t bm2_pidfd_alive(int32_t fd) {
   pfd.fd = fd;
   pfd.events = POLLIN;
   pfd.revents = 0;
-  int rc = poll(&pfd, 1, 0);
+  int rc;
+  do {
+    rc = poll(&pfd, 1, 0);
+  } while (rc < 0 && errno == EINTR);
   if (rc < 0) return -errno;
   return rc == 0 ? 1 : 0;
 }
@@ -459,16 +557,27 @@ int32_t bm2_self_exe(moonbit_bytes_t buf, int32_t cap) {
   return (int32_t)n;
 }
 
-/* Read a small file (works on /proc virtual files, unlike ftell-based
- * readers); returns byte count or -errno. */
+/* Read a small file into a buffer (works on /proc virtual files, unlike
+ * ftell-based readers); loops until EOF so long entries are not truncated.
+ * Returns byte count or -errno. */
 MOONBIT_FFI_EXPORT
 int32_t bm2_read_small(moonbit_bytes_t path, moonbit_bytes_t buf, int32_t cap) {
   int fd = open((char *)path, O_RDONLY);
   if (fd < 0) return -errno;
-  ssize_t n = read(fd, buf, (size_t)cap);
-  int err = errno;
+  size_t off = 0;
+  while (off < (size_t)cap) {
+    ssize_t n = read(fd, (char *)buf + off, (size_t)cap - off);
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      int err = errno;
+      close(fd);
+      return -err;
+    }
+    if (n == 0) break;
+    off += (size_t)n;
+  }
   close(fd);
-  return n < 0 ? -err : (int32_t)n;
+  return (int32_t)off;
 }
 
 static volatile sig_atomic_t g_term_flag = 0;
@@ -503,4 +612,87 @@ void bm2_exit(int32_t code) {
 MOONBIT_FFI_EXPORT
 int32_t bm2_write_fd(int32_t fd, moonbit_bytes_t data) {
   return write_all(fd, data, (size_t)Moonbit_array_length(data));
+}
+
+/* ---------------- log rotation ---------------- */
+
+/* File size in bytes, or -errno. Used to decide when a log rotates. */
+MOONBIT_FFI_EXPORT
+int64_t bm2_file_size(moonbit_bytes_t path) {
+  struct stat st;
+  if (stat((char *)path, &st) != 0) return -errno;
+  return (int64_t)st.st_size;
+}
+
+/* Shift the rotation chain (path.N -> path.N+1), then rename path to
+ * path.1. Drops path.10, keeping ten archived generations. Used for logs
+ * written by the daemon itself, where no fd survives the rename. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_rotate(moonbit_bytes_t path) {
+  char buf[4096];
+  size_t len = strlen((char *)path);
+  if (len + 5 >= sizeof(buf)) return -ENAMETOOLONG;
+  snprintf(buf, sizeof(buf), "%s.10", (char *)path);
+  unlink(buf);
+  for (int i = 9; i >= 1; i--) {
+    snprintf(buf, sizeof(buf), "%s.%d", (char *)path, i);
+    char next[4096];
+    snprintf(next, sizeof(next), "%s.%d", (char *)path, i + 1);
+    if (rename(buf, next) != 0 && errno != ENOENT) {
+      /* a missing generation is fine; anything else leaves a gap */
+    }
+  }
+  snprintf(buf, sizeof(buf), "%s.1", (char *)path);
+  if (rename((char *)path, buf) != 0 && errno != ENOENT) return -errno;
+  return 0;
+}
+
+/* Copy path into path.1 (shifting the chain), then truncate path to zero.
+ * App processes keep writing to the old inode after the copy, so their
+ * output continues into the truncated file; a few bytes written during the
+ * copy are lost, which is the accepted trade-off for fd-held logs. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_copytruncate(moonbit_bytes_t path) {
+  char buf[4096];
+  size_t len = strlen((char *)path);
+  if (len + 5 >= sizeof(buf)) return -ENAMETOOLONG;
+  snprintf(buf, sizeof(buf), "%s.10", (char *)path);
+  unlink(buf);
+  for (int i = 9; i >= 1; i--) {
+    snprintf(buf, sizeof(buf), "%s.%d", (char *)path, i);
+    char next[4096];
+    snprintf(next, sizeof(next), "%s.%d", (char *)path, i + 1);
+    if (rename(buf, next) != 0 && errno != ENOENT) {
+      /* a missing generation is fine; anything else leaves a gap */
+    }
+  }
+  /* O_RDWR so the in-place ftruncate below can shrink the file. */
+  int src = open((char *)path, O_RDWR);
+  if (src < 0) return errno == ENOENT ? 0 : -errno;
+  snprintf(buf, sizeof(buf), "%s.1", (char *)path);
+  int dst = open(buf, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (dst < 0) {
+    int err = errno;
+    close(src);
+    return -err;
+  }
+  uint8_t chunk[65536];
+  int rc = 0;
+  for (;;) {
+    ssize_t n = read(src, chunk, sizeof(chunk));
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      rc = -errno;
+      break;
+    }
+    if (n == 0) break;
+    if (write_all(dst, chunk, (size_t)n) != 0) {
+      rc = -errno;
+      break;
+    }
+  }
+  if (rc == 0 && ftruncate(src, 0) != 0) rc = -errno;
+  close(src);
+  close(dst);
+  return rc;
 }

@@ -1,8 +1,5 @@
 ///|
-let rootKeys : Array[String] = ["apps"]
-
-///|
-let appKeys : Array[String] = [
+let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "instances", "base_port", "max_memory_mb",
   "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "env",
 ]
@@ -23,63 +20,52 @@ const DEFAULT_MIN_UPTIME_MS : Int = 10000
 const DEFAULT_STOP_TIMEOUT_MS : Int = 10000
 
 ///|
-pub fn parse(doc : String) -> Config raise ConfigError {
+/// Parse a bm2.toml document. `base_dir` is the config file's directory:
+/// an omitted `cwd` defaults to it. The resulting config is validated.
+pub fn parse(doc : String, base_dir : String) -> Config raise ConfigError {
   let value = @toml.parse(doc) catch {
     e => raise ConfigError::InvalidDocument(e.to_string())
   }
-  guard value is @toml.TomlTable(root) else {
+  guard value is @toml.TomlTable(table) else {
     raise ConfigError::InvalidDocument("bm2.toml root must be a table")
   }
-  reject_unknown_keys(root, rootKeys, "root")
-  guard root.get("apps") is Some(@toml.TomlArray(app_values)) else {
-    raise ConfigError::InvalidField("apps is required and must be an array")
-  }
-  if app_values.is_empty() {
-    raise ConfigError::InvalidField("apps must contain at least one app")
-  }
-  let apps : Array[AppConfig] = []
-  for i, app_value in app_values {
-    apps.push(parse_app(app_value, i))
-  }
-  let config = { apps, }
-  validate(config)
-  config
-}
-
-///|
-fn parse_app(
-  value : @toml.TomlValue,
-  index : Int,
-) -> AppConfig raise ConfigError {
-  let ctx = "apps[\{index}]"
-  guard value is @toml.TomlTable(table) else {
-    raise ConfigError::InvalidField("\{ctx} must be a table")
-  }
-  reject_unknown_keys(table, appKeys, ctx)
-  {
-    name: req_string(table, "name", ctx),
-    cwd: req_string(table, "cwd", ctx),
-    script: req_string(table, "script", ctx),
-    runtime: opt_string(table, "runtime", ctx, "bun"),
-    instances: req_int(table, "instances", ctx),
-    base_port: req_int(table, "base_port", ctx),
-    max_memory_mb: opt_int(table, "max_memory_mb", ctx, DEFAULT_MAX_MEMORY_MB),
-    max_restarts: opt_int(table, "max_restarts", ctx, DEFAULT_MAX_RESTARTS),
+  reject_unknown_keys(table, rootKeys, "root")
+  let config : Config = {
+    name: req_string(table, "name", "root"),
+    cwd: opt_string(table, "cwd", "root", base_dir),
+    script: req_string(table, "script", "root"),
+    runtime: opt_string(table, "runtime", "root", "bun"),
+    instances: req_int(table, "instances", "root"),
+    base_port: req_int(table, "base_port", "root"),
+    max_memory_mb: opt_int(
+      table,
+      "max_memory_mb",
+      "root",
+      DEFAULT_MAX_MEMORY_MB,
+    ),
+    max_restarts: opt_int(table, "max_restarts", "root", DEFAULT_MAX_RESTARTS),
     restart_delay_ms: opt_int(
       table,
       "restart_delay_ms",
-      ctx,
+      "root",
       DEFAULT_RESTART_DELAY_MS,
     ),
-    min_uptime_ms: opt_int(table, "min_uptime_ms", ctx, DEFAULT_MIN_UPTIME_MS),
+    min_uptime_ms: opt_int(
+      table,
+      "min_uptime_ms",
+      "root",
+      DEFAULT_MIN_UPTIME_MS,
+    ),
     stop_timeout_ms: opt_int(
       table,
       "stop_timeout_ms",
-      ctx,
+      "root",
       DEFAULT_STOP_TIMEOUT_MS,
     ),
-    env: opt_env(table, ctx),
+    env: opt_env(table, "root"),
   }
+  validate(config)
+  config
 }
 
 ///|
@@ -95,7 +81,15 @@ fn opt_env(
       for name, value in values {
         validate_env_name(name, ctx)
         match value {
-          @toml.TomlString(text) => env[name] = text
+          @toml.TomlString(text) => {
+            // A NUL in the value would break the C-side envp blob layout.
+            if text.contains("\u{0}") {
+              raise ConfigError::InvalidField(
+                "\{ctx}.env.\{name} must not contain NUL characters",
+              )
+            }
+            env[name] = text
+          }
           _ =>
             raise ConfigError::InvalidField(
               "\{ctx}.env.\{name} must be a string",

@@ -9,11 +9,12 @@ It manages Bun processes only. Nginx remains responsible for reverse proxying an
 - Linux only; development and verification target WSL Debian. Non-Linux
   builds refuse to run with a clear message. Requires Linux kernel >= 5.3
   (pidfd process tracking).
-- One or more Bun (or Node) applications, each with one or more independent instances.
+- One `bm2.toml` configures **one project** (a single app with one or more
+  independent instances). One bm2 daemon per user manages many projects.
 - Fixed launch command: `<runtime> <script>`.
 - Crash restart budget, memory limit, graceful stop timeout, persisted state, and Unix socket control.
-- Commands: `start`, `kill`, `refresh`, `version`, `list`.
-- `start` always performs a full restart for its target.
+- Commands: `start`, `kill`, `list`, `reload`, `upgrade`, `version`.
+- `start` always performs a full restart for its project.
 
 It does not manage Nginx, domains, certificates, hot reload, boot startup, or remote administration.
 
@@ -21,60 +22,66 @@ It does not manage Nginx, domains, certificates, hot reload, boot startup, or re
 
 Install these tools inside WSL Debian:
 
-- [MoonBit](https://www.moonbitlang.com/)
+- [MoonBit](https://www.moonbitlang.com/) (only needed to install/upgrade bm2)
 - [Bun](https://bun.sh/)
 - `curl` for the end-to-end verification script
 
 Open this repository through VS Code Remote-WSL. The repository may remain at `/mnt/c/codes/bm2`; edit it from VS Code and run all commands in the Remote-WSL integrated terminal.
 
-## Build and install
+## Install and upgrade
 
 ```bash
-moon build --target native
-mkdir -p ~/.local/bin
-cp _build/native/debug/build/cmd/bm2/bm2.exe ~/.local/bin/bm2
-cp _build/native/debug/build/cmd/bm2d/bm2d.exe ~/.local/bin/bm2d
-chmod +x ~/.local/bin/bm2 ~/.local/bin/bm2d
+moon install chensuiyi/bm2/... --bin ~/.local/bin
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Both binaries must be on `PATH`: `bm2` launches `bm2d` by name.
+Both binaries (`bm2`, `bm2d`) are installed together; both must stay on
+`PATH` because `bm2` launches `bm2d` by name.
+
+To update to the latest mooncakes release:
+
+```bash
+bm2 upgrade          # compares versions, runs moon install, then:
+bm2 reload           # swap in the new daemon without stopping apps
+```
 
 ## Configuration
 
 Create `bm2.toml` in the directory where you run `bm2`:
 
 ```toml
-[[apps]]
+# Project name: letter first, then letters, digits and underscores only.
+# It is the app name too and must be unique among registered projects.
 name = "api"
-cwd = "/srv/api"
+cwd = "/srv/api"             # optional; defaults to this file's directory
 script = "src/index.ts"
 instances = 2
 base_port = 3000
 ```
 
-Every app requires these five fields:
+Required fields:
 
 | Field | Meaning |
 | --- | --- |
-| `name` | Lowercase letters, digits, and hyphens only; unique across apps. |
-| `cwd` | Absolute application working directory. |
+| `name` | Project/app name. Letter first, then letters, digits and underscores; unique across all registered projects. |
 | `script` | Relative script path inside `cwd`; `..` is forbidden. |
 | `instances` | Number of instances; `1..1024`. |
 | `base_port` | First instance port; later instances use consecutive ports. |
 
-These optional fields override the built-in defaults:
+Optional fields (with defaults):
 
 | Field | Default | Meaning |
 | --- | --- | --- |
+| `cwd` | config dir | Absolute application working directory. |
 | `runtime` | `bun` | Runtime executable: `bun` or `node`. |
 | `max_memory_mb` | `512` | Maximum VmRSS in MiB; at least `1`. |
 | `max_restarts` | `10` | Allowed consecutive abnormal restarts; `0` disables retries. |
 | `restart_delay_ms` | `1000` | Delay before an automatic restart. |
 | `min_uptime_ms` | `10000` | A clean exit before this duration counts toward the restart budget. |
-| `stop_timeout_ms` | `10000` | Grace period after SIGTERM before SIGKILL. |
+| `stop_timeout_ms` | `10000` | Grace period after SIGTERM before SIGKILL; at most `60000`. |
 
-Port ranges across all apps must not overlap.
+Port ranges across all registered projects must not overlap; a conflicting
+`bm2 start` is rejected.
 
 ## Environment
 
@@ -86,55 +93,64 @@ bm2 passes only `PATH`, `HOME`, and `TMPDIR` from its own environment to managed
 - `BM2_APP_PORT` (the port assigned to this instance)
 - `NODE_ENV` (always `"production"`: bm2 is a production-run tool, so managed apps can reliably detect they are under bm2)
 
-Bun automatically loads `.env` files from each application's `cwd`. Do not put application secrets in `bm2.toml`; keep them in the application's environment or `.env` files. Reserved bm2 variables take precedence over values from `apps.env` and `.env`.
+Bun automatically loads `.env` files from the project's `cwd`. Do not put application secrets in `bm2.toml`; keep them in the application's environment or `.env` files. Reserved bm2 variables take precedence over values from `[env]` and `.env`.
 
-## Per-app environment
-
-Each app may provide an optional string-only `[apps.env]` table. bm2 constructs a separate environment for every instance, so variables with the same name in different apps never overwrite each other:
-
-```toml
-[[apps]]
-name = "api"
-cwd = "/srv/api"
-script = "src/index.ts"
-instances = 2
-base_port = 3000
-
-[apps.env]
-LOG_LEVEL = "info"
-APP_THEME = "dark"
-```
-
-The effective precedence is `BM2_APP_NAME` / `BM2_INSTANCE_ID` / `BM2_APP_INSTANCE` / `BM2_APP_PORT` / `NODE_ENV`, then `apps.env`, then Bun's project `.env`, then the inherited `PATH`, `HOME`, and `TMPDIR`. Environment names must use letters, digits, and underscores, cannot begin with a digit, and `BM2_APP_NAME`, `BM2_INSTANCE_ID`, `BM2_APP_INSTANCE`, `BM2_APP_PORT`, `NODE_ENV`, `PATH`, `HOME`, and `TMPDIR` are reserved. Values must be TOML strings. bm2 never writes environment values to state files, events, crash logs, or CLI output.
+Each project may provide an optional string-only `[env]` table. Environment names must use letters, digits, and underscores, cannot begin with a digit, and the reserved names above plus `PATH`/`HOME`/`TMPDIR` are rejected. Values must be TOML strings without NUL characters. bm2 never writes environment values to state files, events, crash logs, or CLI output.
 
 ## Commands
 
 ```bash
-bm2 start             # fully restart all configured apps
-bm2 start api         # fully restart api only
-bm2 kill -y           # SIGKILL all managed apps and exit bm2d (bare `kill` refuses)
-bm2 kill api          # immediately SIGKILL api only; bm2d stays running
-bm2 refresh           # stop bm2d and start a fresh one; managed apps keep running
+bm2 start             # register/update the project in the current directory and start it
+bm2 kill <name>       # stop one project and unregister it; bm2d stays running
+bm2 kill -y           # stop all projects, unregister them and exit bm2d (bare `kill` refuses)
+bm2 list [name]       # display all registered project states
+bm2 reload            # swap in a fresh bm2d; managed apps keep running
+bm2 upgrade           # update bm2 to the latest mooncakes release
 bm2 version           # print the bm2 version
-bm2 list              # display all instance states
-bm2 list api          # display one app
 ```
 
-A bare `bm2 kill` without `-y` refuses to run and prints a hint, so a stray keystroke cannot take down the daemon and every app at once; `bm2 kill <app>` still needs no confirmation because it only stops one app.
+`start` and `kill <name>` are asynchronous: the daemon answers immediately
+and the CLI polls until the operation settles, so the daemon never blocks
+on stop timeouts.
 
-`bm2 list`, `bm2 kill`, `bm2 refresh`, and `bm2 version` work from any directory. When no daemon is running, they auto-restore it from the config path recorded at its last start (`~/.bm2/bm2d.config`), so a crashed daemon is revived with one command; an explicit `bm2 kill -y` removes that record, so a deliberately stopped daemon stays stopped. Only `bm2 start` must run in the directory containing `bm2.toml`, because it may need to (re)build the daemon from that config. `refresh` rebuilds the daemon from the config path the running daemon was started with.
+`bm2 list`, `bm2 kill`, `bm2 reload`, and `bm2 version` work from any
+directory. Only `bm2 start` must run in the directory containing
+`bm2.toml`, because it registers the project from that config. A bare
+`bm2 kill` without `-y` refuses to run and prints a hint.
 
-`refresh` swaps in a fresh bm2d (e.g. after installing a new build) without stopping managed apps: the old daemon detaches, the new one adopts the surviving instances with unchanged PIDs.
+Re-running `bm2 start` in a project (or in another directory with the same
+`name`) updates the config and performs a full restart, so changing any
+field — including the instance count, ports, or script — takes effect on
+the next start. A killed project (`bm2 kill <name>`) is fully unregistered:
+it disappears from `bm2 list` and is not revived by a daemon restart.
 
-`list` prints one row per active or abnormal instance, including its PID, port, runtime status, memory, uptime, and the complete project working directory in the final `CWD` column. An app stopped by `bm2 kill <app>` is intentionally omitted; `restarting` and `errored` instances remain visible for diagnosis.
+`reload` swaps in a fresh bm2d (e.g. after `bm2 upgrade`) without stopping
+managed apps: the old daemon detaches, the new one adopts the surviving
+instances with unchanged PIDs.
 
-`start` reloads `bm2.toml` every time. While any instance is running, only numeric limits may change (`max_memory_mb`, `max_restarts`, `restart_delay_ms`, `min_uptime_ms`, `stop_timeout_ms`). Changing an app name, working directory, script, instance count, or base port requires `bm2 kill <app>` first.
+`list` prints one row per active or abnormal instance, including its PID,
+port, runtime status, memory, uptime, and the complete project working
+directory in the final `CWD` column. Intentionally stopped instances are
+omitted; `restarting` and `errored` instances remain visible for diagnosis.
 
-If a daemon dies abruptly and leaves a stale Unix socket, the next CLI request waits at most three seconds for a response, removes the stale socket, starts one fresh daemon, and retries the request once.
+If a daemon dies abruptly and leaves a stale Unix socket, the next CLI
+request waits briefly for a response, removes the stale socket, starts one
+fresh daemon, and retries the request once.
+
+## Recovery semantics
+
+A started daemon **adopts still-running instances** of registered projects
+(after a crash or `reload`) but **never starts anything on its own**:
+projects only run after an explicit `bm2 start`. Adoption verifies the
+process's environment carries bm2's reserved variables, so a foreign
+process (even one launched manually with the same script) is never
+touched — it is recorded as a `pid_conflict` instead.
 
 ## State and logs
 
-bm2 always stores its socket, PID, state, and management logs in `~/.bm2` for the current Linux user. A user therefore runs one bm2 daemon managing the apps in its `bm2.toml`:
+bm2 always stores its socket, PID, state, and management logs in `~/.bm2`
+for the current Linux user. One daemon per user manages all registered
+projects:
 
 ```text
 bm2.sock                         # Unix socket, mode 0600
@@ -142,19 +158,27 @@ bm2d.pid                         # daemon PID
 bm2.events.jsonl                 # CLI connection and retry events
 bm2d.log                         # daemon stderr / runtime diagnostics
 bm2d.events.jsonl                # daemon and supervisor events
-<app>/<app>-<id>.json            # persisted instance state
-<app>/logs/<app>-<id>.out.log    # application stdout
-<app>/logs/<app>-<id>.error.log  # application stderr
-<app>/logs/<app>-<id>.crash.log  # abnormal-exit diagnostics
+<name>/project.json              # registration (config path) per project
+<name>/<name>-<id>.json          # persisted instance state
+<name>/logs/<name>-<id>.out.log    # application stdout
+<name>/logs/<name>-<id>.error.log  # application stderr
+<name>/logs/<name>-<id>.crash.log  # abnormal-exit diagnostics
 ```
 
-The two `*.events.jsonl` files contain one JSON object per line. They record management metadata only: timestamps, event names, app/instance/PID when applicable, and operational reasons. They do **not** contain environment variable values, protocol payloads, or application output.
+Logs are rotated by size: each file rotates at 10 MB and keeps ten
+generations (`.1` .. `.10`, ~100 MB per file at most). Application logs
+stay strictly separate from bm2's own management logs.
+
+The two `*.events.jsonl` files contain one JSON object per line. They
+record management metadata only: timestamps, event names, app/instance/PID
+when applicable, and operational reasons. They do **not** contain
+environment variable values, protocol payloads, or application output.
 
 Useful commands:
 
 ```bash
 tail -f ~/.bm2/bm2d.events.jsonl
-jq -c . ~/.bm2/bm2.events.jsonl
+jq -c . ~/.bm2/bm2d.events.jsonl
 ```
 
 ## Verification
@@ -165,4 +189,4 @@ From the Remote-WSL terminal, run the complete formatter, static check, native t
 bash scripts/verify.sh
 ```
 
-The script requires MoonBit at `~/.moon/bin/moon`, creates temporary fixtures under `/tmp`, and removes their runtime state afterward. It covers crash restart limits, clean exits, memory limits, HTTP readiness, app kill semantics, stale socket recovery and daemon adoption, PID conflict safety, config reload rules, multi-instance rebuilds, daemon shutdown through bare `kill`, and structured event logs.
+The script requires MoonBit at `~/.moon/bin/moon`, creates temporary fixtures under `/tmp`, and removes their runtime state afterward. It covers multi-project registration and aggregated listing, crash restart limits, clean exits, memory limits, HTTP readiness, kill and unregistration semantics, daemon crash adoption, PID conflict safety, config update rules, multi-instance rebuilds, daemon shutdown through bare `kill`, reload without downtime, and structured event logs.

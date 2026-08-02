@@ -2,7 +2,7 @@
 pub(all) suberror SupervisorError {
   UnknownApp(String)
   Conflict(String)
-  ConfigChanged
+  PortConflict(String)
   IoError(String)
 }
 
@@ -17,8 +17,10 @@ pub impl Show for SupervisorError with fn output(self, logger) {
       logger.write_string("operation already in progress for app: ")
       logger.write_string(name)
     }
-    ConfigChanged =>
-      logger.write_string("config structure changed; run bm2 kill <app> first")
+    PortConflict(message) => {
+      logger.write_string("port conflict: ")
+      logger.write_string(message)
+    }
     IoError(message) => {
       logger.write_string("io error: ")
       logger.write_string(message)
@@ -27,43 +29,97 @@ pub impl Show for SupervisorError with fn output(self, logger) {
 }
 
 ///|
+/// One log file rotates once it exceeds this size; ten generations are
+/// kept, bounding total log usage per file at ~100 MB.
+const LOG_ROTATE_BYTES : Int64 = 10L * 1024L * 1024L
+
+///|
+/// How often the daemon checks log sizes for rotation.
+const LOG_CHECK_INTERVAL_MS : UInt64 = 10000UL
+
+///|
 pub struct Supervisor {
-  mut apps : Map[String, @config.AppConfig]
-  mut instances : Map[String, Array[Instance]]
-  mut pending_restart : Map[String, Unit]
+  apps : Map[String, @config.Config]
+  instances : Map[String, Array[Instance]]
+  pending_restart : Map[String, Unit]
+  pending_remove : Map[String, Unit]
   state_dir : String
   bun_path : String
   memory_interval_ms : Int
   mut last_memory_check_ms : UInt64
+  mut last_log_check_ms : UInt64
 }
 
 ///|
+/// Create an empty supervisor. Projects are added by `register` (on
+/// `bm2 start`) or by `load_projects` (adoption after a daemon restart);
+/// nothing is ever started automatically.
 pub fn Supervisor::new(
-  config : @config.Config,
   state_dir~ : String,
   bun_path~ : String,
   memory_interval_ms? : Int = 5000,
 ) -> Supervisor raise {
   @process.mkdir_p(state_dir, mode=0o700)
-  let apps : Map[String, @config.AppConfig] = Map([])
-  let instances : Map[String, Array[Instance]] = Map([])
-  for app in config.apps {
-    @process.mkdir_p("\{state_dir}/\{app.name}/logs", mode=0o700)
-    apps[app.name] = app
-    let arr = []
-    for id in 0..<app.instances {
-      arr.push(Instance::new(app, id))
-    }
-    instances[app.name] = arr
-  }
   {
-    apps,
-    instances,
+    apps: Map([]),
+    instances: Map([]),
     pending_restart: Map([]),
+    pending_remove: Map([]),
     state_dir,
     bun_path,
     memory_interval_ms,
     last_memory_check_ms: 0UL,
+    last_log_check_ms: 0UL,
+  }
+}
+
+///|
+/// Register or update one project from a freshly parsed config, and record
+/// its config path so a later daemon can reload it for adoption.
+/// Re-registering an existing project swaps its config in place — the
+/// instance array is rebuilt by `spawn_fresh` once the full restart that
+/// `bm2 start` performs has stopped the old instances. Port ranges must
+/// not overlap any other registered project.
+pub fn Supervisor::register(
+  self : Supervisor,
+  config : @config.Config,
+  config_path : String,
+) -> Unit raise {
+  let name = config.name
+  self.reject_port_conflict(config)
+  @process.mkdir_p("\{self.state_dir}/\{name}/logs", mode=0o700)
+  match self.instances.get(name) {
+    Some(_) => self.apps[name] = config
+    None => {
+      let arr = []
+      for id in 0..<config.instances {
+        arr.push(Instance::new(config, id))
+      }
+      self.apps[name] = config
+      self.instances[name] = arr
+    }
+  }
+  self.pending_restart.remove(name)
+  self.pending_remove.remove(name)
+  discard(() => save_project(self.state_dir, name, { config_path, }))
+}
+
+///|
+fn Supervisor::reject_port_conflict(
+  self : Supervisor,
+  config : @config.Config,
+) -> Unit raise {
+  let start = config.base_port
+  let end = config.base_port + config.instances - 1
+  for pair in self.apps.iter() {
+    let (_, other) = pair
+    if other.name != config.name &&
+      start <= other.base_port + other.instances - 1 &&
+      other.base_port <= end {
+      raise PortConflict(
+        "\{config.name} port range \{start}~\{end} overlaps \{other.name} \{other.base_port}~\{other.base_port + other.instances - 1}",
+      )
+    }
   }
 }
 
@@ -206,7 +262,10 @@ pub fn Supervisor::start_app(
 
 ///|
 /// Graceful stop; explicitly stopped instances never auto-restart.
+/// Clears any pending full restart so a kill during a restart window
+/// cannot resurrect the app afterwards.
 pub fn Supervisor::stop_app(self : Supervisor, app_name : String) -> Unit raise {
+  self.pending_restart.remove(app_name)
   let app = self.app_config(app_name)
   for inst in self.app_instances(app_name) {
     inst.restart_at_ms = 0UL
@@ -218,21 +277,27 @@ pub fn Supervisor::stop_app(self : Supervisor, app_name : String) -> Unit raise 
     } else if !(inst.status is Errored) {
       inst.status = Stopped
       inst.exit_intent = Stop
-      // A pidfd may still be held when liveness was lost without a reap
-      // (e.g. the process was stopped externally); release it so it can
-      // never leak.
+      // Liveness was lost without a reap: the pid is gone, so clear it
+      // (a stale pid would block project removal forever) and release
+      // the pidfd so it can never leak.
+      inst.pid = 0
       if inst.pidfd > 0 {
         @process.close(inst.pidfd)
         inst.pidfd = 0
       }
-      discard(() => save_state(self.state_dir, inst))
+      self.try_save_state(inst)
     }
   }
 }
 
 ///|
-/// Immediate SIGKILL; marked manual and never auto-restarted.
+/// Immediate SIGKILL; marked manual and never auto-restarted. Clears any
+/// pending full restart, mirroring stop_app. The project is queued for
+/// removal once every instance has stopped, so a killed project never
+/// comes back after a daemon restart.
 pub fn Supervisor::kill_app(self : Supervisor, app_name : String) -> Unit raise {
+  self.pending_restart.remove(app_name)
+  self.pending_remove[app_name] = ()
   for inst in self.app_instances(app_name) {
     inst.restart_at_ms = 0UL
     if inst.alive() {
@@ -244,19 +309,23 @@ pub fn Supervisor::kill_app(self : Supervisor, app_name : String) -> Unit raise 
     } else if !(inst.status is Errored) {
       inst.status = Stopped
       inst.exit_intent = Stop
+      // Liveness was lost without a reap: clear the stale pid too, or the
+      // project removal would wait on it forever.
+      inst.pid = 0
       if inst.pidfd > 0 {
         @process.close(inst.pidfd)
         inst.pidfd = 0
       }
-      discard(() => save_state(self.state_dir, inst))
+      self.try_save_state(inst)
     }
   }
 }
 
 ///|
 /// One supervisor pass: reap children, enforce memory limits, escalate
-/// overdue SIGTERMs, run delayed restarts, finish pending full restarts
-/// and reset restart counts of stable instances.
+/// overdue SIGTERMs, run delayed restarts, finish pending full restarts,
+/// drop killed projects, rotate oversized logs and reset restart counts
+/// of stable instances.
 pub fn Supervisor::tick(self : Supervisor) -> Unit {
   self.reap()
   let now = now_ms()
@@ -264,17 +333,130 @@ pub fn Supervisor::tick(self : Supervisor) -> Unit {
     self.last_memory_check_ms = now
     self.check_memory()
   }
+  if now - self.last_log_check_ms >= LOG_CHECK_INTERVAL_MS {
+    self.last_log_check_ms = now
+    self.rotate_logs()
+  }
   self.check_deadlines(now)
   self.check_restarts(now)
   self.check_pending()
+  self.check_removals()
   self.check_uptime_resets(now)
 }
 
 ///|
-fn Supervisor::app_config(
+/// Rotate logs past the size limit: app stdout/stderr are held open by
+/// the app process (copytruncate), crash logs and the daemon event log
+/// are written by us (rename). Failures are logged, never fatal.
+fn Supervisor::rotate_logs(self : Supervisor) -> Unit {
+  for pair in self.instances.iter() {
+    let (name, arr) = pair
+    for inst in arr {
+      let base = "\{self.state_dir}/\{name}/logs/\{name}-\{inst.instance_id}"
+      self.rotate_log(base + ".out.log", copytruncate=true)
+      self.rotate_log(base + ".error.log", copytruncate=true)
+      self.rotate_log(base + ".crash.log", copytruncate=false)
+    }
+  }
+  self.rotate_log("\{self.state_dir}/bm2d.events.jsonl", copytruncate=false)
+}
+
+///|
+fn Supervisor::rotate_log(
+  self : Supervisor,
+  path : String,
+  copytruncate~ : Bool,
+) -> Unit {
+  match @process.file_size(path) {
+    Some(size) if size > LOG_ROTATE_BYTES =>
+      try {
+        if copytruncate {
+          @process.copytruncate(path)
+        } else {
+          @process.rotate(path)
+        }
+        log_event(
+          self.state_dir,
+          "bm2d.events.jsonl",
+          "log_rotated",
+          detail=path,
+        )
+      } catch {
+        e =>
+          log_event(
+            self.state_dir,
+            "bm2d.events.jsonl",
+            "log_rotate_failed",
+            detail=path + ": " + e.to_string(),
+          )
+      } noraise {
+        _ => ()
+      }
+    _ => ()
+  }
+}
+
+///|
+/// Persist instance state; failures are logged, never fatal, so a broken
+/// disk degrades to stale state files instead of breaking supervision.
+fn Supervisor::try_save_state(self : Supervisor, inst : Instance) -> Unit {
+  try save_state(self.state_dir, inst) catch {
+    e =>
+      log_event(
+        self.state_dir,
+        "bm2d.events.jsonl",
+        "state_save_failed",
+        app=Some(inst.app_name),
+        instance=inst.instance_id,
+        detail=e.to_string(),
+      )
+  } noraise {
+    _ => ()
+  }
+}
+
+///|
+/// Drop projects whose kill has finished (every instance stopped):
+/// remove the in-memory project and its registration file, so a killed
+/// project is never listed or re-adopted after a daemon restart.
+fn Supervisor::check_removals(self : Supervisor) -> Unit {
+  let ready = []
+  for pair in self.pending_remove.iter() {
+    let (name, _) = pair
+    let mut all_stopped = true
+    match self.instances.get(name) {
+      Some(arr) =>
+        for inst in arr {
+          if inst.pid != 0 {
+            all_stopped = false
+            break
+          }
+        }
+      None => ()
+    }
+    if all_stopped {
+      ready.push(name)
+    }
+  }
+  for name in ready {
+    self.pending_remove.remove(name)
+    self.apps.remove(name)
+    self.instances.remove(name)
+    discard(() => remove_project(self.state_dir, name))
+    log_event(
+      self.state_dir,
+      "bm2d.events.jsonl",
+      "project_removed",
+      app=Some(name),
+    )
+  }
+}
+
+///|
+pub fn Supervisor::app_config(
   self : Supervisor,
   app_name : String,
-) -> @config.AppConfig raise SupervisorError {
+) -> @config.Config raise SupervisorError {
   match self.apps.get(app_name) {
     Some(app) => app
     None => raise UnknownApp(app_name)
@@ -360,7 +542,7 @@ fn Supervisor::handle_exit(
     Stop | RestartFresh => {
       inst.status = Stopped
       inst.pid = 0
-      discard(() => save_state(self.state_dir, inst))
+      self.try_save_state(inst)
     }
     RestartCounted => {
       let reason = match inst.last_reason {
@@ -399,7 +581,7 @@ fn Supervisor::handle_exit(
           instance=inst.instance_id,
           detail="clean_exit",
         )
-        discard(() => save_state(self.state_dir, inst))
+        self.try_save_state(inst)
       }
     }
   }
@@ -409,7 +591,7 @@ fn Supervisor::handle_exit(
 ///|
 fn Supervisor::counted_exit(
   self : Supervisor,
-  app : @config.AppConfig,
+  app : @config.Config,
   inst : Instance,
   now : UInt64,
   reason : String,
@@ -442,7 +624,7 @@ fn Supervisor::counted_exit(
       detail=reason,
     )
   }
-  discard(() => save_state(self.state_dir, inst))
+  self.try_save_state(inst)
 }
 
 ///|
@@ -501,8 +683,9 @@ fn Supervisor::check_restarts(self : Supervisor, now : UInt64) -> Unit {
         inst.restart_at_ms != 0UL &&
         now >= inst.restart_at_ms {
         inst.restart_at_ms = 0UL
+        // spawn_instance marks its own failures; nothing to do here.
         try self.spawn_instance(self.apps[name], inst) catch {
-          _ => self.mark_spawn_failed(inst)
+          _ => ()
         } noraise {
           _ => ()
         }
@@ -529,11 +712,9 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
   }
   for name in ready {
     self.pending_restart.remove(name)
+    // spawn_instance marks its own failures; nothing to do here.
     try self.spawn_fresh(name) catch {
-      _ =>
-        for inst in self.instances[name] {
-          self.mark_spawn_failed(inst)
-        }
+      _ => ()
     } noraise {
       _ => ()
     }
@@ -552,17 +733,24 @@ fn Supervisor::check_uptime_resets(self : Supervisor, now : UInt64) -> Unit {
         now - inst.started_at_ms >= app.min_uptime_ms.to_uint64() {
         inst.uptime_reset_done = true
         inst.restart_count = 0
-        discard(() => save_state(self.state_dir, inst))
+        self.try_save_state(inst)
       }
     }
   }
 }
 
 ///|
+/// Rebuild the instance array from the current config, then spawn every
+/// instance. Called once a full restart's old instances have stopped, so
+/// structural changes (instances count, ports, script) take effect here.
 fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
   let app = self.app_config(app_name)
-  for inst in self.instances[app_name] {
-    inst.restart_count = 0
+  let arr = []
+  for id in 0..<app.instances {
+    arr.push(Instance::new(app, id))
+  }
+  self.instances[app_name] = arr
+  for inst in arr {
     self.spawn_instance(app, inst)
   }
 }
@@ -570,7 +758,7 @@ fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
 ///|
 fn Supervisor::spawn_instance(
   self : Supervisor,
-  app : @config.AppConfig,
+  app : @config.Config,
   inst : Instance,
 ) -> Unit raise {
   let logs = "\{self.state_dir}/\{app.name}/logs"
@@ -578,19 +766,31 @@ fn Supervisor::spawn_instance(
   let base = "\{logs}/\{app.name}-\{inst.instance_id}"
   inst.status = Starting
   let runtime = if app.runtime == "node" { "node" } else { self.bun_path }
-  let pid = @process.spawn({
-    bun_path: runtime,
-    script: app.script,
-    cwd: app.cwd,
-    out_log: base + ".out.log",
-    err_log: base + ".error.log",
-    env_blob: @process.instance_env_blob(
-      app.name,
-      inst.instance_id,
-      inst.port,
-      app.env,
-    ),
-  })
+  let pid = try
+    @process.spawn({
+      bun_path: runtime,
+      script: app.script,
+      cwd: app.cwd,
+      out_log: base + ".out.log",
+      err_log: base + ".error.log",
+      env_blob: @process.instance_env_blob(
+        app.name,
+        inst.instance_id,
+        inst.port,
+        app.env,
+      ),
+    })
+  catch {
+    e => {
+      // Mark the failure here so every spawn path (start, pending restart,
+      // delayed retry) lands in the same backoff bookkeeping; callers just
+      // propagate the error without re-marking.
+      self.mark_spawn_failed(inst)
+      raise IoError(e.to_string())
+    }
+  } noraise {
+    pid => pid
+  }
   inst.pid = pid
   // Pin the process with a pidfd so liveness and exit detection stay
   // correct even if the pid gets reused later. Failure (kernel < 5.3)
@@ -598,6 +798,8 @@ fn Supervisor::spawn_instance(
   let pidfd = try @process.pidfd_open(pid) catch {
     e => {
       discard(() => @process.kill_group(pid, @process.SIGKILL))
+      // Reap the killed child so a failed spawn leaves no zombie.
+      @process.drain_child(pid)
       raise IoError(e.to_string())
     }
   } noraise {
@@ -611,7 +813,7 @@ fn Supervisor::spawn_instance(
   inst.restart_at_ms = 0UL
   inst.uptime_reset_done = false
   inst.last_reason = None
-  save_state(self.state_dir, inst)
+  self.try_save_state(inst)
   log_event(
     self.state_dir,
     "bm2d.events.jsonl",
@@ -623,13 +825,42 @@ fn Supervisor::spawn_instance(
 }
 
 ///|
+/// Spawn failures count against the restart budget and back off like
+/// crash restarts: transient failures retry with a growing delay, only
+/// exhausting the budget lands the instance in errored.
 fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
-  if !(inst.status is Online) {
-    inst.status = Errored
-    inst.last_reason = Some("spawn_failed")
-    self.write_crash(inst, "spawn_failed")
-    discard(() => save_state(self.state_dir, inst))
+  if inst.status is Online {
+    return
   }
+  inst.restart_count += 1
+  inst.last_reason = Some("spawn_failed")
+  self.write_crash(inst, "spawn_failed")
+  let app = self.apps[inst.app_name]
+  if inst.restart_count > app.max_restarts {
+    inst.status = Errored
+    inst.restart_at_ms = 0UL
+    log_event(
+      self.state_dir,
+      "bm2d.events.jsonl",
+      "instance_errored",
+      app=Some(inst.app_name),
+      instance=inst.instance_id,
+      detail="spawn_failed",
+    )
+  } else {
+    inst.status = Restarting
+    inst.restart_at_ms = now_ms() +
+      (app.restart_delay_ms * inst.restart_count).to_uint64()
+    log_event(
+      self.state_dir,
+      "bm2d.events.jsonl",
+      "instance_restart_scheduled",
+      app=Some(inst.app_name),
+      instance=inst.instance_id,
+      detail="spawn_failed",
+    )
+  }
+  self.try_save_state(inst)
 }
 
 ///|
@@ -665,7 +896,7 @@ fn Supervisor::write_crash(
 }
 
 ///|
-fn terminate(app : @config.AppConfig, inst : Instance) -> Unit {
+fn terminate(app : @config.Config, inst : Instance) -> Unit {
   discard(() => @process.kill_group(inst.pid, @process.SIGTERM))
   inst.kill_deadline_ms = now_ms() + app.stop_timeout_ms.to_uint64()
 }

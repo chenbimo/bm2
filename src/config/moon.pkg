@@ -2,3 +2,7 @@ import {
   "bobzhang/toml",
   "moonbitlang/x/fs",
 }
+
+import {
+  "moonbitlang/core/env",
+} for "test"

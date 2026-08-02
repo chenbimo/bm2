@@ -1,5 +1,8 @@
 ///|
-pub(all) struct AppConfig {
+/// One bm2.toml configures exactly one project (single app, one or more
+/// instances). The project name is also the app name and must be unique
+/// among all registered projects.
+pub(all) struct Config {
   name : String
   cwd : String
   script : String
@@ -12,11 +15,6 @@ pub(all) struct AppConfig {
   min_uptime_ms : Int
   stop_timeout_ms : Int
   env : Map[String, String]
-} derive(Debug)
-
-///|
-pub(all) struct Config {
-  apps : Array[AppConfig]
 } derive(Debug)
 
 ///|

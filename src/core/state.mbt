@@ -92,6 +92,39 @@ pub fn state_path(
 }
 
 ///|
+/// Registered project: the config path is all a daemon needs to reload
+/// the project's config on startup. Written on `bm2 start`, removed once
+/// the project is killed and fully stopped.
+pub(all) struct ProjectInfo {
+  config_path : String
+} derive(ToJson, FromJson, Debug, Eq)
+
+///|
+pub fn project_path(state_dir : String, name : String) -> String {
+  "\{state_dir}/\{name}/project.json"
+}
+
+///|
+pub fn save_project(
+  state_dir : String,
+  name : String,
+  info : ProjectInfo,
+) -> Unit raise {
+  let json = ToJson::to_json(info).stringify()
+  @process.write_atomic(project_path(state_dir, name), @utf8.encode(json))
+}
+
+///|
+pub fn load_project(path : String) -> ProjectInfo raise {
+  @json.from_json(@json.parse(@fs.read_file_to_string(path)))
+}
+
+///|
+pub fn remove_project(state_dir : String, name : String) -> Unit raise {
+  @process.unlink(project_path(state_dir, name))
+}
+
+///|
 /// Atomic write: "<path>.tmp" + fsync + rename, done in bm2_write_atomic.
 pub fn save_state(state_dir : String, inst : Instance) -> Unit raise {
   let json = ToJson::to_json(InstanceState::of(inst)).stringify()
@@ -106,10 +139,12 @@ pub fn load_state(path : String) -> InstanceState raise {
 
 ///|
 /// Fixed per-user state directory. bm2 deliberately manages one app set
-/// per Linux user, so configuration cannot override this path.
+/// per Linux user, so configuration cannot override this path. Without a
+/// HOME the directory falls back to /tmp so daemons never split across
+/// different working directories.
 pub fn resolve_state_dir() -> String {
   match @env.get_env_var("HOME") {
-    Some(home) => home + "/.bm2"
-    None => ".bm2"
+    Some(home) if !home.is_empty() => home + "/.bm2"
+    _ => "/tmp/bm2-" + @process.get_uid().to_string()
   }
 }

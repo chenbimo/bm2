@@ -1,32 +1,22 @@
 ///|
 const VALID_DOC : String =
-  #|[[apps]]
-  #|name = "api"
-  #|cwd = "/srv/yicode/api"
+  #|name = "blog"
+  #|cwd = "/srv/yicode/blog"
   #|script = "index.ts"
   #|instances = 4
   #|base_port = 3000
   #|
-  #|[apps.env]
+  #|[env]
   #|APP_ENV = "production"
   #|FEATURE_CACHE = "true"
   #|
-  #|[[apps]]
-  #|name = "upload"
-  #|cwd = "/srv/yicode/upload"
-  #|script = "src/main.ts"
-  #|instances = 2
-  #|base_port = 3100
-  #|
 
 ///|
-fn with_app(app_toml : String) -> String {
-  VALID_DOC + "\n[[apps]]\n" + app_toml
-}
+const BASE_DIR : String = "/srv/yicode"
 
 ///|
 fn parse_error(doc : String) -> String raise {
-  try @config.parse(doc) catch {
+  try @config.parse(doc, BASE_DIR) catch {
     e => e.to_string()
   } noraise {
     _ => fail("expected parse to fail")
@@ -35,356 +25,217 @@ fn parse_error(doc : String) -> String raise {
 
 ///|
 test "parses valid bm2.toml" {
-  let config = @config.parse(VALID_DOC)
-  assert_eq(config.apps.length(), 2)
-  assert_eq(config.apps[0].name, "api")
-  assert_eq(config.apps[0].instances, 4)
-  assert_eq(config.apps[0].base_port, 3000)
-  assert_eq(config.apps[1].script, "src/main.ts")
-  assert_eq(config.apps[0].max_memory_mb, 512)
-  assert_eq(config.apps[0].max_restarts, 10)
-  assert_eq(config.apps[0].restart_delay_ms, 1000)
-  assert_eq(config.apps[0].min_uptime_ms, 10000)
-  assert_eq(config.apps[0].env["APP_ENV"], "production")
-  assert_eq(config.apps[0].env["FEATURE_CACHE"], "true")
-  assert_true(config.apps[1].env.is_empty())
+  let config = @config.parse(VALID_DOC, BASE_DIR)
+  assert_eq(config.name, "blog")
+  assert_eq(config.cwd, "/srv/yicode/blog")
+  assert_eq(config.script, "index.ts")
+  assert_eq(config.instances, 4)
+  assert_eq(config.base_port, 3000)
+  assert_eq(config.max_memory_mb, 512)
+  assert_eq(config.max_restarts, 10)
+  assert_eq(config.restart_delay_ms, 1000)
+  assert_eq(config.min_uptime_ms, 10000)
+  assert_eq(config.stop_timeout_ms, 10000)
+  assert_eq(config.env["APP_ENV"], "production")
+  assert_eq(config.env["FEATURE_CACHE"], "true")
 }
 
 ///|
-test "rejects state_dir field" {
-  let message = parse_error("state_dir = \"/tmp/bm2\"\napps = []\n")
+test "cwd defaults to the config directory" {
+  let config = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 2
+      #|base_port = 3000
+      #|
+    ),
+    "/srv/yicode/blog",
+  )
+  assert_eq(config.cwd, "/srv/yicode/blog")
+}
+
+///|
+test "rejects unknown top-level field" {
+  let message = parse_error(
+    (
+      #|name = "blog"
+      #|state_dir = "/tmp/bm2"
+      #|script = "index.ts"
+      #|instances = 1
+      #|base_port = 3000
+      #|
+    ),
+  )
   assert_true(message.contains("unknown field state_dir"))
 }
 
 ///|
 test "rejects invalid toml document" {
-  assert_true(parse_error("apps = [").contains("InvalidDocument"))
+  let message = parse_error("name = [unclosed")
+  assert_true(message.contains("InvalidDocument"))
 }
 
 ///|
-test "rejects missing apps" {
-  assert_true(parse_error("").contains("apps is required"))
-}
-
-///|
-test "rejects empty apps" {
-  assert_true(parse_error("apps = []\n").contains("at least one app"))
-}
-
-///|
-test "rejects missing script" {
-  let doc =
-    #|[[apps]]
-    #|name = "api"
-    #|cwd = "/srv/api"
-    #|instances = 1
-    #|base_port = 3000
-    #|
-  assert_true(parse_error(doc).contains("apps[0].script is required"))
-}
-
-///|
-test "rejects invalid app name" {
-  let message = parse_error(
-    with_app(
-      (
-        #|name = "Api"
-        #|cwd = "/srv/api2"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 4000
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
-        #|
-      ),
+test "rejects missing required fields" {
+  assert_true(
+    parse_error("script = \"x\"\ninstances = 1\nbase_port = 1\n").contains(
+      "name is required",
     ),
   )
-  assert_true(message.contains("invalid name"))
+  assert_true(
+    parse_error("name = \"x\"\ninstances = 1\nbase_port = 1\n").contains(
+      "script is required",
+    ),
+  )
+  assert_true(
+    parse_error("name = \"x\"\nscript = \"s\"\nbase_port = 1\n").contains(
+      "instances is required",
+    ),
+  )
+  assert_true(
+    parse_error("name = \"x\"\nscript = \"s\"\ninstances = 1\n").contains(
+      "base_port is required",
+    ),
+  )
 }
 
 ///|
-test "rejects duplicate app names" {
-  let message = parse_error(
-    with_app(
-      (
-        #|name = "api"
-        #|cwd = "/srv/api2"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 4000
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
-        #|
-      ),
-    ),
-  )
-  assert_true(message.contains("duplicate app name api"))
+test "rejects invalid project name" {
+  let cases = [
+    ("1abc", "invalid name"),
+    ("a-b", "invalid name"),
+    ("a.b", "invalid name"),
+    ("a b", "invalid name"),
+    ("a@b", "invalid name"),
+    ("", "must not be empty"),
+  ]
+  for pair in cases {
+    let (name, expect) = pair
+    let message = parse_error(
+      "name = \"\{name}\"\nscript = \"s\"\ninstances = 1\nbase_port = 3000\n",
+    )
+    assert_true(message.contains(expect))
+  }
 }
 
 ///|
-test "rejects overlapping port ranges" {
-  let message = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = 2
-        #|base_port = 3003
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
-        #|
-      ),
-    ),
-  )
-  assert_true(message.contains("overlapping port ranges"))
-}
-
-///|
-test "rejects adjacent-but-not-overlapping ranges as valid" {
-  let config = @config.parse(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 3004
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
-        #|
-      ),
-    ),
-  )
-  assert_eq(config.apps.length(), 3)
-}
-
-///|
-test "rejects port range overflow" {
-  let message = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = 2
-        #|base_port = 65535
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
-        #|
-      ),
-    ),
-  )
-  assert_true(message.contains("out of 1 ~ 65535"))
-}
-
-///|
-test "rejects zero or excessive instances" {
-  let zero = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = 0
-        #|base_port = 4000
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
-        #|
-      ),
-    ),
-  )
-  assert_true(zero.contains("instances must be between 1 and 1024"))
-  let huge = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = 2000
-        #|base_port = 4000
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
-        #|
-      ),
-    ),
-  )
-  assert_true(huge.contains("instances must be between 1 and 1024"))
-}
-
-///|
-test "rejects script escaping cwd" {
-  let message = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "../escape.ts"
-        #|instances = 1
-        #|base_port = 4000
-        #|max_memory_mb = 128
-        #|max_restarts = 3
-        #|restart_delay_ms = 500
-        #|min_uptime_ms = 1000
-        #|stop_timeout_ms = 1000
-        #|
-      ),
-    ),
-  )
-  assert_true(message.contains("must not contain '..'"))
-}
-
-///|
-test "parses app env" {
+test "allows uppercase letters and underscores in project name" {
   let config = @config.parse(
     (
-      #|[[apps]]
-      #|name = "api"
-      #|cwd = "/srv/api"
+      #|name = "Blog_API_2"
       #|script = "index.ts"
       #|instances = 1
       #|base_port = 3000
       #|
-      #|[apps.env]
-      #|APP_ENV = "production"
-      #|FEATURE_CACHE = "true"
+    ),
+    BASE_DIR,
+  )
+  assert_eq(config.name, "Blog_API_2")
+}
+
+///|
+test "rejects non-absolute cwd" {
+  let message = parse_error(
+    (
+      #|name = "blog"
+      #|cwd = "srv/blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|base_port = 3000
       #|
     ),
   )
-  assert_eq(config.apps[0].env["APP_ENV"], "production")
-  assert_eq(config.apps[0].env["FEATURE_CACHE"], "true")
+  assert_true(message.contains("cwd must be an absolute path"))
 }
 
 ///|
-test "rejects non-string app env value" {
-  assert_true(
-    parse_error(
-      (
-        #|[[apps]]
-        #|name = "api"
-        #|cwd = "/srv/api"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 3000
-        #|
-        #|[apps.env]
-        #|APP_ENV = 1
-        #|
-      ),
-    ).contains("apps[0].env.APP_ENV must be a string"),
-  )
-}
-
-///|
-test "rejects reserved app env variable" {
-  assert_true(
-    parse_error(
-      (
-        #|[[apps]]
-        #|name = "api"
-        #|cwd = "/srv/api"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 3000
-        #|
-        #|[apps.env]
-        #|BM2_APP_PORT = "4000"
-        #|
-      ),
-    ).contains("apps[0].env.BM2_APP_PORT is reserved"),
-  )
-}
-
-///|
-test "rejects invalid app env variable name" {
-  assert_true(
-    parse_error(
-      (
-        #|[[apps]]
-        #|name = "api"
-        #|cwd = "/srv/api"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 3000
-        #|
-        #|[apps.env]
-        #|"BAD-NAME" = "value"
-        #|
-      ),
-    ).contains("apps[0].env has invalid variable name BAD-NAME"),
-  )
-}
-
-///|
-test "allows empty app env" {
-  let config = @config.parse(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 4000
-        #|env = {}
-        #|
-      ),
+test "rejects script escaping cwd" {
+  let escape = parse_error(
+    (
+      #|name = "blog"
+      #|script = "../evil.ts"
+      #|instances = 1
+      #|base_port = 3000
+      #|
     ),
   )
-  assert_true(config.apps[2].env.is_empty())
+  assert_true(escape.contains("must not contain '..' segments"))
+  let absolute = parse_error(
+    (
+      #|name = "blog"
+      #|script = "/etc/evil.ts"
+      #|instances = 1
+      #|base_port = 3000
+      #|
+    ),
+  )
+  assert_true(absolute.contains("must be a relative path"))
 }
 
 ///|
 test "rejects invalid runtime" {
   let message = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|runtime = "python"
-        #|instances = 1
-        #|base_port = 4000
-        #|
-      ),
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|runtime = "python"
+      #|instances = 1
+      #|base_port = 3000
+      #|
     ),
   )
   assert_true(message.contains("runtime must be \"bun\" or \"node\""))
   let ok = @config.parse(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|runtime = "node"
-        #|instances = 1
-        #|base_port = 4000
-        #|
-      ),
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|runtime = "node"
+      #|instances = 1
+      #|base_port = 3000
+      #|
+    ),
+    BASE_DIR,
+  )
+  assert_eq(ok.runtime, "node")
+}
+
+///|
+test "rejects zero or excessive instances" {
+  let zero = parse_error(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 0
+      #|base_port = 3000
+      #|
     ),
   )
-  assert_eq(ok.apps[2].runtime, "node")
-  assert_eq(ok.apps[0].runtime, "bun")
+  assert_true(zero.contains("instances must be between 1 and 1024"))
+  let many = parse_error(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 2000
+      #|base_port = 3000
+      #|
+    ),
+  )
+  assert_true(many.contains("instances must be between 1 and 1024"))
+}
+
+///|
+test "rejects port range overflow" {
+  let message = parse_error(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 2
+      #|base_port = 65535
+      #|
+    ),
+  )
+  assert_true(message.contains("is out of 1 ~ 65535"))
 }
 
 ///|
@@ -394,171 +245,139 @@ test "rejects invalid numeric limits" {
     ("max_restarts = -1", "out of range"),
     ("restart_delay_ms = -1", "out of range"),
     ("min_uptime_ms = -1", "out of range"),
-    ("stop_timeout_ms = 0", "stop_timeout_ms must be at least 1"),
+    ("stop_timeout_ms = 0", "stop_timeout_ms must be between 1 and 60000"),
+    ("stop_timeout_ms = 60001", "stop_timeout_ms must be between 1 and 60000"),
   ]
   for pair in cases {
     let (line, expect) = pair
-    let app_toml = "name = \"extra\"\ncwd = \"/srv/extra\"\nscript = \"index.ts\"\ninstances = 1\nbase_port = 4000\n" +
+    let doc = "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nbase_port = 3000\n" +
       line +
       "\n"
-    let message = parse_error(with_app(app_toml))
-    assert_true(message.contains(expect))
+    assert_true(parse_error(doc).contains(expect))
   }
 }
 
 ///|
-test "rejects non-absolute cwd" {
-  let message = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "srv/extra"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 4000
-        #|
-      ),
+test "parses app env" {
+  let config = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|base_port = 3000
+      #|
+      #|[env]
+      #|APP_ENV = "production"
+      #|
     ),
+    BASE_DIR,
   )
-  assert_true(message.contains("cwd must be an absolute path"))
+  assert_eq(config.env["APP_ENV"], "production")
 }
 
 ///|
-test "rejects absolute or empty script" {
-  let abs = parse_error(
-    with_app(
+test "rejects non-string app env value" {
+  assert_true(
+    parse_error(
       (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "/abs.ts"
+        #|name = "blog"
+        #|script = "index.ts"
         #|instances = 1
-        #|base_port = 4000
+        #|base_port = 3000
+        #|
+        #|[env]
+        #|APP_ENV = 1
         #|
       ),
-    ),
+    ).contains("env.APP_ENV must be a string"),
   )
-  assert_true(abs.contains("script must be a relative path inside cwd"))
-  let empty = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = ""
-        #|instances = 1
-        #|base_port = 4000
-        #|
-      ),
-    ),
-  )
-  assert_true(empty.contains("script must be a relative path"))
 }
 
 ///|
-test "rejects empty app name" {
-  let message = parse_error(
-    with_app(
+test "rejects reserved app env variable" {
+  assert_true(
+    parse_error(
       (
-        #|name = ""
-        #|cwd = "/srv/extra"
+        #|name = "blog"
         #|script = "index.ts"
         #|instances = 1
-        #|base_port = 4000
+        #|base_port = 3000
+        #|
+        #|[env]
+        #|BM2_APP_PORT = "4000"
         #|
       ),
-    ),
+    ).contains("env.BM2_APP_PORT is reserved"),
   )
-  assert_true(message.contains("app name must not be empty"))
 }
 
 ///|
-test "rejects unknown app field" {
-  let message = parse_error(
-    with_app(
+test "rejects invalid app env variable name" {
+  assert_true(
+    parse_error(
       (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
+        #|name = "blog"
         #|script = "index.ts"
         #|instances = 1
-        #|base_port = 4000
-        #|bogus = 1
+        #|base_port = 3000
+        #|
+        #|[env]
+        #|"BAD-NAME" = "value"
         #|
       ),
-    ),
+    ).contains("env has invalid variable name BAD-NAME"),
   )
-  assert_true(message.contains("unknown field bogus"))
 }
 
 ///|
-test "rejects app field type errors" {
-  let inst = parse_error(
-    with_app(
+test "rejects app env value containing NUL" {
+  assert_true(
+    parse_error(
       (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = "x"
-        #|base_port = 4000
-        #|
-      ),
-    ),
-  )
-  assert_true(inst.contains("instances must be an integer"))
-  let name = parse_error(
-    with_app(
-      (
-        #|name = 1
-        #|cwd = "/srv/extra"
+        #|name = "blog"
         #|script = "index.ts"
         #|instances = 1
-        #|base_port = 4000
+        #|base_port = 3000
+        #|
+        #|[env]
+        #|APP_ENV = "a\u0000b"
         #|
       ),
-    ),
+    ).contains("env.APP_ENV"),
   )
-  assert_true(name.contains("name must be a string"))
 }
 
 ///|
-test "rejects huge instances count" {
-  let message = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = 3000000000
-        #|base_port = 4000
-        #|
-      ),
+test "allows empty app env" {
+  let config = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|base_port = 3000
+      #|env = {}
+      #|
     ),
+    BASE_DIR,
   )
-  assert_true(message.contains("out of range"))
+  assert_true(config.env.is_empty())
 }
 
 ///|
-test "rejects non-table env" {
-  let message = parse_error(
-    with_app(
-      (
-        #|name = "extra"
-        #|cwd = "/srv/extra"
-        #|script = "index.ts"
-        #|instances = 1
-        #|base_port = 4000
-        #|env = "x"
-        #|
-      ),
-    ),
+test "load reads and validates a file with cwd default" {
+  let dir = "/tmp/bm2-config-test-" + @env.now().to_string()
+  @fs.create_dir(dir)
+  @fs.write_string_to_file(
+    dir + "/bm2.toml",
+    "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nbase_port = 3000\n",
   )
-  assert_true(message.contains("env must be a table"))
-}
-
-///|
-test "load reports missing file" {
-  let e = try @config.load("/nonexistent/bm2-no-such.toml") catch {
-    err => err.to_string()
+  let config = @config.load(dir + "/bm2.toml")
+  assert_eq(config.name, "blog")
+  assert_eq(config.cwd, dir)
+  let missing = try @config.load(dir + "/nope.toml") catch {
+    _ => true
   } noraise {
-    _ => fail("expected load failure")
+    _ => false
   }
-  assert_true(e.contains("cannot read config file"))
+  assert_true(missing)
 }

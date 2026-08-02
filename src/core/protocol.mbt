@@ -2,6 +2,8 @@
 pub(all) struct Request {
   command : String
   app : String?
+  /// Config path of the caller's project; used by `start` to register it.
+  config_path : String?
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|

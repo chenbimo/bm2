@@ -131,3 +131,15 @@ extern "C" fn c_exit(code : Int) -> Unit = "bm2_exit"
 ///|
 #borrow(data)
 extern "C" fn c_write_fd(fd : Int, data : Bytes) -> Int = "bm2_write_fd"
+
+///|
+#borrow(path)
+extern "C" fn c_file_size(path : Bytes) -> Int64 = "bm2_file_size"
+
+///|
+#borrow(path)
+extern "C" fn c_rotate(path : Bytes) -> Int = "bm2_rotate"
+
+///|
+#borrow(path)
+extern "C" fn c_copytruncate(path : Bytes) -> Int = "bm2_copytruncate"
