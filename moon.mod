@@ -8,7 +8,7 @@ preferred_target = "native"
 
 supported_targets = "native"
 
-license = "Apache-2.0"
+license = "MIT"
 
 readme = "README.md"
 
