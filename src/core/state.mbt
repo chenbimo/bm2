@@ -49,7 +49,8 @@ pub fn log_event(
 
 ///|
 /// Machine-generated per-instance state. Never edited by users, so the
-/// keys keep the struct's snake_case field names.
+/// keys keep the struct's snake_case field names. times is optional
+/// so state files written by older versions still load.
 pub(all) struct InstanceState {
   app_name : String
   instance_id : Int
@@ -58,6 +59,7 @@ pub(all) struct InstanceState {
   port : Int
   status : String
   started_at : String
+  times : Int?
   restart_count : Int
   last_exit_code : Int?
   last_signal : Int?
@@ -75,6 +77,7 @@ fn InstanceState::of(inst : Instance) -> InstanceState {
     port: inst.port,
     status: inst.status.as_string(),
     started_at: iso8601(inst.started_at_ms),
+    times: Some(inst.times),
     restart_count: inst.restart_count,
     last_exit_code: inst.last_exit_code,
     last_signal: inst.last_signal,

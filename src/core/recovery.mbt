@@ -131,6 +131,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
       if env_matches(environ, inst) {
         inst.status = Online
         inst.started_at_ms = now_ms()
+        inst.times = state.times.unwrap_or(0)
         inst.restart_count = state.restart_count
         self.try_save_state(inst)
         log_event(

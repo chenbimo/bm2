@@ -604,7 +604,7 @@ fn print_list(instances : Array[@core.InstanceInfo]) -> Unit {
     return
   }
   let header = [
-    "NAME", "ID", "PID", "PORT", "STATUS", "RESTARTS", "MEMORY", "UPTIME", "CWD",
+    "NAME", "ID", "PID", "PORT", "STATUS", "TIMES", "MEMORY", "UPTIME", "CWD",
   ]
   let rows = []
   for info in instances {
@@ -621,7 +621,7 @@ fn print_list(instances : Array[@core.InstanceInfo]) -> Unit {
       pid,
       info.port.to_string(),
       info.status,
-      info.restart_count.to_string(),
+      info.times.to_string(),
       memory,
       uptime,
       info.cwd,

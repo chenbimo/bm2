@@ -40,6 +40,10 @@ pub(all) struct Instance {
   mut pidfd : Int
   mut status : Status
   mut started_at_ms : UInt64
+  /// Total launch count: every start (manual or automatic) increments
+  /// it; resets only when the project is killed and started fresh.
+  mut times : Int
+  /// Consecutive abnormal restarts; the crash budget only.
   mut restart_count : Int
   mut uptime_reset_done : Bool
   mut exit_intent : ExitIntent
@@ -62,6 +66,7 @@ pub fn Instance::new(config : @config.Config, instance_id : Int) -> Instance {
     pidfd: 0,
     status: Stopped,
     started_at_ms: 0UL,
+    times: 0,
     restart_count: 0,
     uptime_reset_done: false,
     exit_intent: Idle,

@@ -4,6 +4,19 @@ pub fn now_ms() -> UInt64 {
 }
 
 ///|
+/// Milliseconds since `started`, clamped at zero when the clock stepped
+/// backwards (WSL and VM clocks can roll back by a millisecond, which
+/// would otherwise underflow an unsigned subtraction into a huge value).
+pub fn elapsed_since(started : UInt64) -> UInt64 {
+  let now = now_ms()
+  if now >= started {
+    now - started
+  } else {
+    0UL
+  }
+}
+
+///|
 /// Format epoch milliseconds as an ISO 8601 UTC timestamp.
 pub fn iso8601(epoch_ms : UInt64) -> String {
   let ms = epoch_ms % 1000UL

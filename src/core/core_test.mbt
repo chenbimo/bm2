@@ -175,10 +175,26 @@ test "state file reflects online then stopped" {
   assert_eq(online.status, "online")
   assert_eq(online.port, 4150)
   assert_eq(online.app_name, "api")
+  assert_eq(online.times, Some(1))
   stop_all(sv, "api")
   let stopped = @core.load_state(path)
   assert_eq(stopped.status, "stopped")
   assert_eq(stopped.pid, 0)
+}
+
+///|
+test "start count increments with every launch" {
+  let root = "/tmp/bm2-core-test-startcount"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = make_sv(root, app_config("api", dir, 4340))
+  sv.start_app("api")
+  drive(sv, 300)
+  assert_eq(sv.instance("api", 0).times, 1)
+  // A full restart launches the instance again and keeps counting.
+  sv.start_app("api")
+  drive(sv, 1200)
+  assert_eq(sv.instance("api", 0).times, 2)
+  stop_all(sv, "api")
 }
 
 ///|

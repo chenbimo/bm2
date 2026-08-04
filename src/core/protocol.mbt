@@ -14,6 +14,7 @@ pub(all) struct InstanceInfo {
   pid : Int
   port : Int
   status : String
+  times : Int
   restart_count : Int
   rss_kb : Int
   uptime_ms : UInt64
@@ -39,8 +40,13 @@ pub fn InstanceInfo::of(inst : Instance, now : UInt64) -> InstanceInfo {
   } else {
     -1
   }
+  // Saturating subtraction: a clock rollback must never show a huge uptime.
   let uptime_ms = if inst.pid > 0 && inst.started_at_ms > 0UL {
-    now - inst.started_at_ms
+    if now >= inst.started_at_ms {
+      now - inst.started_at_ms
+    } else {
+      0UL
+    }
   } else {
     0UL
   }
@@ -51,6 +57,7 @@ pub fn InstanceInfo::of(inst : Instance, now : UInt64) -> InstanceInfo {
     pid: inst.pid,
     port: inst.port,
     status: inst.status.as_string(),
+    times: inst.times,
     restart_count: inst.restart_count,
     rss_kb,
     uptime_ms,

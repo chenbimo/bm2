@@ -341,7 +341,7 @@ pub fn Supervisor::tick(self : Supervisor) -> Unit {
   self.check_restarts(now)
   self.check_pending()
   self.check_removals()
-  self.check_uptime_resets(now)
+  self.check_uptime_resets()
 }
 
 ///|
@@ -552,7 +552,9 @@ fn Supervisor::handle_exit(
       self.counted_exit(app, inst, now, reason)
     }
     Idle => {
-      let uptime = now - inst.started_at_ms
+      // elapsed_since clamps clock rollback so a clean exit shortly after
+      // a spawn is never misread as a long-lived process.
+      let uptime = elapsed_since(inst.started_at_ms)
       let abnormal = match exit {
         Some(@process.ChildExit::Exited(0)) =>
           uptime < app.min_uptime_ms.to_uint64()
@@ -722,7 +724,7 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
 }
 
 ///|
-fn Supervisor::check_uptime_resets(self : Supervisor, now : UInt64) -> Unit {
+fn Supervisor::check_uptime_resets(self : Supervisor) -> Unit {
   for pair in self.instances.iter() {
     let (name, arr) = pair
     let app = self.apps[name]
@@ -730,7 +732,7 @@ fn Supervisor::check_uptime_resets(self : Supervisor, now : UInt64) -> Unit {
       if inst.status is Online &&
         inst.restart_count > 0 &&
         !inst.uptime_reset_done &&
-        now - inst.started_at_ms >= app.min_uptime_ms.to_uint64() {
+        elapsed_since(inst.started_at_ms) >= app.min_uptime_ms.to_uint64() {
         inst.uptime_reset_done = true
         inst.restart_count = 0
         self.try_save_state(inst)
@@ -745,9 +747,21 @@ fn Supervisor::check_uptime_resets(self : Supervisor, now : UInt64) -> Unit {
 /// structural changes (instances count, ports, script) take effect here.
 fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
   let app = self.app_config(app_name)
+  let old = self.instances.get(app_name)
   let arr = []
   for id in 0..<app.instances {
-    arr.push(Instance::new(app, id))
+    let inst = Instance::new(app, id)
+    // Keep the accumulated start count across a rebuild, so a config
+    // update restart does not reset the launch counter.
+    match old {
+      Some(prev) =>
+        match prev.get(id) {
+          Some(prev_inst) => inst.times = prev_inst.times
+          None => ()
+        }
+      None => ()
+    }
+    arr.push(inst)
   }
   self.instances[app_name] = arr
   for inst in arr {
@@ -808,6 +822,7 @@ fn Supervisor::spawn_instance(
   inst.pidfd = pidfd
   inst.status = Online
   inst.started_at_ms = now_ms()
+  inst.times += 1
   inst.exit_intent = Idle
   inst.kill_deadline_ms = 0UL
   inst.restart_at_ms = 0UL

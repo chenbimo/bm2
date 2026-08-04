@@ -110,9 +110,11 @@ check "crash restart_count 3" "3" "$(bm2 list crash | tail -1 | awk '{print $6}'
 contains "crash.log reason=exit_code" $state_dir/crash/logs/crash-0.crash.log "reason=exit_code"
 contains "crash.log restartCount=3" $state_dir/crash/logs/crash-0.crash.log "restartCount=3"
 
-echo "===== C. clean exit restarts without count ====="
-QCOUNT=$(bm2 list quick | tail -1 | awk '{print $6}')
-check "quick restart_count stays 0" "0" "$QCOUNT"
+echo "===== C. clean exit restarts without burning the crash budget ====="
+# quick exits cleanly every 100ms: the TIMES column (6th) grows, but a
+# clean exit never consumes the crash budget, so it must not hit errored.
+check "quick started multiple times" 1 "$([ "$(bm2 list quick | tail -1 | awk '{print $6}')" -ge 2 ] && echo 1 || echo 0)"
+check "quick not errored" "0" "$(bm2 list quick | grep -c 'errored' || true)"
 if [ -s $state_dir/quick/logs/quick-0.crash.log ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: quick crash.log should be empty"
 else
