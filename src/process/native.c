@@ -73,8 +73,15 @@ int32_t bm2_spawn(moonbit_bytes_t bun_path, moonbit_bytes_t script,
       dup2(devnull, STDIN_FILENO);
       close(devnull);
     }
-    if (redirect_fd((char *)out_path, STDOUT_FILENO) != 0) _exit(126);
-    if (redirect_fd((char *)err_path, STDERR_FILENO) != 0) _exit(126);
+    /* Empty out/err paths (a bare NUL terminator) mean "inherit the
+     * parent's stdout/stderr" — used by the CLI to run tools like moon
+     * with their output shown directly on the terminal. */
+    if (Moonbit_array_length(out_path) > 1) {
+      if (redirect_fd((char *)out_path, STDOUT_FILENO) != 0) _exit(126);
+    }
+    if (Moonbit_array_length(err_path) > 1) {
+      if (redirect_fd((char *)err_path, STDERR_FILENO) != 0) _exit(126);
+    }
     /* script is a NUL-terminated cstr. The first entry is the single
      * argument of a managed app; extra argv entries may follow, separated
      * by NUL, so the CLI can run commands with arguments (moon update,

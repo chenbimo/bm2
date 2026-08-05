@@ -49,7 +49,7 @@ fn run() -> Int {
         usage()
         return 2
       }
-      return cmd_upgrade(state_dir)
+      return cmd_upgrade()
     }
     "version" => {
       println("bm2 " + VERSION)
@@ -299,7 +299,7 @@ fn run() -> Int {
 /// published version with the running one, and run `moon install` into
 /// bm2's own directory when a newer release exists. Requires the moon
 /// toolchain (which is also how bm2 was installed).
-fn cmd_upgrade(state_dir : String) -> Int {
+fn cmd_upgrade() -> Int {
   let home = match @env.get_env_var("HOME") {
     Some(h) if !h.is_empty() => h
     _ => {
@@ -307,7 +307,7 @@ fn cmd_upgrade(state_dir : String) -> Int {
       return 1
     }
   }
-  if !run_moon(state_dir, "update" + "\u{0}") {
+  if !run_moon("update" + "\u{0}") {
     @process.eprintln("bm2: 'moon update' failed; run it manually and retry")
     return 1
   }
@@ -340,7 +340,7 @@ fn cmd_upgrade(state_dir : String) -> Int {
     "\u{0}" +
     self_dir() +
     "\u{0}"
-  if !run_moon(state_dir, args) {
+  if !run_moon(args) {
     @process.eprintln(
       "bm2: 'moon install' failed; run it manually:\n  moon install chensuiyi/bm2/... --bin " +
       self_dir(),
@@ -423,14 +423,24 @@ fn self_dir() -> String {
 ///|
 /// Run moon with NUL-separated arguments; true on exit code 0. Output
 /// goes to the state dir so a failure can be inspected there.
-fn run_moon(state_dir : String, args_blob : String) -> Bool {
+/// Stream moon's output straight to the terminal so the user sees the
+/// download/compile progress instead of a silent wait. True on exit 0.
+/// Run moon with NUL-separated arguments, streaming its output to the
+/// terminal so the user sees download/compile progress instead of a
+/// silent wait. The output is written to a log file (a spawned process
+/// cannot reuse our stdout), which this loop tails until the child exits.
+/// True on exit code 0.
+/// Run moon with NUL-separated arguments; its output goes straight to
+/// the terminal (the spawned process inherits our stdout/stderr), so the
+/// user sees the download/compile progress live. True on exit code 0.
+fn run_moon(args_blob : String) -> Bool {
   let pid = try
     @process.spawn({
       bun_path: "moon",
       script: args_blob,
       cwd: "/",
-      out_log: state_dir + "/upgrade.log",
-      err_log: state_dir + "/upgrade.log",
+      out_log: "",
+      err_log: "",
       env_blob: @process.base_env_blob(),
     })
   catch {
