@@ -390,9 +390,15 @@ fn semver_cmp(a : String, b : String) -> Int {
 }
 
 ///|
+/// Numeric prefix of one version segment: a pre-release suffix such as
+/// "0.3.0-beta" stops at the first non-digit, so it compares as 0.3.0
+/// instead of corrupting the comparison with garbage arithmetic.
 fn parse_num(s : String) -> Int {
   let mut n = 0
   for c in s {
+    if !(c is ('0'..='9')) {
+      break
+    }
     n = n * 10 + c.to_int() - 48
   }
   n
