@@ -76,7 +76,7 @@ Optional fields (with defaults):
 | `runtime` | `bun` | Runtime executable: `bun` or `node`. |
 | `max_memory_mb` | `512` | Maximum VmRSS in MiB; at least `1`. |
 | `max_restarts` | `10` | Allowed consecutive abnormal restarts; `0` disables retries. |
-| `restart_delay_ms` | `1000` | Delay before an automatic restart. |
+| `restart_delay_ms` | `1000` | Delay before an automatic restart: fixed after a crash, growing with the retry count after a spawn failure. |
 | `min_uptime_ms` | `10000` | A clean exit before this duration counts toward the restart budget. |
 | `stop_timeout_ms` | `10000` | Grace period after SIGTERM before SIGKILL; at most `60000`. |
 
@@ -93,7 +93,7 @@ bm2 passes only `PATH`, `HOME`, and `TMPDIR` from its own environment to managed
 - `BM2_APP_PORT` (the port assigned to this instance)
 - `NODE_ENV` (always `"production"`: bm2 is a production-run tool, so managed apps can reliably detect they are under bm2)
 
-Bun automatically loads `.env` files from the project's `cwd`. Do not put application secrets in `bm2.toml`; keep them in the application's environment or `.env` files. Reserved bm2 variables take precedence over values from `[env]` and `.env`.
+Bun automatically loads `.env` files from the project's `cwd`. Do not put application secrets in `bm2.toml`; keep them in the application's environment or `.env` files. Reserved bm2 variables are injected explicitly into every instance's environment: `[env]` entries with reserved names are rejected at config parse time, and Bun's automatic `.env` loading never overwrites variables that already exist in the process environment.
 
 Each project may provide an optional string-only `[env]` table. Environment names must use letters, digits, and underscores, cannot begin with a digit, and the reserved names above plus `PATH`/`HOME`/`TMPDIR` are rejected. Values must be TOML strings without NUL characters. bm2 never writes environment values to state files, events, crash logs, or CLI output.
 
