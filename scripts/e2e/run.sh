@@ -143,6 +143,7 @@ check "quick registration removed" "0" "$([ -f "$state_dir/quick/project.json" ]
 echo "===== G. daemon crash adopts running instances ====="
 SLOW_PID_BEFORE=$(bm2 list slow | tail -1 | awk '{print $3}')
 kill -9 "$(cat "$state_dir/bm2d.pid")"
+check "stale socket file remains after daemon kill" 1 "$([ -S "$state_dir/bm2.sock" ] && echo 1 || echo 0)"
 sleep 1
 bm2 list slow >/dev/null
 SLOW_PID_AFTER=$(bm2 list slow | tail -1 | awk '{print $3}')
@@ -324,6 +325,42 @@ wait "$START_PID"
 sleep 5
 check "stubborn online after full restart" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $5}')"
 bm2 kill stubborn
+
+echo "===== U. log rotation by size ====="
+write_project slowback slowback 4291 slow.ts 1 1000
+(cd "$ACC/slowback" && bm2 start >/dev/null)
+sleep 1
+dd if=/dev/zero of="$state_dir/slowback/logs/slowback-0.out.log" bs=1M count=11 2>/dev/null
+# The daemon checks log sizes every 10 s; wait past one check interval.
+sleep 12
+check "rotated generation exists" 1 "$([ -f "$state_dir/slowback/logs/slowback-0.out.log.1" ] && echo 1 || echo 0)"
+SIZE=$(stat -c%s "$state_dir/slowback/logs/slowback-0.out.log")
+check "active log truncated below 1 MB" 1 "$([ "$SIZE" -lt 1048576 ] && echo 1 || echo 0)"
+check "app unaffected by rotation" "slow slowback-0 production 4291 0" "$(wait_http 4291 "slow slowback-0 production 4291 0")"
+bm2 kill slowback >/dev/null
+
+echo "===== V. kill app with one instance already dead ====="
+write_project twin twin 4292 slow.ts 2 1000
+# Zero retry budget so the killed instance lands in errored, not restarting.
+sed -i 's/max_restarts = 2/max_restarts = 0/' "$ACC/twin/bm2.toml"
+(cd "$ACC/twin" && bm2 start >/dev/null)
+sleep 1
+P1=$(bm2 list twin | sed -n '2p' | awk '{print $3}')
+kill -9 "$P1"
+sleep 1
+# One instance errored (pid gone), one still online: kill must unregister both.
+bm2 kill twin >/dev/null
+DEAD_GONE=0
+for _ in $(seq 1 20); do
+  OUT=$(bm2 list twin 2>&1)
+  if [ "$OUT" = "unknown app: twin" ]; then
+    DEAD_GONE=1
+    break
+  fi
+  sleep 0.5
+done
+check "half-dead app fully unregistered" "1" "$DEAD_GONE"
+check "twin registration removed" "0" "$([ -f "$state_dir/twin/project.json" ] && echo 1 || echo 0)"
 
 echo ""
 echo "e2e results: PASS=$PASS FAIL=$FAIL"
