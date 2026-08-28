@@ -19,7 +19,6 @@ pub fn load(path : String) -> Config raise ConfigError {
   } else {
     "."
   }
-  let config = parse(doc, base_dir)
-  validate(config)
-  config
+  // parse validates the config before returning, so no second pass here.
+  parse(doc, base_dir)
 }

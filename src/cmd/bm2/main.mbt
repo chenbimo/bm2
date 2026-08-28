@@ -427,15 +427,6 @@ fn self_dir() -> String {
 }
 
 ///|
-/// Run moon with NUL-separated arguments; true on exit code 0. Output
-/// goes to the state dir so a failure can be inspected there.
-/// Stream moon's output straight to the terminal so the user sees the
-/// download/compile progress instead of a silent wait. True on exit 0.
-/// Run moon with NUL-separated arguments, streaming its output to the
-/// terminal so the user sees download/compile progress instead of a
-/// silent wait. The output is written to a log file (a spawned process
-/// cannot reuse our stdout), which this loop tails until the child exits.
-/// True on exit code 0.
 /// Run moon with NUL-separated arguments; its output goes straight to
 /// the terminal (the spawned process inherits our stdout/stderr), so the
 /// user sees the download/compile progress live. True on exit code 0.
