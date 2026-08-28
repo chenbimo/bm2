@@ -239,6 +239,20 @@ test "rejects port range overflow" {
 }
 
 ///|
+test "rejects port near int max before the range sum wraps" {
+  let message = parse_error(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 5
+      #|port = 2147483647
+      #|
+    ),
+  )
+  assert_true(message.contains("port must be within 1 ~ 65535"))
+}
+
+///|
 test "rejects invalid numeric limits" {
   let cases = [
     ("max_memory_mb = 0", "max_memory_mb must be at least 1"),

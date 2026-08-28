@@ -33,7 +33,15 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
       "project \{config.name}: instances must be between 1 and 1024",
     )
   }
-  if config.port < 1 || config.port + config.instances - 1 > 65535 {
+  // port is bounded before the range sum so the sum can never wrap around
+  // Int (instances is already <= 1024 here); a wrapped sum would let an
+  // invalid config like port = 2147483647 pass validation.
+  if config.port < 1 || config.port > 65535 {
+    raise ConfigError::InvalidField(
+      "project \{config.name}: port must be within 1 ~ 65535",
+    )
+  }
+  if config.port + config.instances - 1 > 65535 {
     raise ConfigError::InvalidField(
       "project \{config.name}: port range \{config.port} ~ \{config.port + config.instances - 1} is out of 1 ~ 65535",
     )
