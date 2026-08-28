@@ -2,17 +2,19 @@
 
 `bm2` 是一个用 MoonBit 编写的轻量级 Linux 进程管理器，用于管理 Bun 与 Node.js 应用。
 
-Nginx 负责反向代理与实例端口之间的负载均衡。
+bm2 由命令行工具和后台守护进程组成，命令行通过 Unix socket 下达指令，守护进程持续托管应用进程。
+
+每个用户一个独立守护进程，可同时管理多个项目。
+
+托管能力包括多实例、崩溃自动重启、内存限制、优雅停止与状态持久化。
+
+反向代理与负载均衡交给 Nginx、Caddy 之类的网关负责，bm2 只专注进程托管。
 
 英文文档：[README.en.md](README.en.md)
 
-## 范围
+## 功能特性
 
-- 仅支持 Linux，非 Linux 构建会拒绝运行并给出明确提示。
-- 需要 Linux 内核 >= 5.3（pidfd 进程跟踪）。
 - 一个 `bm2.toml` 配置**一个项目**（单个应用，一个或多个独立实例）。
-- 每个用户一个 bm2 守护进程，可管理多个项目。
-- 固定启动命令：`<runtime> <script>`。
 - 崩溃重启预算、内存限制、优雅停止超时、状态持久化、Unix socket 控制。
 - 命令：`start`、`kill`、`list`、`reload`、`upgrade`、`version`。
 - `start` 总是对其项目执行一次完整重启。
@@ -21,11 +23,21 @@ Nginx 负责反向代理与实例端口之间的负载均衡。
 
 ## 环境要求
 
+- 仅支持 Linux，非 Linux 构建会拒绝运行并给出明确提示。
+- 需要 Linux 内核 >= 5.3（pidfd 进程跟踪）。
 - [MoonBit](https://www.moonbitlang.com/)（仅安装/升级 bm2 时需要）
 - [Bun](https://bun.sh/)
 - [Node.js](https://nodejs.org/)（仅 `runtime = "node"` 的项目需要）
 
 ## 安装与升级
+
+先安装 MoonBit 工具链：
+
+```bash
+curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+```
+
+再安装 bm2：
 
 ```bash
 moon install chensuiyi/bm2/...
@@ -43,7 +55,7 @@ bm2 默认安装到 moon 工具链所在的 `~/.moon/bin`，无需任何 `PATH` 
 bm2 upgrade          # 比对版本、执行 moon install，并自动换入新守护进程
 ```
 
-## 配置
+## 配置参数
 
 在你运行 `bm2` 的目录创建 `bm2.toml`。
 
@@ -82,22 +94,6 @@ min_uptime_ms = 10000
 # SIGTERM 到 SIGKILL 的宽限期（毫秒），最大 60000。
 stop_timeout_ms = 10000
 ```
-
-字段一览：
-
-| 字段 | 必填 | 默认值 | 约束 |
-| --- | --- | --- | --- |
-| `name` | 是 | — | 字母开头，后接字母、数字、下划线，全局唯一 |
-| `cwd` | 否 | 配置目录 | 绝对路径 |
-| `script` | 是 | — | `cwd` 内相对路径，禁止 `..` |
-| `runtime` | 否 | `bun` | `bun` 或 `node` |
-| `instances` | 是 | — | `1..1024` |
-| `port` | 是 | — | `1..65535`，范围不得与其他项目重叠 |
-| `max_memory_mb` | 否 | `512` | 至少 `1` |
-| `max_restarts` | 否 | `10` | `≥ 0`，`0` 禁用重试 |
-| `restart_delay_ms` | 否 | `1000` | `≥ 0` |
-| `min_uptime_ms` | 否 | `10000` | `≥ 0` |
-| `stop_timeout_ms` | 否 | `10000` | `1..60000` |
 
 所有已注册项目的端口范围不得重叠，冲突时 bm2 拒绝启动。
 
@@ -148,12 +144,6 @@ bm2 version           # 显示 bm2 版本
 被有意停止的实例会被省略，`restarting` 和 `errored` 实例保持可见，便于运维诊断。
 
 如果守护进程意外崩溃并留下过期的 Unix socket，下一个 CLI 请求会短暂等待响应、删除过期 socket、启动一个新的守护进程，并重试一次请求。
-
-## 恢复语义
-
-已启动的守护进程会**收养已注册项目中仍在运行的实例**（崩溃或 `reload` 之后），但**绝不会自行启动任何东西**：项目只会在显式执行 `bm2 start` 之后运行。
-
-收养会校验进程环境是否携带 bm2 的保留变量，因此外来进程（即使是用相同脚本手动启动的）也绝不会被触碰——它会被记录为 `pid_conflict`。
 
 ## 状态与日志
 

@@ -2,17 +2,19 @@
 
 `bm2` is a small Linux process manager for Bun and Node.js applications, written in MoonBit.
 
-Nginx remains responsible for reverse proxying and load balancing between instance ports.
+bm2 consists of a CLI and a background daemon: the CLI sends commands over a Unix socket, and the daemon keeps supervising the application processes.
+
+One daemon per user manages any number of projects.
+
+Supervision covers multiple instances, automatic crash restarts, memory limits, graceful stops, and persisted state.
+
+Reverse proxying and load balancing are left to gateways such as Nginx or Caddy, bm2 focuses on process supervision alone.
 
 Chinese version: [README.md](README.md)
 
-## Scope
+## Features
 
-- Linux only, non-Linux builds refuse to run with a clear message.
-- Requires Linux kernel >= 5.3 (pidfd process tracking).
 - One `bm2.toml` configures **one project** (a single app with one or more independent instances).
-- One bm2 daemon per user manages many projects.
-- Fixed launch command: `<runtime> <script>`.
 - Crash restart budget, memory limit, graceful stop timeout, persisted state, and Unix socket control.
 - Commands: `start`, `kill`, `list`, `reload`, `upgrade`, `version`.
 - `start` always performs a full restart for its project.
@@ -21,11 +23,21 @@ It does not manage Nginx, domains, certificates, hot reload, boot startup, or re
 
 ## Requirements
 
+- Linux only, non-Linux builds refuse to run with a clear message.
+- Requires Linux kernel >= 5.3 (pidfd process tracking).
 - [MoonBit](https://www.moonbitlang.com/) (only needed to install/upgrade bm2)
 - [Bun](https://bun.sh/)
 - [Node.js](https://nodejs.org/) (only for projects with `runtime = "node"`)
 
 ## Install and upgrade
+
+Install the MoonBit toolchain first:
+
+```bash
+curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+```
+
+Then install bm2:
 
 ```bash
 moon install chensuiyi/bm2/...
@@ -43,7 +55,7 @@ To update to the latest mooncakes release and apply it automatically:
 bm2 upgrade          # compares versions, runs moon install, and swaps in the new daemon
 ```
 
-## Configuration
+## Configuration parameters
 
 Create `bm2.toml` in the directory where you run `bm2`.
 
@@ -154,12 +166,6 @@ Intentionally stopped instances are omitted.
 `restarting` and `errored` instances remain visible for diagnosis.
 
 If a daemon dies abruptly and leaves a stale Unix socket, the next CLI request waits briefly for a response, removes the stale socket, starts one fresh daemon, and retries the request once.
-
-## Recovery semantics
-
-A started daemon **adopts still-running instances** of registered projects (after a crash or `reload`) but **never starts anything on its own**: projects only run after an explicit `bm2 start`.
-
-Adoption verifies the process's environment carries bm2's reserved variables, so a foreign process (even one launched manually with the same script) is never touched — it is recorded as a `pid_conflict` instead.
 
 ## State and logs
 
