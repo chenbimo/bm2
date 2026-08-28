@@ -6,10 +6,6 @@ const VALID_DOC : String =
   #|instances = 4
   #|port = 3000
   #|
-  #|[env]
-  #|APP_ENV = "production"
-  #|FEATURE_CACHE = "true"
-  #|
 
 ///|
 const BASE_DIR : String = "/srv/yicode"
@@ -36,8 +32,6 @@ test "parses valid bm2.toml" {
   assert_eq(config.restart_delay_ms, 1000)
   assert_eq(config.min_uptime_ms, 10000)
   assert_eq(config.stop_timeout_ms, 10000)
-  assert_eq(config.env["APP_ENV"], "production")
-  assert_eq(config.env["FEATURE_CACHE"], "true")
 }
 
 ///|
@@ -68,6 +62,23 @@ test "rejects unknown top-level field" {
     ),
   )
   assert_true(message.contains("unknown field state_dir"))
+}
+
+///|
+test "rejects the removed env table" {
+  let message = parse_error(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|port = 3000
+      #|
+      #|[env]
+      #|APP_ENV = "production"
+      #|
+    ),
+  )
+  assert_true(message.contains("unknown field env"))
 }
 
 ///|
@@ -269,112 +280,6 @@ test "rejects invalid numeric limits" {
       "\n"
     assert_true(parse_error(doc).contains(expect))
   }
-}
-
-///|
-test "parses app env" {
-  let config = @config.parse(
-    (
-      #|name = "blog"
-      #|script = "index.ts"
-      #|instances = 1
-      #|port = 3000
-      #|
-      #|[env]
-      #|APP_ENV = "production"
-      #|
-    ),
-    BASE_DIR,
-  )
-  assert_eq(config.env["APP_ENV"], "production")
-}
-
-///|
-test "rejects non-string app env value" {
-  assert_true(
-    parse_error(
-      (
-        #|name = "blog"
-        #|script = "index.ts"
-        #|instances = 1
-        #|port = 3000
-        #|
-        #|[env]
-        #|APP_ENV = 1
-        #|
-      ),
-    ).contains("env.APP_ENV must be a string"),
-  )
-}
-
-///|
-test "rejects reserved app env variable" {
-  assert_true(
-    parse_error(
-      (
-        #|name = "blog"
-        #|script = "index.ts"
-        #|instances = 1
-        #|port = 3000
-        #|
-        #|[env]
-        #|BM2_APP_PORT = "4000"
-        #|
-      ),
-    ).contains("env.BM2_APP_PORT is reserved"),
-  )
-}
-
-///|
-test "rejects invalid app env variable name" {
-  assert_true(
-    parse_error(
-      (
-        #|name = "blog"
-        #|script = "index.ts"
-        #|instances = 1
-        #|port = 3000
-        #|
-        #|[env]
-        #|"BAD-NAME" = "value"
-        #|
-      ),
-    ).contains("env has invalid variable name BAD-NAME"),
-  )
-}
-
-///|
-test "rejects app env value containing NUL" {
-  assert_true(
-    parse_error(
-      (
-        #|name = "blog"
-        #|script = "index.ts"
-        #|instances = 1
-        #|port = 3000
-        #|
-        #|[env]
-        #|APP_ENV = "a\u0000b"
-        #|
-      ),
-    ).contains("env.APP_ENV"),
-  )
-}
-
-///|
-test "allows empty app env" {
-  let config = @config.parse(
-    (
-      #|name = "blog"
-      #|script = "index.ts"
-      #|instances = 1
-      #|port = 3000
-      #|env = {}
-      #|
-    ),
-    BASE_DIR,
-  )
-  assert_true(config.env.is_empty())
 }
 
 ///|

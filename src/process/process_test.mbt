@@ -23,7 +23,7 @@ test "spawn runs script with env, cwd and log redirection" {
     cwd: dir,
     out_log,
     err_log,
-    env_blob: @process.instance_env_blob("testapp", 2, 4001, Map([])),
+    env_blob: @process.instance_env_blob("testapp", 2, 4001),
   })
   assert_true(pid > 0)
   assert_true(@process.pid_alive(pid))
@@ -66,7 +66,7 @@ test "wait_child reports exit code" {
     cwd: dir,
     out_log: dir + "/o.log",
     err_log: dir + "/e.log",
-    env_blob: @process.instance_env_blob("t", 0, 1, Map([])),
+    env_blob: @process.instance_env_blob("t", 0, 1),
   })
   assert_eq(
     @process.wait_child(pid),
@@ -88,7 +88,7 @@ test "exec failure exits 127 and chdir failure exits 126" {
     cwd: dir,
     out_log: dir + "/o1.log",
     err_log: dir + "/e1.log",
-    env_blob: @process.instance_env_blob("t", 0, 1, Map([])),
+    env_blob: @process.instance_env_blob("t", 0, 1),
   })
   assert_eq(
     @process.wait_child(bad_exec),
@@ -100,7 +100,7 @@ test "exec failure exits 127 and chdir failure exits 126" {
     cwd: "/nonexistent/bm2-no-dir",
     out_log: dir + "/o2.log",
     err_log: dir + "/e2.log",
-    env_blob: @process.instance_env_blob("t", 0, 1, Map([])),
+    env_blob: @process.instance_env_blob("t", 0, 1),
   })
   assert_eq(
     @process.wait_child(bad_cwd),
@@ -131,11 +131,8 @@ test "write_atomic and append_file round-trip" {
 }
 
 ///|
-test "instance_env_blob contains app and reserved vars" {
-  let text = @utf8.decode(
-    @process.instance_env_blob("myapp", 3, 5000, { "NODE_ENV": "test" }),
-  )
-  assert_true(text.contains("NODE_ENV=test"))
+test "instance_env_blob contains reserved vars" {
+  let text = @utf8.decode(@process.instance_env_blob("myapp", 3, 5000))
   assert_true(text.contains("BM2_APP_NAME=myapp"))
   assert_true(text.contains("BM2_INSTANCE_ID=3"))
   assert_true(text.contains("BM2_APP_PORT=5000"))
@@ -144,12 +141,10 @@ test "instance_env_blob contains app and reserved vars" {
 }
 
 ///|
-test "instance_env_blob carries only whitelist, app env and reserved vars" {
-  let text = @utf8.decode(
-    @process.instance_env_blob("myapp", 2, 5001, { "APP_FLAG": "1" }),
-  )
+test "instance_env_blob carries only whitelist and reserved vars" {
+  let text = @utf8.decode(@process.instance_env_blob("myapp", 2, 5001))
   let allowed = [
-    "PATH", "HOME", "TMPDIR", "APP_FLAG", "BM2_APP_NAME", "BM2_INSTANCE_ID", "BM2_APP_INSTANCE",
+    "PATH", "HOME", "TMPDIR", "BM2_APP_NAME", "BM2_INSTANCE_ID", "BM2_APP_INSTANCE",
     "BM2_APP_PORT", "NODE_ENV",
   ]
   let mut seen = 0
@@ -165,10 +160,9 @@ test "instance_env_blob carries only whitelist, app env and reserved vars" {
     }
     assert_true(allowed.contains(key))
   }
-  // whitelist (PATH/HOME/TMPDIR, present in the test environment) + 1 app
-  // env + 3 reserved vars; at least 4 entries must exist.
-  assert_true(seen >= 4)
-  assert_true(text.contains("APP_FLAG=1"))
+  // whitelist (PATH/HOME/TMPDIR, present in the test environment) + 5
+  // reserved vars; at least 5 entries must exist.
+  assert_true(seen >= 5)
 }
 
 ///|

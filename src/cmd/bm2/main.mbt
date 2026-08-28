@@ -24,7 +24,7 @@ fn platform_error() -> String? {
 
 ///|
 /// Keep in sync with moon.mod `version`.
-const VERSION : String = "0.2.2"
+const VERSION : String = "0.3.0"
 
 ///|
 fn run() -> Int {

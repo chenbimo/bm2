@@ -3,14 +3,13 @@ let whitelist : Array[String] = ["PATH", "HOME", "TMPDIR"]
 
 ///|
 /// Minimal instance environment: whitelisted vars from bm2d's own
-/// environment plus app variables and reserved bm2 vars, encoded as a
-/// NUL-separated "KEY=VALUE" blob with a trailing extra NUL for bm2_spawn.
-/// Reserved vars are written last and cannot be overridden by the app.
+/// environment plus the reserved bm2 vars, encoded as a NUL-separated
+/// "KEY=VALUE" blob with a trailing extra NUL for bm2_spawn. Reserved
+/// vars are written last, so nothing can override them.
 pub fn instance_env_blob(
   app_name : String,
   instance_id : Int,
   port : Int,
-  app_env : Map[String, String],
 ) -> Bytes {
   let reserved = [
     ("BM2_APP_NAME", app_name),
@@ -19,20 +18,17 @@ pub fn instance_env_blob(
     ("BM2_APP_PORT", port.to_string()),
     ("NODE_ENV", "production"),
   ]
-  build_blob(app_env, reserved)
+  build_blob(reserved)
 }
 
 ///|
 /// Whitelisted environment only; used to launch bm2d itself.
 pub fn base_env_blob() -> Bytes {
-  build_blob(Map([]), [])
+  build_blob([])
 }
 
 ///|
-fn build_blob(
-  app_env : Map[String, String],
-  reserved : Array[(String, String)],
-) -> Bytes {
+fn build_blob(reserved : Array[(String, String)]) -> Bytes {
   let buf = StringBuilder::new()
   let vars = @env.get_env_vars()
   for name in whitelist {
@@ -40,9 +36,6 @@ fn build_blob(
       Some(value) => write_entry(buf, name, value)
       None => ()
     }
-  }
-  for name, value in app_env {
-    write_entry(buf, name, value)
   }
   for entry in reserved {
     let (name, value) = entry

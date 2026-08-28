@@ -1,7 +1,7 @@
 ///|
 let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "instances", "port", "max_memory_mb", "max_restarts",
-  "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "env",
+  "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms",
 ]
 
 ///|
@@ -62,72 +62,9 @@ pub fn parse(doc : String, base_dir : String) -> Config raise ConfigError {
       "root",
       DEFAULT_STOP_TIMEOUT_MS,
     ),
-    env: opt_env(table, "root"),
   }
   validate(config)
   config
-}
-
-///|
-/// App variables are string-only and cannot shadow bm2 instance metadata.
-fn opt_env(
-  table : Map[String, @toml.TomlValue],
-  ctx : String,
-) -> Map[String, String] raise ConfigError {
-  match table.get("env") {
-    None => Map([])
-    Some(@toml.TomlTable(values)) => {
-      let env : Map[String, String] = Map([])
-      for name, value in values {
-        validate_env_name(name, ctx)
-        match value {
-          @toml.TomlString(text) => {
-            // A NUL in the value would break the C-side envp blob layout.
-            if text.contains("\u{0}") {
-              raise ConfigError::InvalidField(
-                "\{ctx}.env.\{name} must not contain NUL characters",
-              )
-            }
-            env[name] = text
-          }
-          _ =>
-            raise ConfigError::InvalidField(
-              "\{ctx}.env.\{name} must be a string",
-            )
-        }
-      }
-      env
-    }
-    Some(_) => raise ConfigError::InvalidField("\{ctx}.env must be a table")
-  }
-}
-
-///|
-fn validate_env_name(name : String, ctx : String) -> Unit raise ConfigError {
-  if name.is_empty() {
-    raise ConfigError::InvalidField("\{ctx}.env has invalid variable name")
-  }
-  if name == "BM2_APP_NAME" ||
-    name == "BM2_INSTANCE_ID" ||
-    name == "BM2_APP_INSTANCE" ||
-    name == "BM2_APP_PORT" ||
-    name == "NODE_ENV" ||
-    name == "PATH" ||
-    name == "HOME" ||
-    name == "TMPDIR" {
-    raise ConfigError::InvalidField("\{ctx}.env.\{name} is reserved")
-  }
-  for i, c in name {
-    guard (i == 0 && (c is ('A'..='Z') || c is ('a'..='z') || c == '_')) ||
-      (
-        i > 0 &&
-        (c is ('A'..='Z') || c is ('a'..='z') || c is ('0'..='9') || c == '_')
-      ) else {
-      raise ConfigError::InvalidField(
-        "\{ctx}.env has invalid variable name \{name}",
-      )
-    }
-  }
 }
 
 ///|

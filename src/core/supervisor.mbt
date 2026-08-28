@@ -4,6 +4,7 @@ pub(all) suberror SupervisorError {
   Conflict(String)
   PortConflict(String)
   IoError(String)
+  RuntimeRejected(String)
 }
 
 ///|
@@ -23,6 +24,10 @@ pub impl Show for SupervisorError with fn output(self, logger) {
     }
     IoError(message) => {
       logger.write_string("io error: ")
+      logger.write_string(message)
+    }
+    RuntimeRejected(message) => {
+      logger.write_string("runtime rejected: ")
       logger.write_string(message)
     }
   }
@@ -794,7 +799,6 @@ fn Supervisor::spawn_instance(
         app.name,
         inst.instance_id,
         inst.port,
-        app.env,
       ),
     })
   catch {

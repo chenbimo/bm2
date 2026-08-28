@@ -83,9 +83,6 @@ max_restarts = 2
 restart_delay_ms = 100
 min_uptime_ms = 60000
 stop_timeout_ms = $6
-
-[env]
-BM2_E2E_ROLE = "$2"
 EOF
 }
 
@@ -133,7 +130,7 @@ contains "hog crash.log rssMb" $state_dir/hog/logs/hog-0.crash.log "rssMb="
 echo "===== E. slow app serves HTTP ====="
 write_project slow slow 4231 slow.ts 1 1000
 (cd "$ACC/slow" && bm2 start >/dev/null)
-check "slow http" "slow slow-0 slow 4231 0" "$(wait_http 4231 "slow slow-0 slow 4231 0")"
+check "slow http" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
 
 echo "===== F. kill quick unregisters it ====="
 bm2 kill quick
@@ -175,20 +172,20 @@ kill "$FOREIGN" 2>/dev/null
 echo "===== I. numeric config change accepted while running ====="
 sed -i 's/stop_timeout_ms = 1000/stop_timeout_ms = 2000/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
-check "slow still on 4231" "slow slow-0 slow 4231 0" "$(wait_http 4231 "slow slow-0 slow 4231 0")"
+check "slow still on 4231" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
 
 echo "===== J. structural change restarts on the new port ====="
 sed -i 's/port = 4231/port = 4241/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
-check "structural restart on new port" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"
+check "structural restart on new port" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 
 echo "===== K. structural change accepted when stopped ====="
 bm2 kill slow
 sed -i 's/port = 4241/port = 4241/; s/instances = [0-9]*/instances = 2/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "two instances after rebuild" "2" "$(bm2 list slow | grep -c '^slow ')"
-check "rebuilt instance on 4241" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"
-check "rebuilt instance on 4242" "slow slow-1 slow 4242 1" "$(wait_http 4242 "slow slow-1 slow 4242 1")"
+check "rebuilt instance on 4241" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
+check "rebuilt instance on 4242" "slow slow-1 production 4242 1" "$(wait_http 4242 "slow slow-1 production 4242 1")"
 bm2 kill slow
 
 echo "===== L. kill without app shuts down bm2d ====="
@@ -223,7 +220,7 @@ sleep 1
 NDPID=$(cat "$state_dir/bm2d.pid")
 check "daemon pid changed" "changed" "$([ -n "$NDPID" ] && [ "$NDPID" != "$DPID" ] && echo changed || echo same)"
 check "app pid preserved" "$APID" "$(bm2 list slow | sed -n '2p' | awk '{print $3}')"
-check "slow still served" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"
+check "slow still served" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
 
 echo "===== N. ignored SIGTERM escalates to SIGKILL ====="
@@ -263,9 +260,9 @@ bm2 kill slow
 sed -i 's/instances = [0-9]*/instances = 3/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "three instances online" "3" "$(bm2 list slow | grep -c '^slow ')"
-check "instance on 4241" "slow slow-0 slow 4241 0" "$(wait_http 4241 "slow slow-0 slow 4241 0")"
-check "instance on 4242" "slow slow-1 slow 4242 1" "$(wait_http 4242 "slow slow-1 slow 4242 1")"
-check "instance on 4243" "slow slow-2 slow 4243 2" "$(wait_http 4243 "slow slow-2 slow 4243 2")"
+check "instance on 4241" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
+check "instance on 4242" "slow slow-1 production 4242 1" "$(wait_http 4242 "slow slow-1 production 4242 1")"
+check "instance on 4243" "slow slow-2 production 4243 2" "$(wait_http 4243 "slow slow-2 production 4243 2")"
 bm2 kill slow
 
 echo "===== Q. CLI error paths ====="
@@ -281,6 +278,13 @@ OUT=$(cd "$ACC/noconfig" && bm2 start 2>&1)
 check "start without config rejected" 1 "$?"
 check "start without config message" "bm2: InvalidDocument: cannot read config file: $ACC/noconfig/bm2.toml" "$OUT"
 rm -rf "$ACC/noconfig"
+mkdir -p "$ACC/withenv"
+cp "$fixtures/slow.ts" "$ACC/withenv/"
+printf 'name = "withenv"\nscript = "slow.ts"\ninstances = 1\nport = 4281\n\n[env]\nAPP_ENV = "production"\n' > "$ACC/withenv/bm2.toml"
+OUT=$(cd "$ACC/withenv" && bm2 start 2>&1)
+check "removed env table rejected exit" 1 "$?"
+check "removed env table rejected message" "bm2: InvalidField: root has unknown field env" "$OUT"
+rm -rf "$ACC/withenv"
 
 echo "===== S. duplicate and conflicting registrations ====="
 (cd "$ACC/slow" && bm2 start >/dev/null)
@@ -296,7 +300,7 @@ fi
 write_project slow2 slow 4261 slow.ts 1 1000
 (cd "$ACC/slow2" && bm2 start >/dev/null)
 check "same name updates existing project" "1" "$(bm2 list slow | grep -c '^slow ')"
-check "updated instance on 4261" "slow slow-0 slow 4261 0" "$(wait_http 4261 "slow slow-0 slow 4261 0")"
+check "updated instance on 4261" "slow slow-0 production 4261 0" "$(wait_http 4261 "slow slow-0 production 4261 0")"
 bm2 kill slow
 
 echo "===== T. long stop_timeout must not split the daemon ====="
