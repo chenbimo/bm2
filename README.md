@@ -1,192 +1,192 @@
 # bm2
 
-`bm2` is a small Linux process manager for Bun applications, written in MoonBit.
+`bm2` 是一个用 MoonBit 编写的轻量级 Linux 进程管理器，用于管理 Bun 应用。
 
-It manages Bun processes only. Nginx remains responsible for reverse proxying and load balancing between instance ports.
+它只管理 Bun 进程。
 
-## Scope
+Nginx 负责反向代理与实例端口之间的负载均衡。
 
-- Linux only; development and verification target WSL Debian. Non-Linux
-  builds refuse to run with a clear message. Requires Linux kernel >= 5.3
-  (pidfd process tracking).
-- One `bm2.toml` configures **one project** (a single app with one or more
-  independent instances). One bm2 daemon per user manages many projects.
-- Fixed launch command: `<runtime> <script>`.
-- Crash restart budget, memory limit, graceful stop timeout, persisted state, and Unix socket control.
-- Commands: `start`, `kill`, `list`, `reload`, `upgrade`, `version`.
-- `start` always performs a full restart for its project.
+英文文档：[README.en.md](README.en.md)
 
-It does not manage Nginx, domains, certificates, hot reload, boot startup, or remote administration.
+## 范围
 
-## Requirements
+- 仅支持 Linux。非 Linux 构建会拒绝运行并给出明确提示。需要 Linux 内核 >= 5.3（pidfd 进程跟踪）。
+- 一个 `bm2.toml` 配置**一个项目**（单个应用，一个或多个独立实例）。每个用户一个 bm2 守护进程，可管理多个项目。
+- 固定启动命令：`<runtime> <script>`。
+- 崩溃重启预算、内存限制、优雅停止超时、状态持久化、Unix socket 控制。
+- 命令：`start`、`kill`、`list`、`reload`、`upgrade`、`version`。
+- `start` 总是对其项目执行一次完整重启。
 
-Install these tools inside WSL Debian:
+它不管理 Nginx、域名、证书、热重载、开机自启或远程管理。
 
-- [MoonBit](https://www.moonbitlang.com/) (only needed to install/upgrade bm2)
-- [Bun](https://bun.sh/)
-- `curl` for the end-to-end verification script
+## 环境要求
 
-Open this repository through VS Code Remote-WSL. The repository may remain at `/mnt/c/codes/bm2`; edit it from VS Code and run all commands in the Remote-WSL integrated terminal.
+- [MoonBit](https://www.moonbitlang.com/)（仅安装/升级 bm2 时需要）
+- [Bun](https://bun.sh/) >= `1.4.0`
+- [Node.js](https://nodejs.org/) >= `24.0.0`（仅 `runtime = "node"` 的项目需要）
 
-## Install and upgrade
+`bm2 start` 会实际探测运行时版本，低于上述下限时拒绝启动。
+
+## 安装与升级
 
 ```bash
 moon install chensuiyi/bm2/... --bin ~/.local/bin
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Both binaries (`bm2`, `bm2d`) are installed together; both must stay on
-`PATH` because `bm2` launches `bm2d` by name.
+`bm2` 与 `bm2d` 两个二进制一起安装。
 
-To update to the latest mooncakes release:
+两者都必须留在 `PATH` 中，因为 `bm2` 通过名字启动 `bm2d`。
+
+升级到 mooncakes 上的最新版本：
 
 ```bash
-bm2 upgrade          # compares versions, runs moon install, then:
-bm2 reload           # swap in the new daemon without stopping apps
+bm2 upgrade          # 比对版本并执行 moon install，然后：
+bm2 reload           # 在不停止应用的情况下换入新守护进程
 ```
 
-## Configuration
+## 配置
 
-Create `bm2.toml` in the directory where you run `bm2`:
+在你运行 `bm2` 的目录创建 `bm2.toml`。
+
+以下为完整模板，包含全部字段与默认值，直接复制修改即可：
 
 ```toml
-# Project name: letter first, then letters, digits and underscores only.
-# It is the app name too and must be unique among registered projects.
+# 项目名：字母开头，后接字母、数字和下划线。
+# 同时也是应用名，在所有已注册项目中必须唯一。
 name = "api"
-cwd = "/srv/api"             # optional; defaults to this file's directory
+
+# 应用工作目录（绝对路径），默认为 bm2.toml 所在目录。
+cwd = "/srv/api"
+
+# 相对 cwd 的脚本路径，禁止 .. 段。
 script = "src/index.ts"
+
+# 运行时：bun 或 node，版本下限见环境要求。
+runtime = "bun"
+
+# 实例数量（1..1024），端口从 port 起连续分配。
 instances = 2
 port = 3000
+
+# 单实例内存上限（MiB），超过按异常重启处理，至少为 1。
+max_memory_mb = 512
+
+# 连续异常重启预算，0 表示首次异常即 errored。
+max_restarts = 10
+
+# 自动重启前的延迟（毫秒），崩溃后固定，spawn 失败后按次数递增。
+restart_delay_ms = 1000
+
+# 干净退出早于此时长（毫秒）会计入重启预算。
+min_uptime_ms = 10000
+
+# SIGTERM 到 SIGKILL 的宽限期（毫秒），最大 60000。
+stop_timeout_ms = 10000
 ```
 
-Required fields:
+字段一览：
 
-| Field | Meaning |
-| --- | --- |
-| `name` | Project/app name. Letter first, then letters, digits and underscores; unique across all registered projects. |
-| `script` | Relative script path inside `cwd`; `..` is forbidden. |
-| `instances` | Number of instances; `1..1024`. |
-| `port` | First instance port; later instances use consecutive ports. |
+| 字段 | 必填 | 默认值 | 约束 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 字母开头，后接字母、数字、下划线，全局唯一 |
+| `cwd` | 否 | 配置目录 | 绝对路径 |
+| `script` | 是 | — | `cwd` 内相对路径，禁止 `..` |
+| `runtime` | 否 | `bun` | `bun` 或 `node` |
+| `instances` | 是 | — | `1..1024` |
+| `port` | 是 | — | `1..65535`，范围不得与其他项目重叠 |
+| `max_memory_mb` | 否 | `512` | 至少 `1` |
+| `max_restarts` | 否 | `10` | `≥ 0`，`0` 禁用重试 |
+| `restart_delay_ms` | 否 | `1000` | `≥ 0` |
+| `min_uptime_ms` | 否 | `10000` | `≥ 0` |
+| `stop_timeout_ms` | 否 | `10000` | `1..60000` |
 
-Optional fields (with defaults):
+所有已注册项目的端口范围不得重叠，冲突的 `bm2 start` 会被拒绝。
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `cwd` | config dir | Absolute application working directory. |
-| `runtime` | `bun` | Runtime executable: `bun` or `node`. |
-| `max_memory_mb` | `512` | Maximum VmRSS in MiB; at least `1`. |
-| `max_restarts` | `10` | Allowed consecutive abnormal restarts; `0` disables retries. |
-| `restart_delay_ms` | `1000` | Delay before an automatic restart: fixed after a crash, growing with the retry count after a spawn failure. |
-| `min_uptime_ms` | `10000` | A clean exit before this duration counts toward the restart budget. |
-| `stop_timeout_ms` | `10000` | Grace period after SIGTERM before SIGKILL; at most `60000`. |
+## 环境变量
 
-Port ranges across all registered projects must not overlap; a conflicting
-`bm2 start` is rejected.
-
-## Environment
-
-bm2 passes only `PATH`, `HOME`, and `TMPDIR` from its own environment to managed processes, plus these reserved variables:
+bm2 只把自己的 `PATH`、`HOME`、`TMPDIR` 传给被管理进程，外加这些保留变量：
 
 - `BM2_APP_NAME`
 - `BM2_INSTANCE_ID`
-- `BM2_APP_INSTANCE` (the instance number, `"0"` for the first instance; mirrors the PM2 `NODE_APP_INSTANCE` convention so cluster-aware apps can pick a primary)
-- `BM2_APP_PORT` (the port assigned to this instance)
-- `NODE_ENV` (always `"production"`: bm2 is a production-run tool, so managed apps can reliably detect they are under bm2)
+- `BM2_APP_INSTANCE`（实例编号，第一个实例为 `"0"`，与 PM2 的 `NODE_APP_INSTANCE` 约定一致，便于集群感知的应用选择主实例）
+- `BM2_APP_PORT`（分配给该实例的端口）
+- `NODE_ENV`（恒为 `"production"`：bm2 是生产运行工具，被管理应用可以可靠地检测到自己在 bm2 之下）
 
-Bun automatically loads `.env` files from the project's `cwd`. Do not put application secrets in `bm2.toml`; keep them in the application's environment or `.env` files. Reserved bm2 variables are injected explicitly into every instance's environment: `[env]` entries with reserved names are rejected at config parse time, and Bun's automatic `.env` loading never overwrites variables that already exist in the process environment.
+应用自身的环境变量由应用与运行时自行加载，bm2 不解析 `.env`，也不参与加载。
 
-Each project may provide an optional string-only `[env]` table. Environment names must use letters, digits, and underscores, cannot begin with a digit, and the reserved names above plus `PATH`/`HOME`/`TMPDIR` are rejected. Values must be TOML strings without NUL characters. bm2 never writes environment values to state files, events, crash logs, or CLI output.
+bm2 已注入的变量不会被运行时的 `.env` 加载覆盖。
 
-## Commands
+## 命令
 
 ```bash
-bm2 start             # register/update the project in the current directory and start it
-bm2 kill <name>       # stop one project and unregister it; bm2d stays running
-bm2 kill -y           # stop all projects, unregister them and exit bm2d (bare `kill` refuses)
-bm2 list [name]       # display all registered project states
-bm2 reload            # swap in a fresh bm2d; managed apps keep running
-bm2 upgrade           # update bm2 to the latest mooncakes release
-bm2 version           # print the bm2 version
+bm2 start             # 注册/更新当前目录中的项目并启动它
+bm2 kill <name>       # 停止一个项目并注销它；bm2d 继续运行
+bm2 kill -y           # 停止所有项目、注销它们并退出 bm2d（裸 `kill` 会拒绝执行）
+bm2 list [name]       # 显示所有已注册项目的状态
+bm2 reload            # 换入新的 bm2d；被管理的应用继续运行
+bm2 upgrade           # 把 bm2 升级到 mooncakes 上的最新版本
+bm2 version           # 显示 bm2 版本
 ```
 
-`start` and `kill <name>` are asynchronous: the daemon answers immediately
-and the CLI polls until the operation settles, so the daemon never blocks
-on stop timeouts.
+`start` 和 `kill <name>` 是异步的：守护进程立即应答，CLI 轮询直到操作完成，因此守护进程永远不会因停止超时而阻塞。
 
-`bm2 list`, `bm2 kill`, `bm2 reload`, and `bm2 version` work from any
-directory. Only `bm2 start` must run in the directory containing
-`bm2.toml`, because it registers the project from that config. A bare
-`bm2 kill` without `-y` refuses to run and prints a hint.
+`bm2 list`、`bm2 kill`、`bm2 reload` 和 `bm2 version` 可以在任意目录执行。
 
-Re-running `bm2 start` in a project (or in another directory with the same
-`name`) updates the config and performs a full restart, so changing any
-field — including the instance count, ports, or script — takes effect on
-the next start. A killed project (`bm2 kill <name>`) is fully unregistered:
-it disappears from `bm2 list` and is not revived by a daemon restart.
+只有 `bm2 start` 必须在包含 `bm2.toml` 的目录中运行，因为它要从该配置注册项目。
 
-`reload` swaps in a fresh bm2d (e.g. after `bm2 upgrade`) without stopping
-managed apps: the old daemon detaches, the new one adopts the surviving
-instances with unchanged PIDs.
+裸 `bm2 kill`（不带 `-y`）会拒绝执行并打印提示。
 
-`list` prints one row per active or abnormal instance, including its PID,
-port, runtime status, memory, uptime, and the complete project working
-directory in the final `CWD` column. Intentionally stopped instances are
-omitted; `restarting` and `errored` instances remain visible for diagnosis.
+在项目中（或在另一个使用相同 `name` 的目录中）重新运行 `bm2 start` 会更新配置并执行完整重启，因此修改任何字段——包括实例数量、端口或脚本——都会在下一次 start 时生效。
 
-If a daemon dies abruptly and leaves a stale Unix socket, the next CLI
-request waits briefly for a response, removes the stale socket, starts one
-fresh daemon, and retries the request once.
+被 kill 的项目（`bm2 kill <name>`）会完全注销：它从 `bm2 list` 中消失，且不会因守护进程重启而复现。
 
-## Recovery semantics
+`reload` 在不停止被管理应用的情况下换入新的 bm2d（例如 `bm2 upgrade` 之后）：旧守护进程分离，新守护进程以不变的 PID 收养仍在运行的实例。
 
-A started daemon **adopts still-running instances** of registered projects
-(after a crash or `reload`) but **never starts anything on its own**:
-projects only run after an explicit `bm2 start`. Adoption verifies the
-process's environment carries bm2's reserved variables, so a foreign
-process (even one launched manually with the same script) is never
-touched — it is recorded as a `pid_conflict` instead.
+`list` 为每个活跃或异常实例打印一行，包括 PID、端口、运行状态、内存、运行时长，以及最后一列 `CWD` 中的完整项目工作目录。
 
-## State and logs
+被有意停止的实例会被省略，`restarting` 和 `errored` 实例保持可见，便于运维诊断。
 
-bm2 always stores its socket, PID, state, and management logs in `~/.bm2`
-for the current Linux user. One daemon per user manages all registered
-projects:
+如果守护进程意外崩溃并留下过期的 Unix socket，下一个 CLI 请求会短暂等待响应、删除过期 socket、启动一个新的守护进程，并重试一次请求。
+
+## 恢复语义
+
+已启动的守护进程会**收养已注册项目中仍在运行的实例**（崩溃或 `reload` 之后），但**绝不会自行启动任何东西**：项目只会在显式执行 `bm2 start` 之后运行。
+
+收养会校验进程环境是否携带 bm2 的保留变量，因此外来进程（即使是用相同脚本手动启动的）也绝不会被触碰——它会被记录为 `pid_conflict`。
+
+## 状态与日志
+
+bm2 总是把 socket、PID、状态和管理日志存放在当前 Linux 用户的 `~/.bm2` 下。
+
+每个用户一个守护进程，管理所有已注册项目：
 
 ```text
-bm2.sock                         # Unix socket, mode 0600
-bm2d.pid                         # daemon PID
-bm2.events.jsonl                 # CLI connection and retry events
-bm2d.log                         # daemon stderr / runtime diagnostics
-bm2d.events.jsonl                # daemon and supervisor events
-<name>/project.json              # registration (config path) per project
-<name>/<name>-<id>.json          # persisted instance state
-<name>/logs/<name>-<id>.out.log    # application stdout
-<name>/logs/<name>-<id>.error.log  # application stderr
-<name>/logs/<name>-<id>.crash.log  # abnormal-exit diagnostics
+bm2.sock                         # Unix socket，权限 0600
+bm2d.pid                         # 守护进程 PID
+bm2.events.jsonl                 # CLI 连接与重试事件
+bm2d.log                         # 守护进程 stderr / 运行时诊断
+bm2d.events.jsonl                # 守护进程与监督事件
+<name>/project.json              # 每个项目的注册信息（配置路径）
+<name>/<name>-<id>.json          # 持久化的实例状态
+<name>/logs/<name>-<id>.out.log    # 应用 stdout
+<name>/logs/<name>-<id>.error.log  # 应用 stderr
+<name>/logs/<name>-<id>.crash.log  # 异常退出诊断
 ```
 
-Logs are rotated by size: each file rotates at 10 MB and keeps ten
-generations (`.1` .. `.10`, ~100 MB per file at most). Application logs
-stay strictly separate from bm2's own management logs.
+日志按大小轮转：每个文件达到 10 MB 时轮转，保留十代（`.1` .. `.10`，每个文件最多约 100 MB）。
 
-The two `*.events.jsonl` files contain one JSON object per line. They
-record management metadata only: timestamps, event names, app/instance/PID
-when applicable, and operational reasons. They do **not** contain
-environment variable values, protocol payloads, or application output.
+应用日志与 bm2 自身的管理日志严格分离。
 
-Useful commands:
+两个 `*.events.jsonl` 文件每行一个 JSON 对象。
+
+它们只记录管理元数据：时间戳、事件名、适用时的应用/实例/PID、运维原因。
+
+它们**不**包含环境变量值、协议载荷或应用输出。
+
+常用命令：
 
 ```bash
 tail -f ~/.bm2/bm2d.events.jsonl
 jq -c . ~/.bm2/bm2d.events.jsonl
 ```
-
-## Verification
-
-From the Remote-WSL terminal, run the complete formatter, static check, native test suite, build, and end-to-end acceptance sequence:
-
-```bash
-bash scripts/verify.sh
-```
-
-The script requires MoonBit at `~/.moon/bin/moon`, creates temporary fixtures under `/tmp`, and removes their runtime state afterward. It covers multi-project registration and aggregated listing, crash restart limits, clean exits, memory limits, HTTP readiness, kill and unregistration semantics, daemon crash adoption, PID conflict safety, config update rules, multi-instance rebuilds, daemon shutdown through bare `kill`, reload without downtime, and structured event logs.
