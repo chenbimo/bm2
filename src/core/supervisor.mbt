@@ -765,7 +765,10 @@ fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
   }
   self.instances[app_name] = arr
   for inst in arr {
-    self.spawn_instance(app, inst)
+    // One instance's spawn failure must not abort the loop: the failure
+    // is already marked and retried with backoff by mark_spawn_failed,
+    // and the remaining instances still deserve their spawn.
+    discard(() => self.spawn_instance(app, inst))
   }
 }
 
