@@ -113,11 +113,30 @@ stop_timeout_ms = 10000
 
 bm2 只把自己的 `PATH`、`HOME`、`TMPDIR` 传给被管理进程，外加这些保留变量：
 
-- `BM2_APP_NAME`
-- `BM2_INSTANCE_ID`
-- `BM2_APP_INSTANCE`（实例编号，第一个实例为 `"0"`，与 PM2 的 `NODE_APP_INSTANCE` 约定一致，便于集群感知的应用选择主实例）
-- `BM2_APP_PORT`（分配给该实例的端口）
-- `NODE_ENV`（恒为 `"production"`：bm2 是生产运行工具，被管理应用可以可靠地检测到自己在 bm2 之下）
+- `BM2_APP_NAME`（项目名）
+- `BM2_INSTANCE_ID`（实例编号，第一个实例为 `"0"`）
+- `BM2_APP_INSTANCE`（同实例编号，命名对齐 PM2 的 `NODE_APP_INSTANCE` 习惯）
+- `BM2_APP_PORT`（分配给该实例的端口，等于 `bm2.toml` 的 `port` 加实例编号）
+- `NODE_ENV`（恒为 `"production"`）
+
+端口与实例编号一一对应：`BM2_APP_PORT = port + BM2_APP_INSTANCE`，例如 `port = 3000` 且 `instances = 3` 时，三个实例分别监听 `3000`、`3001`、`3002`。
+
+应用内典型用法：
+
+- 用 `BM2_APP_PORT` 绑定监听端口，多实例各占一个端口。
+- 用 `BM2_APP_INSTANCE === "0"` 判断主实例，只在主实例执行数据库迁移、定时任务等一次性逻辑。
+- 用 `NODE_ENV === "production"` 走生产分支。
+
+```js
+const PORT = Number(process.env.BM2_APP_PORT ?? 3000);
+const isPrimary = process.env.BM2_APP_INSTANCE === "0";
+
+Bun.serve({ port: PORT, fetch: () => new Response("ok") });
+
+if (isPrimary) {
+  // 只在主实例执行：数据库迁移、定时任务等
+}
+```
 
 应用自身的环境变量由应用与运行时自行加载，bm2 不解析 `.env`，也不参与加载。
 

@@ -131,11 +131,30 @@ On a conflict bm2 refuses to start.
 
 bm2 passes only `PATH`, `HOME`, and `TMPDIR` from its own environment to managed processes, plus these reserved variables:
 
-- `BM2_APP_NAME`
-- `BM2_INSTANCE_ID`
-- `BM2_APP_INSTANCE` (the instance number, `"0"` for the first instance, mirrors the PM2 `NODE_APP_INSTANCE` convention so cluster-aware apps can pick a primary)
-- `BM2_APP_PORT` (the port assigned to this instance)
-- `NODE_ENV` (always `"production"`: bm2 is a production-run tool, so managed apps can reliably detect they are under bm2)
+- `BM2_APP_NAME` (the project name)
+- `BM2_INSTANCE_ID` (the instance number, `"0"` for the first instance)
+- `BM2_APP_INSTANCE` (same instance number, named after PM2's `NODE_APP_INSTANCE` convention)
+- `BM2_APP_PORT` (the port assigned to this instance, equal to bm2.toml's `port` plus the instance number)
+- `NODE_ENV` (always `"production"`)
+
+Ports map one-to-one to instance numbers: `BM2_APP_PORT = port + BM2_APP_INSTANCE`, for example with `port = 3000` and `instances = 3` the three instances listen on `3000`, `3001`, and `3002`.
+
+Typical usage inside the application:
+
+- Bind the listen port from `BM2_APP_PORT`, each instance owns one port.
+- Treat `BM2_APP_INSTANCE === "0"` as the primary, run migrations or cron jobs on the primary only.
+- Branch on `NODE_ENV === "production"` for production behavior.
+
+```js
+const PORT = Number(process.env.BM2_APP_PORT ?? 3000);
+const isPrimary = process.env.BM2_APP_INSTANCE === "0";
+
+Bun.serve({ port: PORT, fetch: () => new Response("ok") });
+
+if (isPrimary) {
+  // primary only: migrations, cron jobs, etc.
+}
+```
 
 The application's own environment variables are loaded by the application and its runtime.
 
