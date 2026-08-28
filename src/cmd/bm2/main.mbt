@@ -49,7 +49,7 @@ fn run() -> Int {
         usage()
         return 2
       }
-      return cmd_upgrade()
+      return cmd_upgrade(state_dir)
     }
     "version" => {
       println("bm2 " + VERSION)
@@ -232,39 +232,12 @@ fn run() -> Int {
       print_list(resp.instances)
       0
     } else if command == "reload" {
-      // The old daemon unlinks its socket just before exiting; wait for
-      // it, then start the fresh daemon which adopts the running apps.
-      if !wait_daemon_exit(state_dir) {
-        @process.eprintln("bm2: bm2d did not exit; reload aborted")
-        return 1
-      }
-      @process.sleep_ms(50)
-      // The old daemon's flock is released on exit; retry briefly in case
-      // it has not fully terminated yet.
-      let mut fresh_fd : Int? = None
-      for _ in 0..<3 {
-        fresh_fd = try ensure_daemon(state_dir) catch {
-          _ => None
-        } noraise {
-          result => result
-        }
-        match fresh_fd {
-          Some(_) => break
-          None => @process.sleep_ms(100)
-        }
-      }
-      match fresh_fd {
-        Some(fd) => {
-          @process.close(fd)
-          println("reloaded")
-          0
-        }
-        None => {
-          @process.eprintln(
-            "bm2: bm2d did not start, see " + state_dir + "/bm2d.log",
-          )
-          1
-        }
+      // Swap in a fresh bm2d; the running apps are adopted unchanged.
+      if swap_daemon(state_dir) {
+        println("reloaded")
+        0
+      } else {
+        1
       }
     } else {
       // start/kill <name> are async on the daemon side: poll `list` until
@@ -296,10 +269,11 @@ fn run() -> Int {
 
 ///|
 /// Upgrade bm2 itself: refresh the mooncakes index, compare the latest
-/// published version with the running one, and run `moon install` into
-/// bm2's own directory when a newer release exists. Requires the moon
-/// toolchain (which is also how bm2 was installed).
-fn cmd_upgrade() -> Int {
+/// published version with the running one, run `moon install` into bm2's
+/// own directory when a newer release exists, then swap the daemon so
+/// the new binary takes over without touching the running apps.
+/// Requires the moon toolchain (which is also how bm2 was installed).
+fn cmd_upgrade(state_dir : String) -> Int {
   let home = match @env.get_env_var("HOME") {
     Some(h) if !h.is_empty() => h
     _ => {
@@ -347,8 +321,64 @@ fn cmd_upgrade() -> Int {
     )
     return 1
   }
-  println("updated to " + latest + "; run 'bm2 reload' to apply")
+  // Apply immediately when a daemon is running; a failed swap still
+  // leaves the update installed, so only the message differs.
+  let running = match connect(state_dir + "/bm2.sock") {
+    Some(fd) => {
+      @process.close(fd)
+      true
+    }
+    None => false
+  }
+  if running && swap_daemon(state_dir) {
+    println("updated to " + latest + " and applied")
+  } else if running {
+    println("updated to " + latest + "; run 'bm2 reload' to apply")
+  } else {
+    println("updated to " + latest)
+  }
   0
+}
+
+///|
+/// Swap in a fresh daemon: wait out the old daemon's exit, then start
+/// the replacement which adopts the running apps. Shared by the `reload`
+/// command and the automatic apply after `upgrade`. True once the fresh
+/// daemon answers on the socket; failure reasons go to stderr.
+fn swap_daemon(state_dir : String) -> Bool {
+  // The old daemon unlinks its socket just before exiting; wait for it,
+  // then start the fresh daemon which adopts the running apps.
+  if !wait_daemon_exit(state_dir) {
+    @process.eprintln("bm2: bm2d did not exit; swap aborted")
+    return false
+  }
+  @process.sleep_ms(50)
+  // The old daemon's flock is released on exit; retry briefly in case
+  // it has not fully terminated yet.
+  let mut fresh_fd : Int? = None
+  for _ in 0..<3 {
+    fresh_fd = try ensure_daemon(state_dir) catch {
+      _ => None
+    } noraise {
+      result => result
+    }
+    match fresh_fd {
+      Some(_) => break
+      None => @process.sleep_ms(100)
+    }
+  }
+  match fresh_fd {
+    Some(fd) => {
+      @process.close(fd)
+      true
+    }
+    None => {
+      @process.eprintln(
+        "bm2: bm2d did not start, see " + state_dir + "/bm2d.log",
+      )
+      false
+    }
+  }
 }
 
 ///|
@@ -702,7 +732,7 @@ fn usage() -> Unit {
     #|  kill <name>    stop and unregister one project; use -y to stop everything
     #|  reload         restart the background service with a fresh binary; apps keep running
     #|  list [name]    show project status
-    #|  upgrade        update bm2 to the latest mooncakes release
+    #|  upgrade        update bm2 to the latest mooncakes release and apply
     #|  version        show version
   println(text)
 }
