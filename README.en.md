@@ -179,6 +179,42 @@ Intentionally stopped instances are omitted.
 
 If a daemon dies abruptly and leaves a stale Unix socket, the next CLI request waits briefly for a response, removes the stale socket, starts one fresh daemon, and retries the request once.
 
+## Load balancing
+
+bm2 focuses on process supervision alone, reverse proxying and load balancing are left to gateways such as Nginx or Caddy.
+
+Point the gateway's domain at the instances' consecutive ports, update the upstream list after changing the instance count, then reload the gateway.
+
+Nginx example (assuming `instances = 2`, `port = 3000`):
+
+```nginx
+upstream bm2_app {
+    server 127.0.0.1:3000;
+    server 127.0.0.1:3001;
+}
+
+server {
+    listen 80;
+    server_name example.com;
+
+    location / {
+        proxy_pass http://bm2_app;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Caddy example:
+
+```caddyfile
+example.com {
+    reverse_proxy 127.0.0.1:3000 127.0.0.1:3001
+}
+```
+
 ## State and logs
 
 bm2 always stores its socket, PID, state, and management logs in `~/.bm2` for the current Linux user.

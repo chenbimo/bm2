@@ -157,6 +157,42 @@ bm2 version           # 显示 bm2 版本
 
 如果守护进程意外崩溃并留下过期的 Unix socket，下一个 CLI 请求会短暂等待响应、删除过期 socket、启动一个新的守护进程，并重试一次请求。
 
+## 负载均衡
+
+bm2 只专注进程托管，反向代理与负载均衡交给 Nginx、Caddy 之类的网关。
+
+网关把域名指向实例的连续端口即可，实例增减后同步更新 upstream 列表并 reload 网关。
+
+Nginx 示例（假设 `instances = 2`，`port = 3000`）：
+
+```nginx
+upstream bm2_app {
+    server 127.0.0.1:3000;
+    server 127.0.0.1:3001;
+}
+
+server {
+    listen 80;
+    server_name example.com;
+
+    location / {
+        proxy_pass http://bm2_app;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Caddy 示例：
+
+```caddyfile
+example.com {
+    reverse_proxy 127.0.0.1:3000 127.0.0.1:3001
+}
+```
+
 ## 状态与日志
 
 bm2 总是把 socket、PID、状态和管理日志存放在当前 Linux 用户的 `~/.bm2` 下。
