@@ -22,6 +22,14 @@ if ! grep -q "const VERSION : String = \"$MV\"" "$root/src/cmd/bm2/main.mbt"; th
 fi
 
 moon fmt
+
+# A fresh environment (CI, a new machine) starts with an empty mooncakes
+# registry index; fetch it before resolving dependencies. Locally the
+# cached index usually exists and the network round-trip is skipped.
+if [ ! -f "$HOME/.moon/registry/index/user/bobzhang/toml.index" ]; then
+  moon update
+fi
+
 moon check --target native --deny-warn
 moon test --target native
 moon build --target native
