@@ -26,7 +26,8 @@ moon fmt
 # A fresh environment (CI, a new machine) starts with an empty mooncakes
 # registry index; fetch it before resolving dependencies. Locally the
 # cached index usually exists and the network round-trip is skipped.
-if [ ! -f "$HOME/.moon/registry/index/user/bobzhang/toml.index" ]; then
+MOON_HOME="${MOON_HOME:-$HOME/.moon}"
+if [ ! -f "$MOON_HOME/registry/index/user/bobzhang/toml.index" ]; then
   moon update
 fi
 

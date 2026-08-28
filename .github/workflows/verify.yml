@@ -12,11 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # moonbitlang/setup-moonbit does not exist; the official installer
-      # script is the supported way. Only "latest" is downloadable:
-      # dated version paths on the binary host return 403.
+      # Pin the toolchain to the local dev version. The version string is
+      # the full moonc version from `moon -V` (e.g. 0.10.6+80dc50f24);
+      # dated 0.1.YYYYMMDD strings are not served by the binary host.
       - name: Install MoonBit
         run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+        env:
+          MOONBIT_INSTALL_VERSION: 0.10.6+80dc50f24
 
       - uses: oven-sh/setup-bun@v2
 
