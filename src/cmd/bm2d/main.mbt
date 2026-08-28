@@ -263,8 +263,9 @@ fn cmd_list(sv : @core.Supervisor, app : String?) -> @core.Response {
 
 ///|
 /// Every start re-reads the config from the request's config path, so
-/// `bm2 start` always reflects the current bm2.toml, then registers the
-/// project (updating it when it already runs) and starts it.
+/// `bm2 start` always reflects the current bm2.toml, verifies the runtime
+/// meets the minimum version, then registers the project (updating it
+/// when it already runs) and starts it.
 /// Async: the request returns immediately with the in-flight state; the
 /// CLI polls `list` for the terminal state so the single-threaded loop
 /// never blocks on stop timeouts.
@@ -277,6 +278,11 @@ fn cmd_start(sv : @core.Supervisor, req : @core.Request) -> @core.Response {
     e => return @core.Response::error(e.to_string())
   } noraise {
     loaded => loaded
+  }
+  try sv.check_runtime(config.runtime) catch {
+    e => return @core.Response::error(e.to_string())
+  } noraise {
+    _ => ()
   }
   try sv.register(config, config_path) catch {
     e => return @core.Response::error(e.to_string())
