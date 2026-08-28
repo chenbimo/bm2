@@ -1,8 +1,8 @@
 # bm2
 
-`bm2` is a small Linux process manager for Bun applications, written in MoonBit.
+`bm2` is a small Linux process manager for Bun and Node.js applications, written in MoonBit.
 
-It manages Bun processes only.
+Runtime version requirements: Bun >= `1.4.0`, Node.js >= `24.0.0`, below the minimum bm2 refuses to start.
 
 Nginx remains responsible for reverse proxying and load balancing between instance ports.
 
@@ -10,8 +10,10 @@ Chinese version: [README.md](README.md)
 
 ## Scope
 
-- Linux only. Non-Linux builds refuse to run with a clear message. Requires Linux kernel >= 5.3 (pidfd process tracking).
-- One `bm2.toml` configures **one project** (a single app with one or more independent instances). One bm2 daemon per user manages many projects.
+- Linux only, non-Linux builds refuse to run with a clear message.
+- Requires Linux kernel >= 5.3 (pidfd process tracking).
+- One `bm2.toml` configures **one project** (a single app with one or more independent instances).
+- One bm2 daemon per user manages many projects.
 - Fixed launch command: `<runtime> <script>`.
 - Crash restart budget, memory limit, graceful stop timeout, persisted state, and Unix socket control.
 - Commands: `start`, `kill`, `list`, `reload`, `upgrade`, `version`.
@@ -25,14 +27,15 @@ It does not manage Nginx, domains, certificates, hot reload, boot startup, or re
 - [Bun](https://bun.sh/) >= `1.4.0`
 - [Node.js](https://nodejs.org/) >= `24.0.0` (only for projects with `runtime = "node"`)
 
-`bm2 start` probes the runtime version and refuses to start below these minimums.
+bm2 probes the runtime version and refuses to start below these minimums.
 
 ## Install and upgrade
 
 ```bash
-moon install chensuiyi/bm2/... --bin ~/.local/bin
-export PATH="$HOME/.local/bin:$PATH"
+moon install chensuiyi/bm2/...
 ```
+
+bm2 installs into `~/.moon/bin`, where the moon toolchain lives, so no `PATH` setup is needed.
 
 Both binaries (`bm2`, `bm2d`) are installed together.
 
@@ -103,7 +106,7 @@ Field overview:
 
 Port ranges across all registered projects must not overlap.
 
-A conflicting `bm2 start` is rejected.
+On a conflict bm2 refuses to start.
 
 ## Environment
 
@@ -139,7 +142,7 @@ bm2 version           # print the bm2 version
 
 Only `bm2 start` must run in the directory containing `bm2.toml`, because it registers the project from that config.
 
-A bare `bm2 kill` without `-y` refuses to run and prints a hint.
+bm2 refuses to run a bare `bm2 kill` without `-y` and prints a hint.
 
 Re-running `bm2 start` in a project (or in another directory with the same `name`) updates the config and performs a full restart, so changing any field — including the instance count, ports, or script — takes effect on the next start.
 

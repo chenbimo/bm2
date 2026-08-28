@@ -1,8 +1,8 @@
 # bm2
 
-`bm2` 是一个用 MoonBit 编写的轻量级 Linux 进程管理器，用于管理 Bun 应用。
+`bm2` 是一个用 MoonBit 编写的轻量级 Linux 进程管理器，用于管理 Bun 与 Node.js 应用。
 
-它只管理 Bun 进程。
+运行时版本要求：Bun >= `1.4.0`，Node.js >= `24.0.0`，低于下限 bm2 拒绝启动。
 
 Nginx 负责反向代理与实例端口之间的负载均衡。
 
@@ -10,8 +10,10 @@ Nginx 负责反向代理与实例端口之间的负载均衡。
 
 ## 范围
 
-- 仅支持 Linux。非 Linux 构建会拒绝运行并给出明确提示。需要 Linux 内核 >= 5.3（pidfd 进程跟踪）。
-- 一个 `bm2.toml` 配置**一个项目**（单个应用，一个或多个独立实例）。每个用户一个 bm2 守护进程，可管理多个项目。
+- 仅支持 Linux，非 Linux 构建会拒绝运行并给出明确提示。
+- 需要 Linux 内核 >= 5.3（pidfd 进程跟踪）。
+- 一个 `bm2.toml` 配置**一个项目**（单个应用，一个或多个独立实例）。
+- 每个用户一个 bm2 守护进程，可管理多个项目。
 - 固定启动命令：`<runtime> <script>`。
 - 崩溃重启预算、内存限制、优雅停止超时、状态持久化、Unix socket 控制。
 - 命令：`start`、`kill`、`list`、`reload`、`upgrade`、`version`。
@@ -25,14 +27,15 @@ Nginx 负责反向代理与实例端口之间的负载均衡。
 - [Bun](https://bun.sh/) >= `1.4.0`
 - [Node.js](https://nodejs.org/) >= `24.0.0`（仅 `runtime = "node"` 的项目需要）
 
-`bm2 start` 会实际探测运行时版本，低于上述下限时拒绝启动。
+bm2 会实际探测运行时版本，低于上述下限时拒绝启动。
 
 ## 安装与升级
 
 ```bash
-moon install chensuiyi/bm2/... --bin ~/.local/bin
-export PATH="$HOME/.local/bin:$PATH"
+moon install chensuiyi/bm2/...
 ```
+
+bm2 默认安装到 moon 工具链所在的 `~/.moon/bin`，无需任何 `PATH` 配置。
 
 `bm2` 与 `bm2d` 两个二进制一起安装。
 
@@ -101,7 +104,7 @@ stop_timeout_ms = 10000
 | `min_uptime_ms` | 否 | `10000` | `≥ 0` |
 | `stop_timeout_ms` | 否 | `10000` | `1..60000` |
 
-所有已注册项目的端口范围不得重叠，冲突的 `bm2 start` 会被拒绝。
+所有已注册项目的端口范围不得重叠，冲突时 bm2 拒绝启动。
 
 ## 环境变量
 
@@ -135,7 +138,7 @@ bm2 version           # 显示 bm2 版本
 
 只有 `bm2 start` 必须在包含 `bm2.toml` 的目录中运行，因为它要从该配置注册项目。
 
-裸 `bm2 kill`（不带 `-y`）会拒绝执行并打印提示。
+裸 `bm2 kill`（不带 `-y`）时 bm2 拒绝执行并打印提示。
 
 在项目中（或在另一个使用相同 `name` 的目录中）重新运行 `bm2 start` 会更新配置并执行完整重启，因此修改任何字段——包括实例数量、端口或脚本——都会在下一次 start 时生效。
 

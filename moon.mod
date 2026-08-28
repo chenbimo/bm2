@@ -14,9 +14,9 @@ readme = "README.md"
 
 repository = "https://github.com/chenbimo/bm2"
 
-description = "A lightweight Linux process manager for Bun applications, written in MoonBit"
+description = "A lightweight Linux process manager for Bun and Node.js applications, written in MoonBit"
 
-keywords = [ "bun", "process-manager", "linux" ]
+keywords = [ "bun", "nodejs", "process-manager", "linux" ]
 
 import {
   "bobzhang/toml@0.4.2",
