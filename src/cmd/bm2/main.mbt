@@ -576,7 +576,7 @@ fn request(
   config_path : String?,
   timeout_ms : Int,
 ) -> @core.Response raise {
-  @process.send_msg(fd, @core.encode_request({ command, app, config_path }))
+  @process.send_msg(fd, @core.encode_request({ command, app, config_path, }))
   if !@process.poll_fd(fd, timeout_ms) {
     raise @process.ProcessError::Failed(op="recv_msg", errno=110)
   }
@@ -683,7 +683,7 @@ fn print_list(instances : Array[@core.InstanceInfo]) -> Unit {
 
 ///|
 fn print_row(cols : Array[String], widths : Array[Int]) -> Unit {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i in 0..<cols.length() {
     if i > 0 {
       buf.write_string("  ")

@@ -19,6 +19,6 @@ description = "A lightweight Linux process manager for Bun and Node.js applicati
 keywords = [ "bun", "nodejs", "process-manager", "linux" ]
 
 import {
-  "bobzhang/toml@0.4.2",
-  "moonbitlang/x@0.4.41",
+  "bobzhang/toml@0.4.3",
+  "moonbitlang/x@0.5.1",
 }

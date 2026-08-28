@@ -29,7 +29,7 @@ pub fn base_env_blob() -> Bytes {
 
 ///|
 fn build_blob(reserved : Array[(String, String)]) -> Bytes {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let vars = @env.get_env_vars()
   for name in whitelist {
     match vars.get(name) {

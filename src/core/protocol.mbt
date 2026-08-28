@@ -70,12 +70,12 @@ pub fn Response::ok(
   message : String,
   instances : Array[InstanceInfo],
 ) -> Response {
-  { ok: true, message, instances }
+  { ok: true, message, instances, }
 }
 
 ///|
 pub fn Response::error(message : String) -> Response {
-  { ok: false, message, instances: [] }
+  { ok: false, message, instances: [], }
 }
 
 ///|

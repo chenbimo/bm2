@@ -886,7 +886,7 @@ fn Supervisor::write_crash(
   inst : Instance,
   reason : String,
 ) -> Unit {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string(iso8601(now_ms()))
   buf.write_string(" app=" + inst.app_name)
   buf.write_string(" instance=" + inst.instance_id.to_string())

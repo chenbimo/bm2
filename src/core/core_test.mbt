@@ -389,7 +389,7 @@ test "protocol request and response round-trip" {
     config_path: Some("/srv/blog/bm2.toml"),
   }
   assert_eq(@core.decode_request(@core.encode_request(req)), req)
-  let bare : @core.Request = { command: "kill", app: None, config_path: None }
+  let bare : @core.Request = { command: "kill", app: None, config_path: None, }
   assert_eq(@core.decode_request(@core.encode_request(bare)), bare)
   let resp = @core.Response::ok("started", [])
   assert_eq(@core.decode_response(@core.encode_response(resp)), resp)

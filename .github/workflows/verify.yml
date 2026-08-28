@@ -18,7 +18,7 @@ jobs:
       - name: Install MoonBit
         run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
         env:
-          MOONBIT_INSTALL_VERSION: 0.10.6+80dc50f24
+          MOONBIT_INSTALL_VERSION: 0.10.11+8f8e8db1e
 
       - uses: oven-sh/setup-bun@v2
 
