@@ -2,8 +2,6 @@
 
 `bm2` is a small Linux process manager for Bun and Node.js applications, written in MoonBit.
 
-Runtime version requirements: Bun >= `1.4.0`, Node.js >= `24.0.0`, below the minimum bm2 refuses to start.
-
 Nginx remains responsible for reverse proxying and load balancing between instance ports.
 
 Chinese version: [README.md](README.md)
@@ -24,10 +22,8 @@ It does not manage Nginx, domains, certificates, hot reload, boot startup, or re
 ## Requirements
 
 - [MoonBit](https://www.moonbitlang.com/) (only needed to install/upgrade bm2)
-- [Bun](https://bun.sh/) >= `1.4.0`
-- [Node.js](https://nodejs.org/) >= `24.0.0` (only for projects with `runtime = "node"`)
-
-bm2 probes the runtime version and refuses to start below these minimums.
+- [Bun](https://bun.sh/)
+- [Node.js](https://nodejs.org/) (only for projects with `runtime = "node"`)
 
 ## Install and upgrade
 
@@ -41,11 +37,10 @@ Both binaries (`bm2`, `bm2d`) are installed together.
 
 Both must stay on `PATH` because `bm2` launches `bm2d` by name.
 
-To update to the latest mooncakes release:
+To update to the latest mooncakes release and apply it automatically:
 
 ```bash
-bm2 upgrade          # compares versions, runs moon install, then:
-bm2 reload           # swap in the new daemon without stopping apps
+bm2 upgrade          # compares versions, runs moon install, and swaps in the new daemon
 ```
 
 ## Configuration
@@ -65,7 +60,7 @@ cwd = "/srv/api"
 # Script path relative to cwd, ".." segments are forbidden.
 script = "src/index.ts"
 
-# Runtime: bun or node, see Requirements for the minimum versions.
+# Runtime: bun or node.
 runtime = "bun"
 
 # Instance count (1..1024), ports are assigned consecutively from `port`.
@@ -148,7 +143,9 @@ Re-running `bm2 start` in a project (or in another directory with the same `name
 
 A killed project (`bm2 kill <name>`) is fully unregistered: it disappears from `bm2 list` and is not revived by a daemon restart.
 
-`reload` swaps in a fresh bm2d (e.g. after `bm2 upgrade`) without stopping managed apps: the old daemon detaches, the new one adopts the surviving instances with unchanged PIDs.
+`reload` swaps in a fresh bm2d without stopping managed apps: the old daemon detaches, the new one adopts the surviving instances with unchanged PIDs.
+
+Use it after replacing binaries manually, `bm2 upgrade` performs this step automatically.
 
 `list` prints one row per active or abnormal instance, including its PID, port, runtime status, memory, uptime, and the complete project working directory in the final `CWD` column.
 

@@ -2,8 +2,6 @@
 
 `bm2` 是一个用 MoonBit 编写的轻量级 Linux 进程管理器，用于管理 Bun 与 Node.js 应用。
 
-运行时版本要求：Bun >= `1.4.0`，Node.js >= `24.0.0`，低于下限 bm2 拒绝启动。
-
 Nginx 负责反向代理与实例端口之间的负载均衡。
 
 英文文档：[README.en.md](README.en.md)
@@ -24,10 +22,8 @@ Nginx 负责反向代理与实例端口之间的负载均衡。
 ## 环境要求
 
 - [MoonBit](https://www.moonbitlang.com/)（仅安装/升级 bm2 时需要）
-- [Bun](https://bun.sh/) >= `1.4.0`
-- [Node.js](https://nodejs.org/) >= `24.0.0`（仅 `runtime = "node"` 的项目需要）
-
-bm2 会实际探测运行时版本，低于上述下限时拒绝启动。
+- [Bun](https://bun.sh/)
+- [Node.js](https://nodejs.org/)（仅 `runtime = "node"` 的项目需要）
 
 ## 安装与升级
 
@@ -41,11 +37,10 @@ bm2 默认安装到 moon 工具链所在的 `~/.moon/bin`，无需任何 `PATH` 
 
 两者都必须留在 `PATH` 中，因为 `bm2` 通过名字启动 `bm2d`。
 
-升级到 mooncakes 上的最新版本：
+升级到 mooncakes 上的最新版本，装完自动换入新守护进程：
 
 ```bash
-bm2 upgrade          # 比对版本并执行 moon install，然后：
-bm2 reload           # 在不停止应用的情况下换入新守护进程
+bm2 upgrade          # 比对版本、执行 moon install，并自动换入新守护进程
 ```
 
 ## 配置
@@ -65,7 +60,7 @@ cwd = "/srv/api"
 # 相对 cwd 的脚本路径，禁止 .. 段。
 script = "src/index.ts"
 
-# 运行时：bun 或 node，版本下限见环境要求。
+# 运行时：bun 或 node。
 runtime = "bun"
 
 # 实例数量（1..1024），端口从 port 起连续分配。
@@ -144,7 +139,9 @@ bm2 version           # 显示 bm2 版本
 
 被 kill 的项目（`bm2 kill <name>`）会完全注销：它从 `bm2 list` 中消失，且不会因守护进程重启而复现。
 
-`reload` 在不停止被管理应用的情况下换入新的 bm2d（例如 `bm2 upgrade` 之后）：旧守护进程分离，新守护进程以不变的 PID 收养仍在运行的实例。
+`reload` 在不停止被管理应用的情况下换入新的 bm2d：旧守护进程分离，新守护进程以不变的 PID 收养仍在运行的实例。
+
+手动替换二进制后使用，`bm2 upgrade` 会自动执行这一步。
 
 `list` 为每个活跃或异常实例打印一行，包括 PID、端口、运行状态、内存、运行时长，以及最后一列 `CWD` 中的完整项目工作目录。
 
