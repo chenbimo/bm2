@@ -12,6 +12,20 @@ Reverse proxying and load balancing are left to gateways such as Nginx or Caddy,
 
 Chinese version: [README.md](README.md)
 
+## bm2 vs pm2
+
+pm2 figures were measured in a local `/tmp` sandbox under the bun runtime.
+
+| Dimension | bm2 | pm2 |
+| --- | --- | --- |
+| Form | native static binaries | Node.js application |
+| Extra dependency | none | Node.js runtime |
+| Size | about `5.5 MB` (two binaries) | about `23 MB` |
+| File count | `2` | `3036` |
+| Idle daemon memory | about `2.6 MB` | about `50 MB` |
+| CLI response | about `1 ms` | about `200-400 ms` |
+| Log rotation | built in, `10 MB × 10 generations` | requires the extra `pm2-logrotate` module |
+
 ## Features
 
 - One `bm2.toml` configures **one project** (a single app with one or more independent instances).
@@ -131,7 +145,7 @@ bm2 does not parse `.env` and takes no part in loading it.
 
 Variables bm2 has already injected are never overwritten by the runtime's `.env` loading.
 
-## Commands
+## Command usage
 
 ```bash
 bm2 start             # register/update the project in the current directory and start it
