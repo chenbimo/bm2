@@ -5,6 +5,9 @@ set -euo pipefail
 export PATH="$HOME/.moon/bin:$PATH"
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# mktemp does not create parent directories, and a fresh checkout has no
+# _build yet (moon build runs only later in this script).
+mkdir -p "$root/_build"
 bin_dir=$(mktemp -d "$root/_build/bm2-e2e-bin.XXXXXX")
 trap 'rm -rf "$bin_dir"' EXIT
 
