@@ -14,8 +14,6 @@ Chinese version: [README.md](README.md)
 
 ## bm2 vs pm2
 
-pm2 figures were measured in a local `/tmp` sandbox under the bun runtime.
-
 | Dimension | bm2 | pm2 |
 | --- | --- | --- |
 | Form | native static binaries | Node.js application |
