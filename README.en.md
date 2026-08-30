@@ -43,6 +43,8 @@ It does not manage Nginx, domains, certificates, hot reload, boot startup, or re
 
 `bm2 start` probes the runtime version and refuses to start with a concrete message when it is below the floor.
 
+The daemon's `PATH` is fixed when it starts: after installing a new runtime, run `bm2 reload` to swap in a fresh daemon before starting the project.
+
 ## Install and upgrade
 
 Install the MoonBit toolchain first:
@@ -89,9 +91,10 @@ script = "src/index.ts"
 # Runtime: bun or node.
 runtime = "bun"
 
-# Execution mode: fork (default, consecutive ports from `port`) or
-# cluster (all instances share the single `port`, kernel dispatches connections).
-exec_mode = "fork"
+# Execution mode: cluster (default, all instances share the single `port`,
+# kernel dispatches connections, the app listener needs reusePort on) or
+# fork (consecutive ports from `port`).
+exec_mode = "cluster"
 
 # Instance count (1..1024).
 instances = 2
@@ -121,7 +124,7 @@ Field overview:
 | `cwd` | no | config dir | absolute path |
 | `script` | yes | — | relative inside `cwd`, `..` forbidden |
 | `runtime` | no | `bun` | `bun` or `node` |
-| `exec_mode` | no | `fork` | `fork` or `cluster` |
+| `exec_mode` | no | `cluster` | `fork` or `cluster` |
 | `instances` | yes | — | `1..1024` |
 | `port` | yes | — | `1..65535`, range must not overlap other projects |
 | `max_memory_mb` | no | `512` | at least `1` |
@@ -130,11 +133,13 @@ Field overview:
 | `min_uptime_ms` | no | `10000` | `>= 0` |
 | `stop_timeout_ms` | no | `10000` | `1..60000` |
 
-With `exec_mode = "fork"` ports are assigned consecutively (`port + instance number`); with `exec_mode = "cluster"` every instance shares the single `port`.
+By default (cluster) every instance shares the single `port`; with `exec_mode = "fork"` ports are assigned consecutively (`port + instance number`).
 
 Port ranges across all registered projects must not overlap (a cluster project occupies a single port slot).
 
 On a conflict bm2 refuses to start.
+
+Upgrading from 0.3.0: `exec_mode` is new in 0.4.0 and defaults to cluster. Multi-instance apps that do not enable `reusePort` in their listener must either set `exec_mode = "fork"` explicitly (old behavior) or add `reusePort` to enjoy cluster mode (without it the second instance dies on EADDRINUSE).
 
 ## Environment
 
@@ -143,10 +148,10 @@ bm2 passes only `PATH`, `HOME`, and `TMPDIR` from its own environment to managed
 - `BM2_APP_NAME` (the project name)
 - `BM2_INSTANCE_ID` (the instance number, `"0"` for the first instance)
 - `BM2_APP_INSTANCE` (same instance number, named after PM2's `NODE_APP_INSTANCE` convention)
-- `BM2_APP_PORT` (the port assigned to this instance: `port` plus the instance number in fork mode, always `port` in cluster mode)
+- `BM2_APP_PORT` (the port assigned to this instance: always `port` in the default cluster mode, `port` plus the instance number in fork mode)
 - `NODE_ENV` (always `"production"`)
 
-In fork mode ports map one-to-one to instance numbers: `BM2_APP_PORT = port + BM2_APP_INSTANCE`, for example with `port = 3000` and `instances = 3` the three instances listen on `3000`, `3001`, and `3002`. In cluster mode all three get `3000` and the kernel dispatches the connections.
+In cluster mode (default) all instances get the same port (say `3000`) and the kernel dispatches the connections; in fork mode ports map one-to-one to instance numbers: `BM2_APP_PORT = port + BM2_APP_INSTANCE`, for example with `port = 3000` and `instances = 3` the three instances listen on `3000`, `3001`, and `3002`.
 
 Typical usage inside the application:
 
@@ -209,10 +214,10 @@ If a daemon dies abruptly and leaves a stale Unix socket, the next CLI request w
 
 ## Load balancing
 
-To avoid configuring multi-port upstreams, set `exec_mode = "cluster"` so every instance shares one port:
+In the default cluster mode every instance shares one port:
 
 ```toml
-exec_mode = "cluster"
+# exec_mode can be omitted, cluster is the default
 instances = 4
 port = 3000
 ```
@@ -236,9 +241,11 @@ http
 
 A crashed instance rejoins the port group after its automatic restart while the others keep serving; the `BM2_APP_INSTANCE === "0"` primary check works the same in cluster mode.
 
+After startup bm2 probes whether the listener really enables `reusePort`: when it does not, the whole project is stopped with every instance `errored` (reason `reuseport_missing`); fix the app and run `bm2 start` again, the registration stays.
+
 Domains, TLS, or cross-machine distribution still call for a gateway, and a cluster project needs just one `server 127.0.0.1:3000;` line.
 
-In fork mode (default) the gateway does the load balancing.
+In fork mode the consecutive ports go to a gateway for load balancing.
 
 bm2 focuses on process supervision alone, reverse proxying and load balancing are left to gateways such as Nginx or Caddy.
 

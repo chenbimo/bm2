@@ -23,6 +23,13 @@ bm2 由命令行工具和后台守护进程组成，命令行通过 Unix socket 
 | 空闲守护进程内存 | 约 `2.6 MB` | 约 `50 MB` |
 | 命令响应 | 约 `1 ms` | 约 `200~400 ms` |
 | 日志轮转 | 内置，`10 MB × 10 代` | 需额外安装 `pm2-logrotate` 模块 |
+| 多实例模式 | `fork` 连续端口 + `cluster` 单端口（内核分发） | `fork` + `cluster`（master 分发） |
+| cluster 分发层 | 内核 `SO_REUSEPORT`，无中间层、无单点 | cluster master 进程，宕机即整应用中断 |
+| 守护进程崩溃 | 应用无感继续运行，新守护进程原地收养 | cluster 应用随之中断，恢复需重建进程树 |
+| 配置方式 | 静态 TOML，字段强校验，零代码执行 | `ecosystem.config.js`，可执行任意代码 |
+| 环境变量 | 最小白名单 + 保留变量显式注入 | 继承调用 shell 的完整环境 |
+| 崩溃恢复 | pidfd 钉住原进程收养，环境校验防误管 | 守护进程崩溃后按 dump 重建，不收养 |
+| 自升级 | `bm2 upgrade`：比对版本、安装、自动换入新守护进程 | npm 手动升级后 `pm2 update` 重载 |
 
 ## 功能特性
 
@@ -42,6 +49,8 @@ bm2 由命令行工具和后台守护进程组成，命令行通过 Unix socket 
 - [Node.js](https://nodejs.org/)，版本 >= 24.0.0（仅 `runtime = "node"` 的项目需要）
 
 `bm2 start` 会实测运行时版本，低于下限时拒绝启动并给出具体版本提示。
+
+守护进程的 `PATH` 在其启动时定格：安装新的运行时后，先执行 `bm2 reload` 换入新守护进程再启动项目。
 
 ## 安装与升级
 
@@ -89,9 +98,9 @@ script = "src/index.ts"
 # 运行时：bun 或 node。
 runtime = "bun"
 
-# 执行模式：fork（默认，端口从 port 起连续分配）或
-# cluster（所有实例共享同一个 port，由内核分发连接）。
-exec_mode = "fork"
+# 执行模式：cluster（默认，所有实例共享同一个 port，由内核分发
+# 连接，应用监听需开启 reusePort）或 fork（端口从 port 起连续分配）。
+exec_mode = "cluster"
 
 # 实例数量（1..1024）。
 instances = 2
@@ -113,9 +122,11 @@ min_uptime_ms = 10000
 stop_timeout_ms = 10000
 ```
 
-`exec_mode = "fork"` 时端口从 `port` 起连续分配（`port + 实例编号`）；`exec_mode = "cluster"` 时所有实例共享同一个 `port`。
+默认（cluster）所有实例共享同一个 `port`；`exec_mode = "fork"` 时端口从 `port` 起连续分配（`port + 实例编号`）。
 
 所有已注册项目的端口范围不得重叠（cluster 项目只占一个端口槽），冲突时 bm2 拒绝启动。
+
+从 0.3.0 升级注意：`exec_mode` 是 0.4.0 新增字段且默认 cluster。多实例项目若应用未在监听时开启 `reusePort`，升级后要么显式声明 `exec_mode = "fork"` 保持旧行为，要么给应用监听加上 `reusePort` 后享用 cluster（未开启时第二个实例会因端口占用崩溃）。
 
 ## 环境变量
 
@@ -124,10 +135,10 @@ bm2 只把自己的 `PATH`、`HOME`、`TMPDIR` 传给被管理进程，外加这
 - `BM2_APP_NAME`（项目名）
 - `BM2_INSTANCE_ID`（实例编号，第一个实例为 `"0"`）
 - `BM2_APP_INSTANCE`（同实例编号，命名对齐 PM2 的 `NODE_APP_INSTANCE` 习惯）
-- `BM2_APP_PORT`（分配给该实例的端口：fork 模式等于 `port` 加实例编号，cluster 模式恒为 `port`）
+- `BM2_APP_PORT`（分配给该实例的端口：默认（cluster）恒为 `port`，fork 模式等于 `port` 加实例编号）
 - `NODE_ENV`（恒为 `"production"`）
 
-fork 模式下端口与实例编号一一对应：`BM2_APP_PORT = port + BM2_APP_INSTANCE`，例如 `port = 3000` 且 `instances = 3` 时，三个实例分别监听 `3000`、`3001`、`3002`。cluster 模式下三个实例都拿到 `3000`，由内核分发连接。
+cluster 模式（默认）下所有实例拿到同一个端口（如 `3000`），由内核分发连接；fork 模式下端口与实例编号一一对应：`BM2_APP_PORT = port + BM2_APP_INSTANCE`，例如 `port = 3000` 且 `instances = 3` 时，三个实例分别监听 `3000`、`3001`、`3002`。
 
 应用内典型用法：
 
@@ -186,10 +197,10 @@ bm2 version           # 显示 bm2 版本
 
 ## 负载均衡
 
-不想配置多端口 upstream 时，用 `exec_mode = "cluster"` 让所有实例共享同一个端口：
+默认的 cluster 模式下，所有实例共享同一个端口：
 
 ```toml
-exec_mode = "cluster"
+# exec_mode 可省略，默认即 cluster
 instances = 4
 port = 3000
 ```
@@ -213,9 +224,11 @@ http
 
 实例崩溃重启后重新加入端口组，其余实例不受影响；`BM2_APP_INSTANCE === "0"` 的主实例判断在 cluster 模式下同样可用。
 
+bm2 会在启动后探测监听是否真的开启了 `reusePort`：未开启时整个项目被停止，所有实例进入 `errored`（原因 `reuseport_missing`），修正应用后重新 `bm2 start` 即可，注册不会丢失。
+
 需要域名、TLS 或跨机分发时仍配合网关使用，cluster 项目只需一条 `server 127.0.0.1:3000;`。
 
-fork 模式（默认）则交给网关做负载均衡。
+fork 模式则用连续端口交给网关做负载均衡。
 
 bm2 只专注进程托管，反向代理与负载均衡交给 Nginx、Caddy 之类的网关。
 
