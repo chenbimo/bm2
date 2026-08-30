@@ -78,6 +78,7 @@ name = "$2"
 script = "$4"
 instances = $5
 port = $3
+exec_mode = "fork"
 max_memory_mb = 512
 max_restarts = 2
 restart_delay_ms = 100
@@ -362,9 +363,21 @@ done
 check "half-dead app fully unregistered" "1" "$DEAD_GONE"
 check "twin registration removed" "0" "$([ -f "$state_dir/twin/project.json" ] && echo 1 || echo 0)"
 
-echo "===== W. cluster mode shares one port across instances ====="
-write_project reuseapp reuseapp 4301 reuse.ts 3 1000
-echo 'exec_mode = "cluster"' >> "$ACC/reuseapp/bm2.toml"
+echo "===== W. cluster mode is the default and shares one port ====="
+mkdir -p "$ACC/reuseapp"
+cp "$fixtures/reuse.ts" "$ACC/reuseapp/"
+# No exec_mode line: the default must be cluster.
+cat > "$ACC/reuseapp/bm2.toml" <<EOF
+name = "reuseapp"
+script = "reuse.ts"
+instances = 3
+port = 4301
+max_memory_mb = 512
+max_restarts = 2
+restart_delay_ms = 100
+min_uptime_ms = 60000
+stop_timeout_ms = 1000
+EOF
 (cd "$ACC/reuseapp" && bm2 start >/dev/null)
 sleep 1
 check "three instances online" "3" "$(bm2 list reuseapp | grep -c '^reuseapp ')"
@@ -377,6 +390,48 @@ sleep 2
 check "port still served after one crash" 1 "$(curl -s --max-time 1 localhost:4301 >/dev/null && echo 1 || echo 0)"
 check "crashed instance restarted" "3" "$(bm2 list reuseapp | grep -c '^reuseapp ')"
 bm2 kill reuseapp >/dev/null
+
+echo "===== Y. cluster without reusePort is stopped with a clear reason ====="
+mkdir -p "$ACC/noreuse"
+cp "$fixtures/slow.ts" "$ACC/noreuse/"
+cat > "$ACC/noreuse/bm2.toml" <<EOF
+name = "noreuse"
+script = "slow.ts"
+instances = 2
+port = 4311
+max_restarts = 0
+restart_delay_ms = 100
+min_uptime_ms = 60000
+stop_timeout_ms = 1000
+EOF
+(cd "$ACC/noreuse" && bm2 start >/dev/null)
+BOTH_ERRORED=0
+for _ in $(seq 1 40); do
+  LINES=$(bm2 list noreuse 2>/dev/null | grep -c '^noreuse ')
+  NONERR=$(bm2 list noreuse 2>/dev/null | grep '^noreuse ' | awk '{print $5}' | grep -cv '^errored$')
+  if [ "$LINES" = "2" ] && [ "$NONERR" = "0" ]; then BOTH_ERRORED=1; break; fi
+  sleep 0.5
+done
+check "all instances errored on missing reusePort" "1" "$BOTH_ERRORED"
+contains "reusePort event logged" "$state_dir/bm2d.events.jsonl" "reuseport_missing"
+contains "reusePort crash log" "$state_dir/noreuse/logs/noreuse-0.crash.log" "reuseport_missing"
+sleep 2
+check "port released after violation stop" "0" "$(ss -ltn | grep -c ':4311 ' || true)"
+check "project still registered" "1" "$([ -f "$state_dir/noreuse/project.json" ] && echo 1 || echo 0)"
+# Fix the app (reusePort on) and start again: the same project must recover.
+cp "$fixtures/reuse.ts" "$ACC/noreuse/"
+sed -i 's/script = "slow.ts"/script = "reuse.ts"/' "$ACC/noreuse/bm2.toml"
+(cd "$ACC/noreuse" && bm2 start >/dev/null)
+RECOVERED=0
+for _ in $(seq 1 40); do
+  LINES=$(bm2 list noreuse 2>/dev/null | grep -c '^noreuse ')
+  ONLINE=$(bm2 list noreuse 2>/dev/null | grep '^noreuse ' | awk '{print $5}' | grep -c '^online$')
+  if [ "$LINES" = "2" ] && [ "$ONLINE" = "2" ]; then RECOVERED=1; break; fi
+  sleep 0.5
+done
+check "project recovers after app fix" "1" "$RECOVERED"
+check "fixed project serving" 1 "$(curl -s --max-time 1 localhost:4311 >/dev/null && echo 1 || echo 0)"
+bm2 kill noreuse >/dev/null 2>&1 || true
 
 echo "===== X. runtime below the minimum is rejected ====="
 bm2 kill -y >/dev/null 2>&1

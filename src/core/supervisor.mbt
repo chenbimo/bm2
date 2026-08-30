@@ -53,6 +53,7 @@ pub struct Supervisor {
   memory_interval_ms : Int
   mut last_memory_check_ms : UInt64
   mut last_log_check_ms : UInt64
+  mut last_reuseport_probe_ms : UInt64
 }
 
 ///|
@@ -75,6 +76,7 @@ pub fn Supervisor::new(
     memory_interval_ms,
     last_memory_check_ms: 0UL,
     last_log_check_ms: 0UL,
+    last_reuseport_probe_ms: 0UL,
   }
 }
 
@@ -351,6 +353,7 @@ pub fn Supervisor::tick(self : Supervisor) -> Unit {
     self.last_log_check_ms = now
     self.rotate_logs()
   }
+  self.check_reuseport(now)
   self.check_deadlines(now)
   self.check_restarts(now)
   self.check_pending()
@@ -554,7 +557,14 @@ fn Supervisor::handle_exit(
   )
   match inst.exit_intent {
     Stop | RestartFresh => {
-      inst.status = Stopped
+      // A reusePort violation lands in errored, not stopped: it needs a
+      // config or app fix, and errored keeps the project listed for
+      // diagnosis.
+      inst.status = if inst.last_reason == Some("reuseport_missing") {
+        Errored
+      } else {
+        Stopped
+      }
       inst.pid = 0
       self.try_save_state(inst)
     }
@@ -641,6 +651,111 @@ fn Supervisor::counted_exit(
     )
   }
   self.try_save_state(inst)
+}
+
+///|
+/// How often the daemon probes cluster ports for SO_REUSEPORT.
+const REUSEPORT_PROBE_INTERVAL_MS : UInt64 = 500UL
+
+///|
+/// A cluster instance that never listens within this window stops being
+/// probed: slow boots and non-listening workers are legal, only an
+/// exclusive listener is a violation.
+const REUSEPORT_PROBE_TIMEOUT_MS : UInt64 = 60000UL
+
+///|
+/// Ask the kernel whether cluster instances actually share their port:
+/// bind the port with SO_REUSEPORT — joinable means the app listener
+/// enables reusePort, EADDRINUSE means it does not. A missing reusePort
+/// stops the whole project with every instance errored (reason
+/// `reuseport_missing`) instead of letting later instances crash on
+/// EADDRINUSE in confusing ways.
+fn Supervisor::check_reuseport(self : Supervisor, now : UInt64) -> Unit {
+  if now - self.last_reuseport_probe_ms < REUSEPORT_PROBE_INTERVAL_MS {
+    return
+  }
+  self.last_reuseport_probe_ms = now
+  for pair in self.instances.iter() {
+    let (name, arr) = pair
+    let app = self.apps[name]
+    if app.exec_mode != "cluster" {
+      continue
+    }
+    for inst in arr {
+      if !(inst.status is Online) || !(inst.reuseport is ReusePending) {
+        continue
+      }
+      if inst.reuseport_deadline_ms == 0UL {
+        inst.reuseport_deadline_ms = now + REUSEPORT_PROBE_TIMEOUT_MS
+      }
+      let rc = @process.probe_reuseport(inst.port)
+      if rc == 1 {
+        inst.reuseport = ReuseOk
+        log_event(
+          self.state_dir,
+          "bm2d.events.jsonl",
+          "reuseport_confirmed",
+          app=Some(name),
+          instance=inst.instance_id,
+          pid=inst.pid,
+        )
+      } else if rc == 2 {
+        self.stop_for_reuseport(app, inst)
+      } else if now >= inst.reuseport_deadline_ms || rc < 0 {
+        // Never listened within the window (or the probe itself failed):
+        // not a violation, just stop probing.
+        inst.reuseport = ReuseOff
+        log_event(
+          self.state_dir,
+          "bm2d.events.jsonl",
+          "reuseport_probe_stopped",
+          app=Some(name),
+          instance=inst.instance_id,
+          detail="probe rc=" + rc.to_string(),
+        )
+      }
+    }
+  }
+}
+
+///|
+/// The listener holds the port exclusively: stop every instance of the
+/// project, errored with a concrete reason; the registration stays so a
+/// fixed app simply runs `bm2 start` again.
+fn Supervisor::stop_for_reuseport(
+  self : Supervisor,
+  app : @config.Config,
+  trigger : Instance,
+) -> Unit {
+  log_event(
+    self.state_dir,
+    "bm2d.events.jsonl",
+    "reuseport_missing",
+    app=Some(app.name),
+    instance=trigger.instance_id,
+    pid=trigger.pid,
+    detail="cluster mode requires the listener to enable reusePort",
+  )
+  self.pending_restart.remove(app.name)
+  match self.instances.get(app.name) {
+    Some(arr) =>
+      for inst in arr {
+        inst.reuseport = ReuseExclusive
+        inst.restart_at_ms = 0UL
+        inst.last_reason = Some("reuseport_missing")
+        self.write_crash(inst, "reuseport_missing")
+        if inst.alive() {
+          inst.exit_intent = Stop
+          inst.status = Stopping
+          terminate(app, inst)
+        } else if !(inst.status is Errored) {
+          inst.status = Errored
+          inst.pid = 0
+          self.try_save_state(inst)
+        }
+      }
+    None => ()
+  }
 }
 
 ///|
@@ -844,6 +959,12 @@ fn Supervisor::spawn_instance(
   inst.restart_at_ms = 0UL
   inst.uptime_reset_done = false
   inst.last_reason = None
+  inst.reuseport = if app.exec_mode == "cluster" {
+    ReusePending
+  } else {
+    ReuseOff
+  }
+  inst.reuseport_deadline_ms = 0UL
   self.try_save_state(inst)
   log_event(
     self.state_dir,

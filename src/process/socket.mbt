@@ -76,6 +76,14 @@ pub fn peer_uid(fd : Int) -> Int raise ProcessError {
 }
 
 ///|
+/// Ask the kernel whether `port` accepts a SO_REUSEPORT join: 0 = free
+/// (nothing listening yet), 1 = joinable (listener enables reusePort),
+/// 2 = held exclusively (reusePort missing), negative = errno.
+pub fn probe_reuseport(port : Int) -> Int {
+  c_probe_reuseport(port)
+}
+
+///|
 pub fn get_uid() -> Int {
   c_getuid()
 }

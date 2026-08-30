@@ -30,6 +30,17 @@ pub(all) enum ExitIntent {
 } derive(Debug, Eq)
 
 ///|
+/// Runtime SO_REUSEPORT probe state for cluster instances; the kernel is
+/// asked (via a bind test) whether the app's listener actually shares the
+/// port, so a missing `reusePort` is caught instead of crashing later.
+pub(all) enum ReusePortState {
+  ReuseOff
+  ReusePending
+  ReuseOk
+  ReuseExclusive
+} derive(Debug, Eq)
+
+///|
 pub(all) struct Instance {
   app_name : String
   cwd : String
@@ -53,6 +64,8 @@ pub(all) struct Instance {
   mut last_signal : Int?
   mut last_reason : String?
   mut last_rss_kb : Int
+  mut reuseport : ReusePortState
+  mut reuseport_deadline_ms : UInt64
 } derive(Debug)
 
 ///|
@@ -80,6 +93,12 @@ pub fn Instance::new(config : @config.Config, instance_id : Int) -> Instance {
     last_signal: None,
     last_reason: None,
     last_rss_kb: 0,
+    reuseport: if config.exec_mode == "cluster" {
+      ReusePending
+    } else {
+      ReuseOff
+    },
+    reuseport_deadline_ms: 0UL,
   }
 }
 

@@ -16,6 +16,7 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/utsname.h>
+#include <netinet/in.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -460,6 +461,41 @@ int32_t bm2_peer_uid(int32_t fd) {
     return -errno;
   }
   return (int32_t)cred.uid;
+}
+
+/* Probe whether a cluster app's listener enables SO_REUSEPORT, by asking
+ * the kernel instead of reading app code:
+ *   step 1: plain bind (SO_REUSEADDR only)  -> port free means not listening
+ *   step 2: bind with SO_REUSEADDR|SO_REUSEPORT -> joinable means the
+ *           existing listener shares; EADDRINUSE means it is exclusive.
+ * Returns 0 (port free, app not listening yet), 1 (shared, reusePort on),
+ * 2 (held exclusively, reusePort missing), or -errno. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_probe_reuseport(int32_t port) {
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons((uint16_t)port);
+  addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  int one = 1;
+  int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0) return -errno;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+  int rc = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+  int err = errno;
+  close(fd);
+  if (rc == 0) return 0;
+  if (err != EADDRINUSE) return -err;
+  fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+  if (fd < 0) return -errno;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+  setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(one));
+  rc = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+  err = errno;
+  close(fd);
+  if (rc == 0) return 1;
+  if (err == EADDRINUSE) return 2;
+  return -err;
 }
 
 /*

@@ -91,6 +91,12 @@ extern "C" fn c_recv_msg(fd : Int, buf : Bytes, cap : Int) -> Int = "bm2_recv_ms
 extern "C" fn c_peer_uid(fd : Int) -> Int = "bm2_peer_uid"
 
 ///|
+/// Probe a port's SO_REUSEPORT status by binding: 0 = free (not listening
+/// yet), 1 = joinable (the listener shares, reusePort on), 2 = held
+/// exclusively (reusePort missing), negative = errno.
+extern "C" fn c_probe_reuseport(port : Int) -> Int = "bm2_probe_reuseport"
+
+///|
 extern "C" fn c_getuid() -> Int = "bm2_getuid"
 
 ///|
