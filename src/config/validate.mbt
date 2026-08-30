@@ -28,6 +28,11 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
       "project \{config.name}: runtime must be \"bun\" or \"node\"",
     )
   }
+  if config.exec_mode != "fork" && config.exec_mode != "cluster" {
+    raise ConfigError::InvalidField(
+      "project \{config.name}: exec_mode must be \"fork\" or \"cluster\"",
+    )
+  }
   if config.instances < 1 || config.instances > 1024 {
     raise ConfigError::InvalidField(
       "project \{config.name}: instances must be between 1 and 1024",

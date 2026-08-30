@@ -6,6 +6,7 @@ fn wb_setup(root : String, port : Int) -> Supervisor raise {
     cwd: root,
     script: "x.sh",
     runtime: "bun",
+    exec_mode: "fork",
     instances: 1,
     port,
     max_memory_mb: 512,

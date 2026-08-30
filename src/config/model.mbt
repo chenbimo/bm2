@@ -7,6 +7,7 @@ pub(all) struct Config {
   cwd : String
   script : String
   runtime : String
+  exec_mode : String
   instances : Int
   port : Int
   max_memory_mb : Int

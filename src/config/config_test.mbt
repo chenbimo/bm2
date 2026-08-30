@@ -212,6 +212,44 @@ test "rejects invalid runtime" {
 }
 
 ///|
+test "exec_mode defaults to fork and accepts only fork or cluster" {
+  let config = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 2
+      #|port = 3000
+      #|
+    ),
+    BASE_DIR,
+  )
+  assert_eq(config.exec_mode, "fork")
+  let cluster = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|exec_mode = "cluster"
+      #|instances = 4
+      #|port = 3000
+      #|
+    ),
+    BASE_DIR,
+  )
+  assert_eq(cluster.exec_mode, "cluster")
+  let message = parse_error(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|exec_mode = "sticky"
+      #|instances = 1
+      #|port = 3000
+      #|
+    ),
+  )
+  assert_true(message.contains("exec_mode must be \"fork\" or \"cluster\""))
+}
+
+///|
 test "rejects zero or excessive instances" {
   let zero = parse_error(
     (

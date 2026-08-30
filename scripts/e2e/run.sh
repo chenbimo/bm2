@@ -18,7 +18,7 @@ cleanup() {
   pkill -x bm2 2>/dev/null || true
   # kill -9 daemon scenarios leave orphaned app processes behind; make
   # sure no fixture process survives into the next run (ports conflict).
-  pkill -f "bun (crash|quick|hog|slow|stubborn|other)\.ts" 2>/dev/null || true
+  pkill -f "bun (crash|quick|hog|slow|stubborn|other|reuse)\.ts" 2>/dev/null || true
   rm -rf "$ACC"
 }
 trap cleanup EXIT
@@ -361,6 +361,39 @@ for _ in $(seq 1 20); do
 done
 check "half-dead app fully unregistered" "1" "$DEAD_GONE"
 check "twin registration removed" "0" "$([ -f "$state_dir/twin/project.json" ] && echo 1 || echo 0)"
+
+echo "===== W. cluster mode shares one port across instances ====="
+write_project reuseapp reuseapp 4301 reuse.ts 3 1000
+echo 'exec_mode = "cluster"' >> "$ACC/reuseapp/bm2.toml"
+(cd "$ACC/reuseapp" && bm2 start >/dev/null)
+sleep 1
+check "three instances online" "3" "$(bm2 list reuseapp | grep -c '^reuseapp ')"
+check "all instances share port 4301" "3" "$(bm2 list reuseapp | awk '$4 == 4301' | wc -l)"
+DISTINCT=$(for i in $(seq 1 40); do curl -s --max-time 1 localhost:4301; done | sort -u | wc -l)
+check "requests reach multiple instances" 1 "$([ "$DISTINCT" -ge 2 ] && echo 1 || echo 0)"
+R_PID=$(bm2 list reuseapp | sed -n '2p' | awk '{print $3}')
+kill -9 "$R_PID"
+sleep 2
+check "port still served after one crash" 1 "$(curl -s --max-time 1 localhost:4301 >/dev/null && echo 1 || echo 0)"
+check "crashed instance restarted" "3" "$(bm2 list reuseapp | grep -c '^reuseapp ')"
+bm2 kill reuseapp >/dev/null
+
+echo "===== X. runtime below the minimum is rejected ====="
+bm2 kill -y >/dev/null 2>&1
+sleep 1
+mkdir -p "$ACC/fakebin"
+printf '#!/bin/sh\necho 0.1.0\n' > "$ACC/fakebin/bun"
+chmod +x "$ACC/fakebin/bun"
+write_project oldver oldver 4302 slow.ts 1 1000
+OUT=$(cd "$ACC/oldver" && PATH="$ACC/fakebin:$PATH" bm2 start 2>&1)
+check "old runtime rejected exit" 1 "$?"
+if echo "$OUT" | grep -q "too old" && echo "$OUT" | grep -q "1.4.0"; then
+  PASS=$((PASS + 1)); echo "PASS: old runtime rejected message"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: old runtime rejected message (got [$OUT])"
+fi
+check "old runtime project not registered" "0" "$(ls "$state_dir/oldver/project.json" 2>/dev/null | wc -l)"
+bm2 kill -y >/dev/null 2>&1 || true
 
 echo ""
 echo "e2e results: PASS=$PASS FAIL=$FAIL"

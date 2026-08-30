@@ -61,7 +61,11 @@ pub fn Instance::new(config : @config.Config, instance_id : Int) -> Instance {
     app_name: config.name,
     cwd: config.cwd,
     instance_id,
-    port: config.port + instance_id,
+    port: if config.exec_mode == "cluster" {
+      config.port
+    } else {
+      config.port + instance_id
+    },
     pid: 0,
     pidfd: 0,
     status: Stopped,

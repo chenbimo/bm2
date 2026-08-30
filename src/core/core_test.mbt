@@ -18,12 +18,14 @@ fn app_config(
   stop_timeout_ms? : Int = 500,
   script? : String = "fixture.sh",
   instances? : Int = 1,
+  exec_mode? : String = "fork",
 ) -> @config.Config {
   {
     name,
     cwd,
     script,
     runtime: "bun",
+    exec_mode,
     instances,
     port,
     max_memory_mb,
@@ -105,6 +107,24 @@ test "clean exit after min uptime restarts without count" {
   assert_true(inst.status is (@core.Status::Online | @core.Status::Restarting))
   stop_all(sv, "api")
   assert_eq(sv.instance("api", 0).status, @core.Status::Stopped)
+}
+
+///|
+test "cluster mode shares one port across instances" {
+  let cluster = app_config(
+    "api",
+    "/tmp",
+    4160,
+    instances=3,
+    exec_mode="cluster",
+  )
+  assert_eq(@core.Instance::new(cluster, 0).port, 4160)
+  assert_eq(@core.Instance::new(cluster, 1).port, 4160)
+  assert_eq(@core.Instance::new(cluster, 2).port, 4160)
+  let fork = app_config("api", "/tmp", 4160, instances=3)
+  assert_eq(@core.Instance::new(fork, 0).port, 4160)
+  assert_eq(@core.Instance::new(fork, 1).port, 4161)
+  assert_eq(@core.Instance::new(fork, 2).port, 4162)
 }
 
 ///|

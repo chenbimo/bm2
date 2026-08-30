@@ -38,8 +38,10 @@ bm2 由命令行工具和后台守护进程组成，命令行通过 Unix socket 
 - 仅支持 Linux，非 Linux 构建会拒绝运行并给出明确提示。
 - 需要 Linux 内核 >= 5.3（pidfd 进程跟踪）。
 - [MoonBit](https://www.moonbitlang.com/)（仅安装/升级 bm2 时需要）
-- [Bun](https://bun.sh/)
-- [Node.js](https://nodejs.org/)（仅 `runtime = "node"` 的项目需要）
+- [Bun](https://bun.sh/)，版本 >= 1.4.0
+- [Node.js](https://nodejs.org/)，版本 >= 24.0.0（仅 `runtime = "node"` 的项目需要）
+
+`bm2 start` 会实测运行时版本，低于下限时拒绝启动并给出具体版本提示。
 
 ## 安装与升级
 
@@ -87,7 +89,11 @@ script = "src/index.ts"
 # 运行时：bun 或 node。
 runtime = "bun"
 
-# 实例数量（1..1024），端口从 port 起连续分配。
+# 执行模式：fork（默认，端口从 port 起连续分配）或
+# cluster（所有实例共享同一个 port，由内核分发连接）。
+exec_mode = "fork"
+
+# 实例数量（1..1024）。
 instances = 2
 port = 3000
 
@@ -107,7 +113,9 @@ min_uptime_ms = 10000
 stop_timeout_ms = 10000
 ```
 
-所有已注册项目的端口范围不得重叠，冲突时 bm2 拒绝启动。
+`exec_mode = "fork"` 时端口从 `port` 起连续分配（`port + 实例编号`）；`exec_mode = "cluster"` 时所有实例共享同一个 `port`。
+
+所有已注册项目的端口范围不得重叠（cluster 项目只占一个端口槽），冲突时 bm2 拒绝启动。
 
 ## 环境变量
 
@@ -116,10 +124,10 @@ bm2 只把自己的 `PATH`、`HOME`、`TMPDIR` 传给被管理进程，外加这
 - `BM2_APP_NAME`（项目名）
 - `BM2_INSTANCE_ID`（实例编号，第一个实例为 `"0"`）
 - `BM2_APP_INSTANCE`（同实例编号，命名对齐 PM2 的 `NODE_APP_INSTANCE` 习惯）
-- `BM2_APP_PORT`（分配给该实例的端口，等于 `bm2.toml` 的 `port` 加实例编号）
+- `BM2_APP_PORT`（分配给该实例的端口：fork 模式等于 `port` 加实例编号，cluster 模式恒为 `port`）
 - `NODE_ENV`（恒为 `"production"`）
 
-端口与实例编号一一对应：`BM2_APP_PORT = port + BM2_APP_INSTANCE`，例如 `port = 3000` 且 `instances = 3` 时，三个实例分别监听 `3000`、`3001`、`3002`。
+fork 模式下端口与实例编号一一对应：`BM2_APP_PORT = port + BM2_APP_INSTANCE`，例如 `port = 3000` 且 `instances = 3` 时，三个实例分别监听 `3000`、`3001`、`3002`。cluster 模式下三个实例都拿到 `3000`，由内核分发连接。
 
 应用内典型用法：
 
@@ -177,6 +185,37 @@ bm2 version           # 显示 bm2 版本
 如果守护进程意外崩溃并留下过期的 Unix socket，下一个 CLI 请求会短暂等待响应、删除过期 socket、启动一个新的守护进程，并重试一次请求。
 
 ## 负载均衡
+
+不想配置多端口 upstream 时，用 `exec_mode = "cluster"` 让所有实例共享同一个端口：
+
+```toml
+exec_mode = "cluster"
+instances = 4
+port = 3000
+```
+
+cluster 模式基于 Linux `SO_REUSEPORT`：每个实例监听同一个端口，内核按连接四元组哈希分发，无需网关即可实现单端口多副本负载均衡（需要 bun >= 1.4.0 或 node >= 24.0.0）。
+
+应用侧监听时打开 `reusePort`：
+
+```js
+const PORT = Number(process.env.BM2_APP_PORT);
+
+// Bun
+Bun.serve({ port: PORT, reusePort: true, fetch: () => new Response("ok") });
+
+// Node.js
+const http = require("node:http");
+http
+  .createServer((req, res) => res.end("ok"))
+  .listen({ port: PORT, reusePort: true });
+```
+
+实例崩溃重启后重新加入端口组，其余实例不受影响；`BM2_APP_INSTANCE === "0"` 的主实例判断在 cluster 模式下同样可用。
+
+需要域名、TLS 或跨机分发时仍配合网关使用，cluster 项目只需一条 `server 127.0.0.1:3000;`。
+
+fork 模式（默认）则交给网关做负载均衡。
 
 bm2 只专注进程托管，反向代理与负载均衡交给 Nginx、Caddy 之类的网关。
 

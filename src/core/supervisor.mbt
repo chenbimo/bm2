@@ -4,6 +4,7 @@ pub(all) suberror SupervisorError {
   Conflict(String)
   PortConflict(String)
   IoError(String)
+  RuntimeRejected(String)
 }
 
 ///|
@@ -23,6 +24,10 @@ pub impl Show for SupervisorError with fn output(self, logger) {
     }
     IoError(message) => {
       logger.write_string("io error: ")
+      logger.write_string(message)
+    }
+    RuntimeRejected(message) => {
+      logger.write_string("runtime rejected: ")
       logger.write_string(message)
     }
   }
@@ -109,15 +114,24 @@ fn Supervisor::reject_port_conflict(
   self : Supervisor,
   config : @config.Config,
 ) -> Unit raise {
+  // cluster projects share one port (SO_REUSEPORT); fork projects
+  // occupy consecutive ports.
   let start = config.port
-  let end = config.port + config.instances - 1
+  let end = if config.exec_mode == "cluster" {
+    config.port
+  } else {
+    config.port + config.instances - 1
+  }
   for pair in self.apps.iter() {
     let (_, other) = pair
-    if other.name != config.name &&
-      start <= other.port + other.instances - 1 &&
-      other.port <= end {
+    let other_end = if other.exec_mode == "cluster" {
+      other.port
+    } else {
+      other.port + other.instances - 1
+    }
+    if other.name != config.name && start <= other_end && other.port <= end {
       raise PortConflict(
-        "\{config.name} port range \{start}~\{end} overlaps \{other.name} \{other.port}~\{other.port + other.instances - 1}",
+        "\{config.name} port range \{start}~\{end} overlaps \{other.name} \{other.port}~\{other_end}",
       )
     }
   }
