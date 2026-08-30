@@ -212,7 +212,7 @@ test "rejects invalid runtime" {
 }
 
 ///|
-test "exec_mode defaults to fork and accepts only fork or cluster" {
+test "exec_mode defaults to cluster and accepts only fork or cluster" {
   let config = @config.parse(
     (
       #|name = "blog"
@@ -223,19 +223,19 @@ test "exec_mode defaults to fork and accepts only fork or cluster" {
     ),
     BASE_DIR,
   )
-  assert_eq(config.exec_mode, "fork")
-  let cluster = @config.parse(
+  assert_eq(config.exec_mode, "cluster")
+  let fork = @config.parse(
     (
       #|name = "blog"
       #|script = "index.ts"
-      #|exec_mode = "cluster"
+      #|exec_mode = "fork"
       #|instances = 4
       #|port = 3000
       #|
     ),
     BASE_DIR,
   )
-  assert_eq(cluster.exec_mode, "cluster")
+  assert_eq(fork.exec_mode, "fork")
   let message = parse_error(
     (
       #|name = "blog"

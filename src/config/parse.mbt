@@ -35,7 +35,7 @@ pub fn parse(doc : String, base_dir : String) -> Config raise ConfigError {
     cwd: opt_string(table, "cwd", "root", base_dir),
     script: req_string(table, "script", "root"),
     runtime: opt_string(table, "runtime", "root", "bun"),
-    exec_mode: opt_string(table, "exec_mode", "root", "fork"),
+    exec_mode: opt_string(table, "exec_mode", "root", "cluster"),
     instances: req_int(table, "instances", "root"),
     port: req_int(table, "port", "root"),
     max_memory_mb: opt_int(
