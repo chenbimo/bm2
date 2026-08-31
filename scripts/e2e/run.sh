@@ -58,7 +58,7 @@ wait_http() { # wait_http <port> <expected body>
 wait_status() { # wait_status <app> <expected status> <max attempts>
   for _ in $(seq 1 "$3"); do
     local status
-    status=$(bm2 list "$1" | tail -1 | awk '{print $5}')
+    status=$(bm2 list "$1" | tail -1 | awk '{print $6}')
     if [ "$status" = "$2" ]; then
       printf '%s' "$status"
       return 0
@@ -104,14 +104,14 @@ check "crash present" "1" "$(bm2 list | grep -c '^crash ')"
 
 echo "===== B. crash loop -> errored ====="
 check "crash errored" "errored" "$(wait_status crash errored 60)"
-check "crash restart_count 3" "3" "$(bm2 list crash | tail -1 | awk '{print $6}')"
+check "crash restart_count 3" "3" "$(bm2 list crash | tail -1 | awk '{print $7}')"
 contains "crash.log reason=exit_code" $state_dir/crash/logs/crash-0.crash.log "reason=exit_code"
 contains "crash.log restartCount=3" $state_dir/crash/logs/crash-0.crash.log "restartCount=3"
 
 echo "===== C. clean exit restarts without burning the crash budget ====="
 # quick exits cleanly every 100ms: the TIMES column (6th) grows, but a
 # clean exit never consumes the crash budget, so it must not hit errored.
-check "quick started multiple times" 1 "$([ "$(bm2 list quick | tail -1 | awk '{print $6}')" -ge 2 ] && echo 1 || echo 0)"
+check "quick started multiple times" 1 "$([ "$(bm2 list quick | tail -1 | awk '{print $7}')" -ge 2 ] && echo 1 || echo 0)"
 check "quick not errored" "0" "$(bm2 list quick | grep -c 'errored' || true)"
 if [ -s $state_dir/quick/logs/quick-0.crash.log ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: quick crash.log should be empty"
@@ -124,7 +124,7 @@ write_project hog hog 4221 hog.ts 1 1000
 sed -i 's/max_memory_mb = 512/max_memory_mb = 16/; s/max_restarts = 2/max_restarts = 1/' "$ACC/hog/bm2.toml"
 (cd "$ACC/hog" && bm2 start >/dev/null)
 check "hog errored" "errored" "$(wait_status hog errored 80)"
-check "hog restart_count 2" "2" "$(bm2 list hog | tail -1 | awk '{print $6}')"
+check "hog restart_count 2" "2" "$(bm2 list hog | tail -1 | awk '{print $7}')"
 contains "hog crash.log memory_limit" $state_dir/hog/logs/hog-0.crash.log "reason=memory_limit"
 contains "hog crash.log rssMb" $state_dir/hog/logs/hog-0.crash.log "rssMb="
 
@@ -149,7 +149,7 @@ sleep 1
 bm2 list slow >/dev/null
 SLOW_PID_AFTER=$(bm2 list slow | tail -1 | awk '{print $3}')
 check "slow adopted with same pid" "$SLOW_PID_BEFORE" "$SLOW_PID_AFTER"
-check "slow adopted online" "online" "$(bm2 list slow | tail -1 | awk '{print $5}')"
+check "slow adopted online" "online" "$(bm2 list slow | tail -1 | awk '{print $6}')"
 contains "adoption event logged" $state_dir/bm2d.events.jsonl "\"event\":\"instance_adopted\""
 
 echo "===== H. pid reuse -> pid_conflict, foreign process untouched ====="
@@ -161,7 +161,7 @@ EOF
 kill -9 "$(cat "$state_dir/bm2d.pid")" 2>/dev/null
 sleep 1
 bm2 list slow >/dev/null
-check "pid_conflict status" "errored" "$(bm2 list slow | tail -1 | awk '{print $5}')"
+check "pid_conflict status" "errored" "$(bm2 list slow | tail -1 | awk '{print $6}')"
 contains "pid_conflict crash.log" $state_dir/slow/logs/slow-0.crash.log "reason=pid_conflict"
 contains "pid_conflict event logged" $state_dir/bm2d.events.jsonl "\"event\":\"pid_conflict\""
 if kill -0 "$FOREIGN" 2>/dev/null; then
@@ -234,7 +234,7 @@ SPID=$(bm2 list stubborn | sed -n '2p' | awk '{print $3}')
 check "restart with ignored SIGTERM" "started" "$(cd "$ACC/stubborn" && bm2 start | head -1)"
 sleep 1
 check "stubborn old process SIGKILLed" 1 "$(kill -0 "$SPID" 2>/dev/null; echo $?)"
-check "stubborn new instance online" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $5}')"
+check "stubborn new instance online" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $6}')"
 bm2 kill stubborn
 
 echo "===== O. external SIGKILL records signal reason ====="
@@ -316,7 +316,7 @@ sleep 1
 # The daemon keeps answering requests while the long restart is in flight;
 # the instance is mid-stop, which is exactly what async start looks like.
 check "daemon pid unchanged during restart" "$DPID" "$(cat "$state_dir/bm2d.pid")"
-ST=$(bm2 list stubborn | sed -n '2p' | awk '{print $5}')
+ST=$(bm2 list stubborn | sed -n '2p' | awk '{print $6}')
 if [ "$ST" = "stopping" ] || [ "$ST" = "online" ]; then
   PASS=$((PASS + 1)); echo "PASS: daemon answers during long restart (status=$ST)"
 else
@@ -324,7 +324,7 @@ else
 fi
 wait "$START_PID"
 sleep 5
-check "stubborn online after full restart" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $5}')"
+check "stubborn online after full restart" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $6}')"
 bm2 kill stubborn
 
 echo "===== U. log rotation by size ====="
@@ -382,6 +382,7 @@ EOF
 sleep 1
 check "three instances online" "3" "$(bm2 list reuseapp | grep -c '^reuseapp ')"
 check "all instances share port 4301" "3" "$(bm2 list reuseapp | awk '$4 == 4301' | wc -l)"
+check "mode column shows cluster" "3" "$(bm2 list reuseapp | awk '$5 == "cluster"' | wc -l)"
 DISTINCT=$(for i in $(seq 1 40); do curl -s --max-time 1 localhost:4301; done | sort -u | wc -l)
 check "requests reach multiple instances" 1 "$([ "$DISTINCT" -ge 2 ] && echo 1 || echo 0)"
 R_PID=$(bm2 list reuseapp | sed -n '2p' | awk '{print $3}')
@@ -408,7 +409,7 @@ EOF
 BOTH_ERRORED=0
 for _ in $(seq 1 40); do
   LINES=$(bm2 list noreuse 2>/dev/null | grep -c '^noreuse ')
-  NONERR=$(bm2 list noreuse 2>/dev/null | grep '^noreuse ' | awk '{print $5}' | grep -cv '^errored$')
+  NONERR=$(bm2 list noreuse 2>/dev/null | grep '^noreuse ' | awk '{print $6}' | grep -cv '^errored$')
   if [ "$LINES" = "2" ] && [ "$NONERR" = "0" ]; then BOTH_ERRORED=1; break; fi
   sleep 0.5
 done
@@ -425,7 +426,7 @@ sed -i 's/script = "slow.ts"/script = "reuse.ts"/' "$ACC/noreuse/bm2.toml"
 RECOVERED=0
 for _ in $(seq 1 40); do
   LINES=$(bm2 list noreuse 2>/dev/null | grep -c '^noreuse ')
-  ONLINE=$(bm2 list noreuse 2>/dev/null | grep '^noreuse ' | awk '{print $5}' | grep -c '^online$')
+  ONLINE=$(bm2 list noreuse 2>/dev/null | grep '^noreuse ' | awk '{print $6}' | grep -c '^online$')
   if [ "$LINES" = "2" ] && [ "$ONLINE" = "2" ]; then RECOVERED=1; break; fi
   sleep 0.5
 done

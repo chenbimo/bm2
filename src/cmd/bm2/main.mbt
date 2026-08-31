@@ -24,7 +24,7 @@ fn platform_error() -> String? {
 
 ///|
 /// Keep in sync with moon.mod `version`.
-const VERSION : String = "0.4.0"
+const VERSION : String = "0.4.1"
 
 ///|
 fn run() -> Int {
@@ -641,7 +641,7 @@ fn print_list(instances : Array[@core.InstanceInfo]) -> Unit {
     return
   }
   let header = [
-    "NAME", "ID", "PID", "PORT", "STATUS", "TIMES", "MEMORY", "UPTIME", "CWD",
+    "NAME", "ID", "PID", "PORT", "MODE", "STATUS", "TIMES", "MEMORY", "UPTIME", "CWD",
   ]
   let rows = []
   for info in instances {
@@ -657,6 +657,7 @@ fn print_list(instances : Array[@core.InstanceInfo]) -> Unit {
       info.instance_id.to_string(),
       pid,
       info.port.to_string(),
+      info.exec_mode,
       info.status,
       info.times.to_string(),
       memory,
@@ -664,7 +665,7 @@ fn print_list(instances : Array[@core.InstanceInfo]) -> Unit {
       info.cwd,
     ])
   }
-  let widths = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+  let widths = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   for i in 0..<header.length() {
     widths[i] = header[i].length()
   }

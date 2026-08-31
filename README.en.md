@@ -204,7 +204,7 @@ A killed project (`bm2 kill <name>`) is fully unregistered: it disappears from `
 
 Use it after replacing binaries manually, `bm2 upgrade` performs this step automatically.
 
-`list` prints one row per active or abnormal instance, including its PID, port, runtime status, memory, uptime, and the complete project working directory in the final `CWD` column.
+`list` prints one row per active or abnormal instance, including its PID, port, execution mode (cluster/fork), runtime status, memory, uptime, and the complete project working directory in the final `CWD` column.
 
 Intentionally stopped instances are omitted.
 

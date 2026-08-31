@@ -46,6 +46,7 @@ pub(all) struct Instance {
   cwd : String
   instance_id : Int
   port : Int
+  exec_mode : String
   mut pid : Int
   /// pidfd pinned to `pid` (0 when not running); never pid-reused.
   mut pidfd : Int
@@ -79,6 +80,7 @@ pub fn Instance::new(config : @config.Config, instance_id : Int) -> Instance {
     } else {
       config.port + instance_id
     },
+    exec_mode: config.exec_mode,
     pid: 0,
     pidfd: 0,
     status: Stopped,

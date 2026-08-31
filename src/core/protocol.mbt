@@ -13,6 +13,7 @@ pub(all) struct InstanceInfo {
   instance_id : Int
   pid : Int
   port : Int
+  exec_mode : String
   status : String
   times : Int
   restart_count : Int
@@ -56,6 +57,7 @@ pub fn InstanceInfo::of(inst : Instance, now : UInt64) -> InstanceInfo {
     instance_id: inst.instance_id,
     pid: inst.pid,
     port: inst.port,
+    exec_mode: inst.exec_mode,
     status: inst.status.as_string(),
     times: inst.times,
     restart_count: inst.restart_count,
