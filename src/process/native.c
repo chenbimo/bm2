@@ -13,6 +13,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/utsname.h>
@@ -241,6 +242,45 @@ static int write_all(int fd, const uint8_t *data, size_t len) {
   return 0;
 }
 
+/* Bound blocking socket I/O. Without a send timeout, write() on a socket
+ * whose buffer is full blocks forever, which would defeat the poll-based
+ * deadline in write_all/read_exact: a peer that connects and then stops
+ * reading (a dead CLI, a wedged client) could stall the single-threaded
+ * daemon inside write() instead of failing the transfer. With SO_SNDTIMEO
+ * a full buffer turns into a short write or EAGAIN, so the loop above keeps
+ * control and gives up after its own timeout. */
+static void set_sock_timeout(int fd) {
+  struct timeval tv;
+  tv.tv_sec = SOCK_TIMEOUT_MS / 1000;
+  tv.tv_usec = (SOCK_TIMEOUT_MS % 1000) * 1000;
+  setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+}
+
+/* fsync the directory holding path, so the rename itself (not just the file
+ * contents) survives a power loss. Best effort: the data is already in
+ * place by then, and a filesystem that cannot fsync a directory must not
+ * turn a completed write into a reported failure. */
+static void sync_parent_dir(const char *path) {
+  char dir[4096];
+  size_t len = strlen(path);
+  if (len >= sizeof(dir)) return;
+  memcpy(dir, path, len + 1);
+  char *slash = strrchr(dir, '/');
+  if (slash == NULL) {
+    dir[0] = '.';
+    dir[1] = 0;
+  } else if (slash == dir) {
+    slash[1] = 0;
+  } else {
+    *slash = 0;
+  }
+  int fd = open(dir, O_RDONLY | O_DIRECTORY);
+  if (fd < 0) return;
+  fsync(fd);
+  close(fd);
+}
+
 /* Write data to "<path>.tmp", fsync, then atomically rename over path. */
 MOONBIT_FFI_EXPORT
 int32_t bm2_write_atomic(moonbit_bytes_t path, moonbit_bytes_t data) {
@@ -263,6 +303,7 @@ int32_t bm2_write_atomic(moonbit_bytes_t path, moonbit_bytes_t data) {
     unlink(tmp);
     return -err;
   }
+  sync_parent_dir((char *)path);
   return 0;
 }
 
@@ -278,6 +319,14 @@ int32_t bm2_append_file(moonbit_bytes_t path, moonbit_bytes_t data) {
 MOONBIT_FFI_EXPORT
 int32_t bm2_unlink(moonbit_bytes_t path) {
   return unlink((char *)path) == 0 ? 0 : -errno;
+}
+
+/* Tighten the mode of an existing path; mkdir only applies a mode to newly
+ * created directories, so an older or hand-made state dir keeps whatever
+ * permissions it has unless it is chmodded explicitly. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_chmod(moonbit_bytes_t path, int32_t mode) {
+  return chmod((char *)path, (mode_t)mode) == 0 ? 0 : -errno;
 }
 
 /* ---------------- Unix domain socket ---------------- */
@@ -433,19 +482,28 @@ int32_t bm2_send_msg(int32_t fd, moonbit_bytes_t data) {
   return rc;
 }
 
-/* Reads one message into buf; returns payload length, -errno, or
- * -EMSGSIZE when the payload exceeds cap. */
+/* Reads the 4-byte big-endian payload length of one message and returns
+ * it, or -errno. The caller allocates exactly that many bytes and calls
+ * bm2_recv_body, so the message size policy (and its error message) lives
+ * in one place instead of being duplicated as a fixed buffer size here. */
 MOONBIT_FFI_EXPORT
-int32_t bm2_recv_msg(int32_t fd, moonbit_bytes_t buf, int32_t cap) {
+int32_t bm2_recv_len(int32_t fd) {
   uint8_t header[4];
   int rc = read_exact(fd, header, 4);
   if (rc != 0) return rc;
   uint32_t len = ((uint32_t)header[0] << 24) | ((uint32_t)header[1] << 16) |
                  ((uint32_t)header[2] << 8) | (uint32_t)header[3];
-  if (len > (uint32_t)cap) return -EMSGSIZE;
-  rc = read_exact(fd, buf, len);
-  if (rc != 0) return rc;
+  if (len > 0x7fffffffu) return -EMSGSIZE;
   return (int32_t)len;
+}
+
+/* Reads exactly len payload bytes into buf; returns len or -errno. */
+MOONBIT_FFI_EXPORT
+int32_t bm2_recv_body(int32_t fd, moonbit_bytes_t buf, int32_t len) {
+  if (len < 0 || len > Moonbit_array_length(buf)) return -EMSGSIZE;
+  int rc = read_exact(fd, (uint8_t *)buf, (size_t)len);
+  if (rc != 0) return rc;
+  return len;
 }
 
 /* uid of the connected peer, for same-user enforcement. */

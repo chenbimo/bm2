@@ -1,23 +1,4 @@
 ///|
-/// bm2 is Linux-only; refuse to run elsewhere with a clear message
-/// instead of failing on the first POSIX-specific syscall.
-/// Returns None when the platform is supported.
-fn platform_error() -> String? {
-  try {
-    let name = @process.uname()
-    if name == "Linux" {
-      None
-    } else {
-      Some("this build supports Linux only (detected: \{name})")
-    }
-  } catch {
-    e => Some("cannot detect platform: \{e.to_string()}")
-  } noraise {
-    ok => ok
-  }
-}
-
-///|
 enum Exit {
   Stay
   /// Bare `kill` or SIGTERM: stop all apps, then exit.
@@ -34,7 +15,7 @@ fn main {
 
 ///|
 fn run() -> Int {
-  match platform_error() {
+  match @process.platform_error() {
     None => ()
     Some(msg) => {
       @process.eprintln("bm2d: " + msg)
@@ -48,7 +29,7 @@ fn run() -> Int {
     return 2
   }
   let state_dir = @core.resolve_state_dir()
-  @core.discard(() => @process.mkdir_p(state_dir, mode=0o700))
+  @process.discard(() => @process.mkdir_p(state_dir, mode=0o700))
   // One daemon per state directory: the flock is released automatically
   // when the holder exits, even on SIGKILL, so a crash never leaves a
   // permanent lock behind.
@@ -86,7 +67,7 @@ fn run() -> Int {
   }
   // Only claim the pid file once the socket is bound: a daemon that
   // fails to bind must not overwrite the pid of a live daemon.
-  @core.discard(() => {
+  @process.discard(() => {
     @process.write_atomic(
       state_dir + "/bm2d.pid",
       @utf8.encode(@process.get_pid().to_string() + "\n"),
@@ -116,8 +97,8 @@ fn run() -> Int {
     Exit::Detach => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
       @process.close(listen_fd)
-      @core.discard(() => @process.unlink(state_dir + "/bm2.sock"))
-      @core.discard(() => @process.unlink(state_dir + "/bm2d.pid"))
+      @process.discard(() => @process.unlink(state_dir + "/bm2.sock"))
+      @process.discard(() => @process.unlink(state_dir + "/bm2d.pid"))
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detached")
     }
     _ => {
@@ -143,9 +124,9 @@ fn shutdown(
   let names = sv.app_names()
   for name in names {
     if graceful {
-      @core.discard(() => sv.stop_app(name))
+      @process.discard(() => sv.stop_app(name))
     } else {
-      @core.discard(() => sv.kill_app(name))
+      @process.discard(() => sv.kill_app(name))
     }
   }
   if graceful {
@@ -155,15 +136,15 @@ fn shutdown(
   }
   for inst in sv.snapshot() {
     if inst.alive() {
-      @core.discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
+      @process.discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
     }
   }
   for name in names {
-    @core.discard(() => @core.remove_project(state_dir, name))
+    @process.discard(() => @core.remove_project(state_dir, name))
   }
   @process.close(listen_fd)
-  @core.discard(() => @process.unlink(state_dir + "/bm2.sock"))
-  @core.discard(() => @process.unlink(state_dir + "/bm2d.pid"))
+  @process.discard(() => @process.unlink(state_dir + "/bm2.sock"))
+  @process.discard(() => @process.unlink(state_dir + "/bm2d.pid"))
 }
 
 ///|
@@ -234,6 +215,10 @@ fn handle(
     _ => return (@core.Response::error("invalid request"), Exit::Stay)
   } noraise {
     parsed => parsed
+  }
+  match @core.protocol_problem(req.protocol) {
+    Some(problem) => return (@core.Response::error(problem), Exit::Stay)
+    None => ()
   }
   @core.log_event(
     state_dir,

@@ -9,19 +9,14 @@ pub(all) struct Event {
 } derive(ToJson)
 
 ///|
-/// Run a side effect whose failure must not abort the caller.
-pub fn discard(f : () -> Unit raise) -> Unit {
-  try f() catch {
-    _ => ()
-  } noraise {
-    _ => ()
-  }
-}
-
-///|
 /// Append one management event. Logging failures never interrupt process
 /// supervision, and event data deliberately excludes environment values and
 /// protocol payloads.
+///
+/// The parameter types differ on purpose: `app` is declared as `String?`
+/// because callers forward an already-optional value into it, while
+/// `instance`, `pid` and `detail` are declared as plain optionals so
+/// callers pass the bare value. Both are omitted the same way.
 pub fn log_event(
   state_dir : String,
   file : String,
@@ -39,7 +34,7 @@ pub fn log_event(
     pid,
     detail,
   }
-  discard(() => {
+  @process.discard(() => {
     @process.append_file(
       state_dir + "/" + file,
       @utf8.encode(ToJson::to_json(record).stringify() + "\n"),

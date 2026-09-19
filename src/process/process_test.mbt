@@ -184,6 +184,79 @@ test "unix socket send/recv round-trip with peer uid" {
 }
 
 ///|
+test "a message larger than the old 64 KiB buffer still arrives intact" {
+  let path = "/tmp/bm2-process-test-big-\{@process.get_pid()}.sock"
+  let listen_fd = @process.socket_listen(path)
+  let client = @process.socket_connect(path)
+  let server = @process.accept(listen_fd)
+  // 80 KiB: 25% past the fixed buffer the protocol used to have, and still
+  // inside the kernel's default AF_UNIX socket buffer. The payload must
+  // stay under that buffer because this test writes before it reads, and a
+  // full buffer would only make the sender back off.
+  let payload = "x".repeat(80 * 1024)
+  @process.send_msg(client, @utf8.encode(payload))
+  let received = @utf8.decode(@process.recv_msg(server))
+  assert_eq(received.length(), payload.length())
+  assert_eq(received, payload)
+  @process.close(client)
+  @process.close(server)
+  @process.close(listen_fd)
+  @process.unlink(path)
+}
+
+///|
+test "wait_child_timeout kills a child that never exits" {
+  let dir = "/tmp/bm2-process-test-timeout-\{@process.get_pid()}"
+  @process.mkdir_p(dir)
+  let script_path = dir + "/hang.sh"
+  @fs.write_string_to_file(script_path, "while true; do sleep 1; done\n")
+  let pid = @process.spawn({
+    bun_path: "/bin/sh",
+    script: script_path,
+    cwd: dir,
+    out_log: dir + "/o.log",
+    err_log: dir + "/e.log",
+    env_blob: @process.instance_env_blob("t", 0, 1),
+  })
+  assert_true(@process.pid_alive(pid))
+  // 300 ms deadline: the child is SIGKILLed and reaped, so the caller gets
+  // a signal instead of hanging forever on a stuck helper.
+  assert_eq(
+    @process.wait_child_timeout(pid, 300),
+    Some((pid, @process.ChildExit::Signaled(@process.SIGKILL))),
+  )
+  assert_false(@process.pid_alive(pid))
+  @process.unlink(script_path)
+  @process.unlink(dir + "/o.log")
+  @process.unlink(dir + "/e.log")
+  @fs.remove_dir(dir)
+}
+
+///|
+test "wait_child_timeout reports a normal exit" {
+  let dir = "/tmp/bm2-process-test-timeout-ok-\{@process.get_pid()}"
+  @process.mkdir_p(dir)
+  let script_path = dir + "/quick.sh"
+  @fs.write_string_to_file(script_path, "exit 7\n")
+  let pid = @process.spawn({
+    bun_path: "/bin/sh",
+    script: script_path,
+    cwd: dir,
+    out_log: dir + "/o.log",
+    err_log: dir + "/e.log",
+    env_blob: @process.instance_env_blob("t", 0, 1),
+  })
+  assert_eq(
+    @process.wait_child_timeout(pid, 5000),
+    Some((pid, @process.ChildExit::Exited(7))),
+  )
+  @process.unlink(script_path)
+  @process.unlink(dir + "/o.log")
+  @process.unlink(dir + "/e.log")
+  @fs.remove_dir(dir)
+}
+
+///|
 test "self_exe and read_small work on proc files" {
   let exe = @process.self_exe()
   assert_true(exe.has_prefix("/"))

@@ -55,9 +55,10 @@ pub(all) struct Instance {
   /// Total launch count: every start (manual or automatic) increments
   /// it; resets only when the project is killed and started fresh.
   mut times : Int
-  /// Consecutive abnormal restarts; the crash budget only.
+  /// Consecutive abnormal restarts; the crash budget only. Reset to zero
+  /// once the instance has stayed up past min_uptime, which needs no
+  /// extra flag: the counter itself is the guard.
   mut restart_count : Int
-  mut uptime_reset_done : Bool
   mut exit_intent : ExitIntent
   mut kill_deadline_ms : UInt64
   mut restart_at_ms : UInt64
@@ -87,7 +88,6 @@ pub fn Instance::new(config : @config.Config, instance_id : Int) -> Instance {
     started_at_ms: 0UL,
     times: 0,
     restart_count: 0,
-    uptime_reset_done: false,
     exit_intent: Idle,
     kill_deadline_ms: 0UL,
     restart_at_ms: 0UL,

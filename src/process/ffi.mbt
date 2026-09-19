@@ -1,14 +1,29 @@
 ///|
 pub(all) suberror ProcessError {
   Failed(op~ : String, errno~ : Int)
+  /// A peer announced a message larger than the protocol allows; carrying
+  /// the numbers keeps the failure explainable instead of returning a bare
+  /// EMSGSIZE.
+  TooLarge(op~ : String, size~ : Int, limit~ : Int)
 }
 
 ///|
 pub impl Show for ProcessError with fn output(self, logger) {
-  let Failed(op~, errno~) = self
-  logger.write_string(op)
-  logger.write_string(" failed: errno ")
-  logger.write_string(errno.to_string())
+  match self {
+    Failed(op~, errno~) => {
+      logger.write_string(op)
+      logger.write_string(" failed: errno ")
+      logger.write_string(errno.to_string())
+    }
+    TooLarge(op~, size~, limit~) => {
+      logger.write_string(op)
+      logger.write_string(" refused a ")
+      logger.write_string(size.to_string())
+      logger.write_string("-byte message (limit ")
+      logger.write_string(limit.to_string())
+      logger.write_string(")")
+    }
+  }
 }
 
 ///|
@@ -64,6 +79,10 @@ extern "C" fn c_unlink(path : Bytes) -> Int = "bm2_unlink"
 
 ///|
 #borrow(path)
+extern "C" fn c_chmod(path : Bytes, mode : Int) -> Int = "bm2_chmod"
+
+///|
+#borrow(path)
 extern "C" fn c_socket_listen(path : Bytes) -> Int = "bm2_socket_listen"
 
 ///|
@@ -84,8 +103,11 @@ extern "C" fn c_close(fd : Int) -> Int = "bm2_close"
 extern "C" fn c_send_msg(fd : Int, data : Bytes) -> Int = "bm2_send_msg"
 
 ///|
+extern "C" fn c_recv_len(fd : Int) -> Int = "bm2_recv_len"
+
+///|
 #borrow(buf)
-extern "C" fn c_recv_msg(fd : Int, buf : Bytes, cap : Int) -> Int = "bm2_recv_msg"
+extern "C" fn c_recv_body(fd : Int, buf : Bytes, len : Int) -> Int = "bm2_recv_body"
 
 ///|
 extern "C" fn c_peer_uid(fd : Int) -> Int = "bm2_peer_uid"

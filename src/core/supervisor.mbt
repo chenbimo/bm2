@@ -34,22 +34,20 @@ pub impl Show for SupervisorError with fn output(self, logger) {
 }
 
 ///|
-/// One log file rotates once it exceeds this size; ten generations are
-/// kept, bounding total log usage per file at ~100 MB.
-const LOG_ROTATE_BYTES : Int64 = 10L * 1024L * 1024L
-
-///|
-/// How often the daemon checks log sizes for rotation.
-const LOG_CHECK_INTERVAL_MS : UInt64 = 10000UL
-
-///|
+/// The whole control loop for every managed project. All state lives in
+/// the two maps below and is only ever mutated from `tick` or from a
+/// request handler, both of which run on the daemon's single thread — so
+/// no field here needs locking.
 pub struct Supervisor {
   apps : Map[String, @config.Config]
   instances : Map[String, Array[Instance]]
   pending_restart : Map[String, Unit]
   pending_remove : Map[String, Unit]
   state_dir : String
+  /// Runtime path used when a project does not pick `node`. Only tests
+  /// override it (they drive the loop with /bin/sh); production keeps bun.
   bun_path : String
+  /// Test seam: the production daemon uses the default.
   memory_interval_ms : Int
   mut last_memory_check_ms : UInt64
   mut last_log_check_ms : UInt64
@@ -66,6 +64,9 @@ pub fn Supervisor::new(
   memory_interval_ms? : Int = 5000,
 ) -> Supervisor raise {
   @process.mkdir_p(state_dir, mode=0o700)
+  // mkdir only applies its mode to directories it creates; tighten a state
+  // dir left behind by an older version, since it holds app logs.
+  @process.discard(() => @process.chmod(state_dir, 0o700))
   {
     apps: Map([]),
     instances: Map([]),
@@ -108,7 +109,7 @@ pub fn Supervisor::register(
   }
   self.pending_restart.remove(name)
   self.pending_remove.remove(name)
-  discard(() => save_project(self.state_dir, name, { config_path, }))
+  @process.discard(() => save_project(self.state_dir, name, { config_path, }))
 }
 
 ///|
@@ -244,6 +245,116 @@ pub fn Supervisor::wait_settled(
   }
 }
 
+// ---------------------------------------------------------------------
+// State transitions
+//
+// Every write to `inst.status` goes through one of these helpers, so the
+// state machine is visible at a glance instead of being spread across the
+// control loop. Transitions that only touch the instance are Instance
+// methods; the ones that also persist (mark_online, mark_stopped,
+// mark_restarting, mark_errored) are Supervisor methods because they write
+// into the state dir. What stays at the call site is only the
+// reason-specific reporting (events, crash log), which differs per
+// transition.
+// ---------------------------------------------------------------------
+
+///|
+/// The stopping phase: the process is still alive, and `intent` records
+/// what should happen once it is gone (stay down, restart fresh, or
+/// restart against the crash budget).
+fn Instance::mark_stopping(
+  inst : Instance,
+  intent : ExitIntent,
+  reason : String,
+) -> Unit {
+  inst.exit_intent = intent
+  inst.status = Stopping
+  inst.last_reason = Some(reason)
+}
+
+///|
+/// A spawn attempt is in flight; the instance is not listed as online yet.
+fn Instance::mark_starting(inst : Instance) -> Unit {
+  inst.status = Starting
+}
+
+///|
+/// Liveness was lost without a reap: drop the pid (a stale one would block
+/// project removal forever) and release the pidfd so it can never leak.
+fn Instance::clear_process(inst : Instance) -> Unit {
+  inst.pid = 0
+  if inst.pidfd > 0 {
+    @process.close(inst.pidfd)
+    inst.pidfd = 0
+  }
+}
+
+///|
+/// A successful spawn: the handle is live and every lifecycle field starts
+/// from a clean slate.
+fn Supervisor::mark_online(
+  self : Supervisor,
+  app : @config.Config,
+  inst : Instance,
+  pid : Int,
+  pidfd : Int,
+) -> Unit {
+  inst.pid = pid
+  inst.pidfd = pidfd
+  inst.status = Online
+  inst.started_at_ms = now_ms()
+  inst.times += 1
+  inst.exit_intent = Idle
+  inst.kill_deadline_ms = 0UL
+  inst.restart_at_ms = 0UL
+  inst.last_reason = None
+  inst.reuseport = if app.exec_mode == "cluster" {
+    ReusePending
+  } else {
+    ReuseOff
+  }
+  inst.reuseport_deadline_ms = 0UL
+  self.try_save_state(inst)
+}
+
+///|
+/// Terminal stopped state. A stopped instance is omitted from `bm2 list`
+/// and never restarts on its own.
+fn Supervisor::mark_stopped(self : Supervisor, inst : Instance) -> Unit {
+  inst.status = Stopped
+  inst.clear_process()
+  self.try_save_state(inst)
+}
+
+///|
+/// Waiting out the restart delay. The process handle is already gone.
+fn Supervisor::mark_restarting(
+  self : Supervisor,
+  inst : Instance,
+  at_ms : UInt64,
+) -> Unit {
+  inst.status = Restarting
+  inst.clear_process()
+  inst.restart_at_ms = at_ms
+  self.try_save_state(inst)
+}
+
+///|
+/// Out of the crash budget, or parked on a condition that needs a config
+/// or application fix. Stays visible in `bm2 list` for diagnosis and is
+/// never restarted on its own.
+fn Supervisor::mark_errored(
+  self : Supervisor,
+  inst : Instance,
+  reason : String,
+) -> Unit {
+  inst.status = Errored
+  inst.last_reason = Some(reason)
+  inst.clear_process()
+  inst.restart_at_ms = 0UL
+  self.try_save_state(inst)
+}
+
 ///|
 /// Full restart semantics: SIGTERM old instances, wait for every old
 /// instance to exit, then spawn fresh from the current config with the
@@ -263,10 +374,7 @@ pub fn Supervisor::start_app(
     inst.restart_at_ms = 0UL
     if inst.alive() {
       any_running = true
-      inst.exit_intent = RestartFresh
-      inst.status = Stopping
-      inst.last_reason = Some("restart_requested")
-      terminate(app, inst)
+      terminate(app, inst, RestartFresh, "restart_requested")
     }
   }
   if any_running {
@@ -286,22 +394,10 @@ pub fn Supervisor::stop_app(self : Supervisor, app_name : String) -> Unit raise 
   for inst in self.app_instances(app_name) {
     inst.restart_at_ms = 0UL
     if inst.alive() {
-      inst.exit_intent = Stop
-      inst.status = Stopping
-      inst.last_reason = Some("stop_requested")
-      terminate(app, inst)
+      terminate(app, inst, Stop, "stop_requested")
     } else if !(inst.status is Errored) {
-      inst.status = Stopped
       inst.exit_intent = Stop
-      // Liveness was lost without a reap: the pid is gone, so clear it
-      // (a stale pid would block project removal forever) and release
-      // the pidfd so it can never leak.
-      inst.pid = 0
-      if inst.pidfd > 0 {
-        @process.close(inst.pidfd)
-        inst.pidfd = 0
-      }
-      self.try_save_state(inst)
+      self.mark_stopped(inst)
     }
   }
 }
@@ -317,31 +413,23 @@ pub fn Supervisor::kill_app(self : Supervisor, app_name : String) -> Unit raise 
   for inst in self.app_instances(app_name) {
     inst.restart_at_ms = 0UL
     if inst.alive() {
-      inst.exit_intent = Stop
-      inst.status = Stopping
-      inst.last_reason = Some("manual_kill")
+      inst.mark_stopping(Stop, "manual_kill")
       inst.kill_deadline_ms = 0UL
-      discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
+      @process.discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
     } else if !(inst.status is Errored) {
-      inst.status = Stopped
       inst.exit_intent = Stop
-      // Liveness was lost without a reap: clear the stale pid too, or the
-      // project removal would wait on it forever.
-      inst.pid = 0
-      if inst.pidfd > 0 {
-        @process.close(inst.pidfd)
-        inst.pidfd = 0
-      }
-      self.try_save_state(inst)
+      self.mark_stopped(inst)
     }
   }
 }
 
 ///|
-/// One supervisor pass: reap children, enforce memory limits, escalate
-/// overdue SIGTERMs, run delayed restarts, finish pending full restarts,
-/// drop killed projects, rotate oversized logs and reset restart counts
-/// of stable instances.
+/// One supervisor pass. Every step is idempotent and inspects the current
+/// state before acting, so a pass can be repeated at any time without
+/// bookkeeping; the daemon simply calls this as fast as its 50 ms poll
+/// allows. The expensive scans (memory, log size) gate themselves on their
+/// own timestamps, so the 50 ms cadence is a scheduling tick, not a
+/// promise to rescan every instance that often.
 pub fn Supervisor::tick(self : Supervisor) -> Unit {
   self.reap()
   let now = now_ms()
@@ -359,58 +447,6 @@ pub fn Supervisor::tick(self : Supervisor) -> Unit {
   self.check_pending()
   self.check_removals()
   self.check_uptime_resets()
-}
-
-///|
-/// Rotate logs past the size limit: app stdout/stderr are held open by
-/// the app process (copytruncate), crash logs and the daemon event log
-/// are written by us (rename). Failures are logged, never fatal.
-fn Supervisor::rotate_logs(self : Supervisor) -> Unit {
-  for pair in self.instances.iter() {
-    let (name, arr) = pair
-    for inst in arr {
-      let base = "\{self.state_dir}/\{name}/logs/\{name}-\{inst.instance_id}"
-      self.rotate_log(base + ".out.log", copytruncate=true)
-      self.rotate_log(base + ".error.log", copytruncate=true)
-      self.rotate_log(base + ".crash.log", copytruncate=false)
-    }
-  }
-  self.rotate_log("\{self.state_dir}/bm2d.events.jsonl", copytruncate=false)
-}
-
-///|
-fn Supervisor::rotate_log(
-  self : Supervisor,
-  path : String,
-  copytruncate~ : Bool,
-) -> Unit {
-  match @process.file_size(path) {
-    Some(size) if size > LOG_ROTATE_BYTES =>
-      try {
-        if copytruncate {
-          @process.copytruncate(path)
-        } else {
-          @process.rotate(path)
-        }
-        log_event(
-          self.state_dir,
-          "bm2d.events.jsonl",
-          "log_rotated",
-          detail=path,
-        )
-      } catch {
-        e =>
-          log_event(
-            self.state_dir,
-            "bm2d.events.jsonl",
-            "log_rotate_failed",
-            detail=path + ": " + e.to_string(),
-          )
-      } noraise {
-        _ => ()
-      }
-    _ => ()
-  }
 }
 
 ///|
@@ -459,7 +495,7 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
     self.pending_remove.remove(name)
     self.apps.remove(name)
     self.instances.remove(name)
-    discard(() => remove_project(self.state_dir, name))
+    @process.discard(() => remove_project(self.state_dir, name))
     log_event(
       self.state_dir,
       "bm2d.events.jsonl",
@@ -487,7 +523,13 @@ pub fn Supervisor::app_config(
 /// and recorded as an unknown exit.
 fn Supervisor::reap(self : Supervisor) -> Unit {
   for pair in self.instances.iter() {
-    let (_, arr) = pair
+    let (name, arr) = pair
+    // Both maps are written together, so a missing config means the
+    // project is mid-removal and has nothing left to supervise.
+    let app = match self.apps.get(name) {
+      Some(app) => app
+      None => continue
+    }
     for inst in arr {
       if inst.pidfd > 0 {
         // Child processes (including zombies) are reaped by waitid.
@@ -500,17 +542,16 @@ fn Supervisor::reap(self : Supervisor) -> Unit {
           Some((pid, exit)) => {
             @process.close(inst.pidfd)
             inst.pidfd = 0
-            self.handle_exit(inst, pid, Some(exit))
+            self.handle_exit(app, inst, pid, Some(exit))
           }
           None =>
             // waitid reports nothing: alive, stopped, or an adopted
-            // (non-waitable) instance. The pidfd readability check plus
-            // pid liveness distinguishes a real exit from a stop event.
-            if !@process.pidfd_alive(inst.pidfd) &&
-              !@process.pid_alive(inst.pid) {
+            // (non-waitable) instance, in which case the pidfd readability
+            // check plus pid liveness is the only available exit signal.
+            if @process.pidfd_exited(inst.pidfd, inst.pid) {
               @process.close(inst.pidfd)
               inst.pidfd = 0
-              self.handle_exit(inst, inst.pid, None)
+              self.handle_exit(app, inst, inst.pid, None)
             }
         }
       }
@@ -521,11 +562,11 @@ fn Supervisor::reap(self : Supervisor) -> Unit {
 ///|
 fn Supervisor::handle_exit(
   self : Supervisor,
+  app : @config.Config,
   inst : Instance,
   pid : Int,
   exit : @process.ChildExit?,
 ) -> Unit {
-  let app = self.apps[inst.app_name]
   let now = now_ms()
   match exit {
     None => {
@@ -556,18 +597,15 @@ fn Supervisor::handle_exit(
     detail=exit_detail,
   )
   match inst.exit_intent {
-    Stop | RestartFresh => {
+    Stop | RestartFresh =>
       // A reusePort violation lands in errored, not stopped: it needs a
       // config or app fix, and errored keeps the project listed for
       // diagnosis.
-      inst.status = if inst.last_reason == Some("reuseport_missing") {
-        Errored
+      if inst.last_reason == Some("reuseport_missing") {
+        self.mark_errored(inst, "reuseport_missing")
       } else {
-        Stopped
+        self.mark_stopped(inst)
       }
-      inst.pid = 0
-      self.try_save_state(inst)
-    }
     RestartCounted => {
       let reason = match inst.last_reason {
         Some(r) => r
@@ -596,9 +634,6 @@ fn Supervisor::handle_exit(
         // Clean self-exit after min_uptime: keep the service alive per
         // plan, but do not burn the consecutive-restart budget. Still
         // log the restart so silent restart storms stay observable.
-        inst.status = Restarting
-        inst.pid = 0
-        inst.restart_at_ms = now + app.restart_delay_ms.to_uint64()
         log_event(
           self.state_dir,
           "bm2d.events.jsonl",
@@ -607,7 +642,7 @@ fn Supervisor::handle_exit(
           instance=inst.instance_id,
           detail="clean_exit",
         )
-        self.try_save_state(inst)
+        self.mark_restarting(inst, now + app.restart_delay_ms.to_uint64())
       }
     }
   }
@@ -626,9 +661,6 @@ fn Supervisor::counted_exit(
   inst.last_reason = Some(reason)
   self.write_crash(inst, reason)
   if inst.restart_count > app.max_restarts {
-    inst.status = Errored
-    inst.pid = 0
-    inst.restart_at_ms = 0UL
     log_event(
       self.state_dir,
       "bm2d.events.jsonl",
@@ -637,10 +669,8 @@ fn Supervisor::counted_exit(
       instance=inst.instance_id,
       detail=reason,
     )
+    self.mark_errored(inst, reason)
   } else {
-    inst.status = Restarting
-    inst.pid = 0
-    inst.restart_at_ms = now + app.restart_delay_ms.to_uint64()
     log_event(
       self.state_dir,
       "bm2d.events.jsonl",
@@ -649,8 +679,8 @@ fn Supervisor::counted_exit(
       instance=inst.instance_id,
       detail=reason,
     )
+    self.mark_restarting(inst, now + app.restart_delay_ms.to_uint64())
   }
-  self.try_save_state(inst)
 }
 
 ///|
@@ -677,7 +707,10 @@ fn Supervisor::check_reuseport(self : Supervisor, now : UInt64) -> Unit {
   self.last_reuseport_probe_ms = now
   for pair in self.instances.iter() {
     let (name, arr) = pair
-    let app = self.apps[name]
+    let app = match self.apps.get(name) {
+      Some(app) => app
+      None => continue
+    }
     if app.exec_mode != "cluster" {
       continue
     }
@@ -742,16 +775,11 @@ fn Supervisor::stop_for_reuseport(
       for inst in arr {
         inst.reuseport = ReuseExclusive
         inst.restart_at_ms = 0UL
-        inst.last_reason = Some("reuseport_missing")
         self.write_crash(inst, "reuseport_missing")
         if inst.alive() {
-          inst.exit_intent = Stop
-          inst.status = Stopping
-          terminate(app, inst)
+          terminate(app, inst, Stop, "reuseport_missing")
         } else if !(inst.status is Errored) {
-          inst.status = Errored
-          inst.pid = 0
-          self.try_save_state(inst)
+          self.mark_errored(inst, "reuseport_missing")
         }
       }
     None => ()
@@ -762,16 +790,16 @@ fn Supervisor::stop_for_reuseport(
 fn Supervisor::check_memory(self : Supervisor) -> Unit {
   for pair in self.instances.iter() {
     let (name, arr) = pair
-    let app = self.apps[name]
+    let app = match self.apps.get(name) {
+      Some(app) => app
+      None => continue
+    }
     for inst in arr {
       if inst.status is Online {
         match @process.read_rss_kb(inst.pid) {
           Some(kb) =>
             if kb > app.max_memory_mb * 1024 {
               inst.last_rss_kb = kb
-              inst.exit_intent = RestartCounted
-              inst.status = Stopping
-              inst.last_reason = Some("memory_limit")
               log_event(
                 self.state_dir,
                 "bm2d.events.jsonl",
@@ -781,7 +809,9 @@ fn Supervisor::check_memory(self : Supervisor) -> Unit {
                 pid=inst.pid,
                 detail="rss_kb=" + kb.to_string(),
               )
-              terminate(app, inst)
+              // Over the limit counts as an abnormal exit: it restarts
+              // against the crash budget via the RestartCounted intent.
+              terminate(app, inst, RestartCounted, "memory_limit")
             }
           None => ()
         }
@@ -798,7 +828,7 @@ fn Supervisor::check_deadlines(self : Supervisor, now : UInt64) -> Unit {
       if inst.kill_deadline_ms != 0UL && now >= inst.kill_deadline_ms {
         inst.kill_deadline_ms = 0UL
         if inst.alive() {
-          discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
+          @process.discard(() => @process.kill_group(inst.pid, @process.SIGKILL))
         }
       }
     }
@@ -809,13 +839,17 @@ fn Supervisor::check_deadlines(self : Supervisor, now : UInt64) -> Unit {
 fn Supervisor::check_restarts(self : Supervisor, now : UInt64) -> Unit {
   for pair in self.instances.iter() {
     let (name, arr) = pair
+    let app = match self.apps.get(name) {
+      Some(app) => app
+      None => continue
+    }
     for inst in arr {
       if inst.status is Restarting &&
         inst.restart_at_ms != 0UL &&
         now >= inst.restart_at_ms {
         inst.restart_at_ms = 0UL
         // spawn_instance marks its own failures; nothing to do here.
-        try self.spawn_instance(self.apps[name], inst) catch {
+        try self.spawn_instance(app, inst) catch {
           _ => ()
         } noraise {
           _ => ()
@@ -831,11 +865,15 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
   for pair in self.pending_restart.iter() {
     let (name, _) = pair
     let mut all_stopped = true
-    for inst in self.instances[name] {
-      if inst.pid != 0 {
-        all_stopped = false
-        break
-      }
+    match self.instances.get(name) {
+      Some(arr) =>
+        for inst in arr {
+          if inst.pid != 0 {
+            all_stopped = false
+            break
+          }
+        }
+      None => ()
     }
     if all_stopped {
       ready.push(name)
@@ -853,16 +891,20 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
 }
 
 ///|
+/// A stable run means the instance earned back its whole crash budget.
+/// The counter is its own guard: resetting it to zero makes the condition
+/// false until the next abnormal exit, so no extra flag is needed.
 fn Supervisor::check_uptime_resets(self : Supervisor) -> Unit {
   for pair in self.instances.iter() {
     let (name, arr) = pair
-    let app = self.apps[name]
+    let app = match self.apps.get(name) {
+      Some(app) => app
+      None => continue
+    }
     for inst in arr {
       if inst.status is Online &&
         inst.restart_count > 0 &&
-        !inst.uptime_reset_done &&
         elapsed_since(inst.started_at_ms) >= app.min_uptime_ms.to_uint64() {
-        inst.uptime_reset_done = true
         inst.restart_count = 0
         self.try_save_state(inst)
       }
@@ -897,7 +939,7 @@ fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
     // One instance's spawn failure must not abort the loop: the failure
     // is already marked and retried with backoff by mark_spawn_failed,
     // and the remaining instances still deserve their spawn.
-    discard(() => self.spawn_instance(app, inst))
+    @process.discard(() => self.spawn_instance(app, inst))
   }
 }
 
@@ -910,7 +952,7 @@ fn Supervisor::spawn_instance(
   let logs = "\{self.state_dir}/\{app.name}/logs"
   @process.mkdir_p(logs, mode=0o700)
   let base = "\{logs}/\{app.name}-\{inst.instance_id}"
-  inst.status = Starting
+  inst.mark_starting()
   let runtime = if app.runtime == "node" { "node" } else { self.bun_path }
   let pid = try
     @process.spawn({
@@ -936,13 +978,12 @@ fn Supervisor::spawn_instance(
   } noraise {
     pid => pid
   }
-  inst.pid = pid
   // Pin the process with a pidfd so liveness and exit detection stay
   // correct even if the pid gets reused later. Failure (kernel < 5.3)
   // is treated as a spawn failure: an unmanaged process is unacceptable.
   let pidfd = try @process.pidfd_open(pid) catch {
     e => {
-      discard(() => @process.kill_group(pid, @process.SIGKILL))
+      @process.discard(() => @process.kill_group(pid, @process.SIGKILL))
       // Reap the killed child so a failed spawn leaves no zombie.
       @process.drain_child(pid)
       raise IoError(e.to_string())
@@ -950,22 +991,7 @@ fn Supervisor::spawn_instance(
   } noraise {
     fd => fd
   }
-  inst.pidfd = pidfd
-  inst.status = Online
-  inst.started_at_ms = now_ms()
-  inst.times += 1
-  inst.exit_intent = Idle
-  inst.kill_deadline_ms = 0UL
-  inst.restart_at_ms = 0UL
-  inst.uptime_reset_done = false
-  inst.last_reason = None
-  inst.reuseport = if app.exec_mode == "cluster" {
-    ReusePending
-  } else {
-    ReuseOff
-  }
-  inst.reuseport_deadline_ms = 0UL
-  self.try_save_state(inst)
+  self.mark_online(app, inst, pid, pidfd)
   log_event(
     self.state_dir,
     "bm2d.events.jsonl",
@@ -987,10 +1013,11 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
   inst.restart_count += 1
   inst.last_reason = Some("spawn_failed")
   self.write_crash(inst, "spawn_failed")
-  let app = self.apps[inst.app_name]
+  let app = match self.apps.get(inst.app_name) {
+    Some(app) => app
+    None => return
+  }
   if inst.restart_count > app.max_restarts {
-    inst.status = Errored
-    inst.restart_at_ms = 0UL
     log_event(
       self.state_dir,
       "bm2d.events.jsonl",
@@ -999,10 +1026,8 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
       instance=inst.instance_id,
       detail="spawn_failed",
     )
+    self.mark_errored(inst, "spawn_failed")
   } else {
-    inst.status = Restarting
-    inst.restart_at_ms = now_ms() +
-      (app.restart_delay_ms * inst.restart_count).to_uint64()
     log_event(
       self.state_dir,
       "bm2d.events.jsonl",
@@ -1011,45 +1036,24 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
       instance=inst.instance_id,
       detail="spawn_failed",
     )
-  }
-  self.try_save_state(inst)
-}
-
-///|
-fn Supervisor::write_crash(
-  self : Supervisor,
-  inst : Instance,
-  reason : String,
-) -> Unit {
-  let buf = StringBuilder()
-  buf.write_string(iso8601(now_ms()))
-  buf.write_string(" app=" + inst.app_name)
-  buf.write_string(" instance=" + inst.instance_id.to_string())
-  buf.write_string(" pid=" + inst.pid.to_string())
-  buf.write_string(" reason=" + reason)
-  match inst.last_exit_code {
-    Some(code) => buf.write_string(" exitCode=" + code.to_string())
-    None => ()
-  }
-  match inst.last_signal {
-    Some(sig) => buf.write_string(" signal=" + signal_name(sig))
-    None => ()
-  }
-  if reason == "memory_limit" {
-    buf.write_string(" rssMb=" + (inst.last_rss_kb / 1024).to_string())
-    buf.write_string(
-      " limitMb=" + self.apps[inst.app_name].max_memory_mb.to_string(),
+    self.mark_restarting(
+      inst,
+      now_ms() + (app.restart_delay_ms * inst.restart_count).to_uint64(),
     )
   }
-  buf.write_string(" restartCount=" + inst.restart_count.to_string())
-  buf.write_string("\n")
-  let path = "\{self.state_dir}/\{inst.app_name}/logs/\{inst.app_name}-\{inst.instance_id}.crash.log"
-  discard(() => @process.append_file(path, @utf8.encode(buf.to_string())))
 }
 
 ///|
-fn terminate(app : @config.Config, inst : Instance) -> Unit {
-  discard(() => @process.kill_group(inst.pid, @process.SIGTERM))
+/// Enter the stopping phase and ask the process group to terminate. The
+/// SIGKILL escalation is armed here and fired by check_deadlines.
+fn terminate(
+  app : @config.Config,
+  inst : Instance,
+  intent : ExitIntent,
+  reason : String,
+) -> Unit {
+  inst.mark_stopping(intent, reason)
+  @process.discard(() => @process.kill_group(inst.pid, @process.SIGTERM))
   inst.kill_deadline_ms = now_ms() + app.stop_timeout_ms.to_uint64()
 }
 

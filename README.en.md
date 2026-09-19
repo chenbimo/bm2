@@ -198,11 +198,13 @@ bm2 refuses to run a bare `bm2 kill` without `-y` and prints a hint.
 
 Re-running `bm2 start` in a project (or in another directory with the same `name`) updates the config and performs a full restart, so changing any field — including the instance count, ports, or script — takes effect on the next start.
 
-A killed project (`bm2 kill <name>`) is fully unregistered: it disappears from `bm2 list` and is not revived by a daemon restart.
+A killed project (`bm2 kill <name>`) is fully unregistered: it disappears from `bm2 list` and is not revived by a daemon restart. Unregistering removes only the registration; the instance state and logs under `~/.bm2/<name>/` are kept for post-mortem inspection.
+
+Sending SIGTERM to bm2d (for example `systemctl restart`) takes the same path as `bm2 kill -y`: stop every project, unregister them, and exit. Only `bm2 reload` preserves the registrations and the managed instances while swapping in a fresh daemon.
 
 `reload` swaps in a fresh bm2d without stopping managed apps: the old daemon detaches, the new one adopts the surviving instances with unchanged PIDs.
 
-Use it after replacing binaries manually, `bm2 upgrade` performs this step automatically.
+Use it after replacing binaries manually, `bm2 upgrade` performs this step automatically. The CLI and the daemon check each other's protocol revision and tell you to run `bm2 reload` on a mismatch, instead of failing with an error that points nowhere.
 
 `list` prints one row per active or abnormal instance, including its PID, port, execution mode (cluster/fork), runtime status, memory, uptime, and the complete project working directory in the final `CWD` column.
 
@@ -283,7 +285,7 @@ example.com {
 
 ## State and logs
 
-bm2 always stores its socket, PID, state, and management logs in `~/.bm2` for the current Linux user.
+bm2 always stores its socket, PID, state, and management logs in `~/.bm2` for the current Linux user (falling back to `/tmp/bm2-<uid>` when `HOME` is unavailable).
 
 One daemon per user manages all registered projects:
 

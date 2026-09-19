@@ -32,6 +32,18 @@ pub fn unlink(path : String) -> Unit raise ProcessError {
 }
 
 ///|
+/// Set the mode of an existing path. `mkdir_p` only applies its mode to
+/// directories it creates, so a state dir left behind by an older version
+/// (or created by hand) needs an explicit chmod to stop being group or
+/// world readable — it holds app logs.
+pub fn chmod(path : String, mode : Int) -> Unit raise ProcessError {
+  let rc = c_chmod(cstr(path), mode)
+  if rc < 0 {
+    raise Failed(op="chmod", errno=-rc)
+  }
+}
+
+///|
 /// File size in bytes; None when the file does not exist or is unreadable.
 pub fn file_size(path : String) -> Int64? {
   let size = c_file_size(cstr(path))

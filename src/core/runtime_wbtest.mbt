@@ -9,6 +9,21 @@ test "parse_version skips prefixes and stops at suffixes" {
 }
 
 ///|
+test "version_compare orders versions and treats suffixes as their base" {
+  assert_eq(version_compare("0.2.2", "0.2.2"), 0)
+  assert_eq(version_compare("0.2.3", "0.2.2"), 1)
+  assert_eq(version_compare("0.2.2", "0.3.0"), -1)
+  assert_eq(version_compare("1.0.0", "0.9.9"), 1)
+  assert_eq(version_compare("0.10.0", "0.9.0"), 1)
+  assert_eq(version_compare("0.3.0-beta", "0.3.0"), 0)
+  assert_eq(version_compare("0.3.0-rc.1", "0.3.0-rc.2"), 0)
+  assert_eq(version_compare("1.2.3-beta.2", "1.2.3-alpha"), 0)
+  // Both sides go through the same parser, so a "v" prefix is skipped.
+  assert_eq(version_compare("v1.4.0", "1.4.0"), 0)
+  assert_eq(version_compare("1.4", "1.4.0"), 0)
+}
+
+///|
 test "version_at_least enforces minimums" {
   assert_true(version_at_least((1, 4, 0), (1, 4, 0)))
   assert_true(version_at_least((1, 4, 1), (1, 4, 0)))

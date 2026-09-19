@@ -1,6 +1,9 @@
 ///|
-/// Max payload of one length-prefixed protocol message.
-pub const MSG_CAP : Int = 65536
+/// Hard ceiling for a single protocol message. The receiver allocates
+/// exactly the announced length, so this is not a limit on how many
+/// instances may be listed — it only stops a broken or hostile peer from
+/// making the other side allocate an absurd amount of memory.
+pub const MAX_MSG_BYTES : Int = 4 * 1024 * 1024
 
 ///|
 /// Listen on a fresh AF_UNIX socket (stale path unlinked, mode 0600).
@@ -55,14 +58,23 @@ pub fn send_msg(fd : Int, data : Bytes) -> Unit raise ProcessError {
 }
 
 ///|
-/// Receive one length-prefixed message.
-pub fn recv_msg(fd : Int, cap? : Int = MSG_CAP) -> Bytes raise ProcessError {
-  let buf = Bytes::make(cap, b'\x00')
-  let len = c_recv_msg(fd, buf, cap)
+/// Receive one length-prefixed message: read the announced length, size
+/// the buffer to it, then read the body. Sizing to the payload keeps the
+/// accept side free of an arbitrary message-size ceiling.
+pub fn recv_msg(fd : Int) -> Bytes raise ProcessError {
+  let len = c_recv_len(fd)
   if len < 0 {
-    raise Failed(op="recv_msg", errno=-len)
+    raise Failed(op="recv_len", errno=-len)
   }
-  buf[:len].to_owned()
+  if len > MAX_MSG_BYTES {
+    raise TooLarge(op="recv_msg", size=len, limit=MAX_MSG_BYTES)
+  }
+  let buf = Bytes::make(len, b'\x00')
+  let rc = c_recv_body(fd, buf, len)
+  if rc < 0 {
+    raise Failed(op="recv_msg", errno=-rc)
+  }
+  buf
 }
 
 ///|

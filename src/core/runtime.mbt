@@ -8,6 +8,13 @@ const MIN_BUN : String = "1.4.0"
 const MIN_NODE : String = "24.0.0"
 
 ///|
+/// How long the runtime version probe may take. The daemon is single
+/// threaded, so this probe is the one place where a stuck helper binary
+/// could stall supervision; the wait is hard-bounded and the probe killed
+/// on expiry rather than trusting the runtime to answer.
+const RUNTIME_PROBE_TIMEOUT_MS : Int = 5000
+
+///|
 /// Verify the project's runtime meets the minimum version before any
 /// spawn: run `<runtime> --version` once, stdout captured through a temp
 /// file under the state dir (stderr stays on the daemon's own log).
@@ -33,11 +40,7 @@ pub fn Supervisor::check_runtime(
     e => Some(e.to_string())
   } noraise {
     pid => {
-      let reaped = try @process.wait_child(pid) catch {
-        _ => None
-      } noraise {
-        r => r
-      }
+      let reaped = @process.wait_child_timeout(pid, RUNTIME_PROBE_TIMEOUT_MS)
       match reaped {
         Some((_, @process.ChildExit::Exited(0))) => {
           let text = try @process.read_small(out, cap=256) catch {
@@ -60,11 +63,18 @@ pub fn Supervisor::check_runtime(
           Some("\{runtime} not found on PATH (or failed to execute)")
         Some((_, @process.ChildExit::Exited(code))) =>
           Some("\{runtime} --version exited with code \{code}")
-        _ => Some("\{runtime} --version could not be reaped")
+        Some((_, @process.ChildExit::Signaled(sig))) =>
+          Some(
+            "\{runtime} --version was killed by signal \{sig} after \{RUNTIME_PROBE_TIMEOUT_MS}ms",
+          )
+        None =>
+          Some(
+            "\{runtime} --version did not answer within \{RUNTIME_PROBE_TIMEOUT_MS}ms and was killed",
+          )
       }
     }
   }
-  discard(() => @process.unlink(out))
+  @process.discard(() => @process.unlink(out))
   match problem {
     Some(msg) => raise RuntimeRejected(msg)
     None => ()
@@ -117,10 +127,31 @@ fn parse_num(s : String) -> Int {
 }
 
 ///|
+/// Compare two version strings: -1, 0, 1. Both sides go through the same
+/// parser as the minimum-version check, so a "v" prefix or a pre-release
+/// suffix ("0.3.0-beta") compares as its release triple instead of
+/// corrupting the result with garbage arithmetic.
+pub fn version_compare(a : String, b : String) -> Int {
+  compare_version_triple(parse_version(a), parse_version(b))
+}
+
+///|
 fn version_at_least(actual : (Int, Int, Int), min : (Int, Int, Int)) -> Bool {
-  actual.0 > min.0 ||
-  (
-    actual.0 == min.0 &&
-    (actual.1 > min.1 || (actual.1 == min.1 && actual.2 >= min.2))
-  )
+  compare_version_triple(actual, min) >= 0
+}
+
+///|
+/// Segment-by-segment ordering of two parsed versions; the single place
+/// that knows how a version triple is ordered.
+fn compare_version_triple(a : (Int, Int, Int), b : (Int, Int, Int)) -> Int {
+  if a.0 != b.0 {
+    return if a.0 < b.0 { -1 } else { 1 }
+  }
+  if a.1 != b.1 {
+    return if a.1 < b.1 { -1 } else { 1 }
+  }
+  if a.2 != b.2 {
+    return if a.2 < b.2 { -1 } else { 1 }
+  }
+  0
 }

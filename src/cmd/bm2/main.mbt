@@ -4,31 +4,12 @@ fn main {
 }
 
 ///|
-/// bm2 is Linux-only; refuse to run elsewhere with a clear message
-/// instead of failing on the first POSIX-specific syscall.
-/// Returns None when the platform is supported.
-fn platform_error() -> String? {
-  try {
-    let name = @process.uname()
-    if name == "Linux" {
-      None
-    } else {
-      Some("this build supports Linux only (detected: \{name})")
-    }
-  } catch {
-    e => Some("cannot detect platform: \{e.to_string()}")
-  } noraise {
-    ok => ok
-  }
-}
-
-///|
 /// Keep in sync with moon.mod `version`.
 const VERSION : String = "0.4.1"
 
 ///|
 fn run() -> Int {
-  match platform_error() {
+  match @process.platform_error() {
     None => ()
     Some(msg) => {
       @process.eprintln("bm2: " + msg)
@@ -131,17 +112,21 @@ fn run() -> Int {
     None => ()
   }
   @core.log_event(state_dir, "bm2.events.jsonl", "daemon_connecting")
-  let fd = try ensure_daemon(state_dir) catch {
-    e => {
-      @process.eprintln("bm2: " + e.to_string())
-      return 1
-    }
-  } noraise {
-    result => result
+  // start carries the caller's config path so the daemon can register the
+  // project; other commands leave it unset.
+  let request_config_path : String? = if command == "start" {
+    Some(config_path)
+  } else {
+    None
   }
-  let fd = match fd {
-    Some(connected) => connected
-    None => {
+  let req : @core.Request = {
+    protocol: Some(@core.PROTOCOL_VERSION),
+    command,
+    app,
+    config_path: request_config_path,
+  }
+  let resp = try request_with_recovery(state_dir, req, timeout_ms) catch {
+    NoDaemon => {
       if command == "list" {
         println("no instances")
         return 0
@@ -151,81 +136,19 @@ fn run() -> Int {
       )
       return 1
     }
-  }
-  @core.log_event(
-    state_dir,
-    "bm2.events.jsonl",
-    "request_sent",
-    app~,
-    detail=command,
-  )
-  // start carries the caller's config path so the daemon can register the
-  // project; other commands leave it unset.
-  let request_config_path : String? = if command == "start" {
-    Some(config_path)
-  } else {
-    None
-  }
-  let resp = try
-    request(fd, command, app, request_config_path, timeout_ms)
-  catch {
-    e => {
-      @process.close(fd)
-      @core.log_event(
-        state_dir,
-        "bm2.events.jsonl",
-        "protocol_failed",
-        detail=e.to_string(),
-      )
-      // The daemon may simply be slow (waiting out a long stop timeout).
-      // Only treat the socket as stale when nothing is listening anymore;
-      // otherwise refuse instead of splitting the daemon in two.
-      match connect(state_dir + "/bm2.sock") {
-        Some(alive_fd) => {
-          @process.close(alive_fd)
-          @process.eprintln("bm2: daemon is busy; try again in a moment")
-          return 1
-        }
-        None => ()
-      }
-      try @process.unlink(state_dir + "/bm2.sock") catch {
-        _ => ()
-      } noraise {
-        _ => ()
-      }
-      @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
-      let retry_fd = try ensure_daemon(state_dir) catch {
-        retry => {
-          @process.eprintln("bm2: " + retry.to_string())
-          return 1
-        }
-      } noraise {
-        connected => connected
-      }
-      let retry_fd = match retry_fd {
-        Some(connected) => connected
-        None => {
-          @process.eprintln(
-            "bm2: bm2d did not start, see " + state_dir + "/bm2d.log",
-          )
-          return 1
-        }
-      }
-      @core.log_event(state_dir, "bm2.events.jsonl", "protocol_retry")
-      try
-        request(retry_fd, command, app, request_config_path, timeout_ms)
-      catch {
-        retry => {
-          @process.eprintln("bm2: " + retry.to_string())
-          @process.close(retry_fd)
-          return 1
-        }
-      } noraise {
-        response => response
-      }
+    Unresponsive(message) => {
+      @process.eprintln("bm2: " + message)
+      return 1
     }
   } noraise {
     response => response
+  }
+  match @core.protocol_problem(resp.protocol) {
+    Some(problem) => {
+      @process.eprintln("bm2: " + problem)
+      return 1
+    }
+    None => ()
   }
   if resp.ok {
     if command == "list" {
@@ -301,7 +224,7 @@ fn cmd_upgrade(state_dir : String) -> Int {
       return 1
     }
   }
-  if semver_cmp(latest, VERSION) <= 0 {
+  if @core.version_compare(latest, VERSION) <= 0 {
     println("bm2 is up to date (" + VERSION + ")")
     return 0
   }
@@ -405,36 +328,6 @@ fn latest_version(text : String) -> String? {
 }
 
 ///|
-/// Compare two "x.y.z" versions: -1, 0, 1.
-fn semver_cmp(a : String, b : String) -> Int {
-  let pa = a.split(".").to_array()
-  let pb = b.split(".").to_array()
-  for i in 0..<3 {
-    let x = if i < pa.length() { parse_num(pa[i].to_owned()) } else { 0 }
-    let y = if i < pb.length() { parse_num(pb[i].to_owned()) } else { 0 }
-    if x != y {
-      return if x < y { -1 } else { 1 }
-    }
-  }
-  0
-}
-
-///|
-/// Numeric prefix of one version segment: a pre-release suffix such as
-/// "0.3.0-beta" stops at the first non-digit, so it compares as 0.3.0
-/// instead of corrupting the comparison with garbage arithmetic.
-fn parse_num(s : String) -> Int {
-  let mut n = 0
-  for c in s {
-    if !(c is ('0'..='9')) {
-      break
-    }
-    n = n * 10 + c.to_int() - 48
-  }
-  n
-}
-
-///|
 /// Directory containing the running bm2 binary, where moon install
 /// replaces it (and bm2d) in place.
 fn self_dir() -> String {
@@ -500,11 +393,17 @@ fn poll_settled(
   let sock = state_dir + "/bm2.sock"
   let deadline = @core.now_ms() + timeout_ms.to_uint64()
   let mut last : Array[@core.InstanceInfo] = []
+  let poll_req : @core.Request = {
+    protocol: Some(@core.PROTOCOL_VERSION),
+    command: "list",
+    app,
+    config_path: None,
+  }
   while true {
     @process.sleep_ms(200)
     let resp = try {
       let fd = @process.socket_connect(sock)
-      let result = request(fd, "list", app, None, 3000)
+      let result = send_request(fd, poll_req, 3000)
       Some(result)
     } catch {
       _ => None
@@ -566,18 +465,104 @@ fn wait_daemon_exit(state_dir : String) -> Bool {
 }
 
 ///|
+/// How one CLI invocation talks to the daemon failed. Naming the two
+/// failure modes keeps the caller's reporting honest: "nothing is running"
+/// and "something is running but did not answer" need different advice.
+suberror CliError {
+  NoDaemon
+  Unresponsive(String)
+}
+
+///|
+/// One send attempt: the daemon's answer, or the reason there is none.
+enum Send {
+  Replied(@core.Response)
+  Errored(String)
+}
+
+///|
+/// Send one request, recovering once from a stale socket: when the request
+/// fails and nothing is listening on the socket anymore, remove the leftover
+/// socket, start a fresh daemon and retry. A daemon that is merely busy
+/// (still inside a long stop timeout) keeps answering connects, so it is
+/// reported instead of being split in two.
+fn request_with_recovery(
+  state_dir : String,
+  req : @core.Request,
+  timeout_ms : Int,
+) -> @core.Response raise CliError {
+  let sock = state_dir + "/bm2.sock"
+  let fd = match connect_or_start(state_dir) {
+    Some(fd) => fd
+    None => raise NoDaemon
+  }
+  @core.log_event(
+    state_dir,
+    "bm2.events.jsonl",
+    "request_sent",
+    app=req.app,
+    detail=req.command,
+  )
+  let detail = match send_attempt(fd, req, timeout_ms) {
+    Replied(response) => return response
+    Errored(message) => message
+  }
+  @core.log_event(state_dir, "bm2.events.jsonl", "protocol_failed", detail~)
+  match connect(sock) {
+    Some(alive_fd) => {
+      @process.close(alive_fd)
+      raise Unresponsive(
+        "bm2d is running but did not answer within \{timeout_ms}ms; try again in a moment",
+      )
+    }
+    None => ()
+  }
+  @process.discard(() => @process.unlink(sock))
+  @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
+  let retry_fd = match connect_or_start(state_dir) {
+    Some(fd) => fd
+    None => raise NoDaemon
+  }
+  @core.log_event(state_dir, "bm2.events.jsonl", "protocol_retry")
+  match send_attempt(retry_fd, req, timeout_ms) {
+    Replied(response) => response
+    Errored(message) => raise Unresponsive(message)
+  }
+}
+
+///|
+/// `ensure_daemon` with its failure collapsed to None: the CLI reports
+/// "bm2d did not start" with the log path, so the underlying errno would
+/// only add noise.
+fn connect_or_start(state_dir : String) -> Int? {
+  try ensure_daemon(state_dir) catch {
+    _ => None
+  } noraise {
+    fd => fd
+  }
+}
+
+///|
+fn send_attempt(fd : Int, req : @core.Request, timeout_ms : Int) -> Send {
+  try send_request(fd, req, timeout_ms) catch {
+    e => Errored(e.to_string())
+  } noraise {
+    response => Replied(response)
+  }
+}
+
+///|
 /// Send one request and wait at most timeout_ms for the daemon's first
 /// response byte. A stale Unix socket can accept a connection without a
 /// server, so waiting unboundedly would leave the CLI hung forever.
-fn request(
+fn send_request(
   fd : Int,
-  command : String,
-  app : String?,
-  config_path : String?,
+  req : @core.Request,
   timeout_ms : Int,
 ) -> @core.Response raise {
-  @process.send_msg(fd, @core.encode_request({ command, app, config_path, }))
+  @process.send_msg(fd, @core.encode_request(req))
   if !@process.poll_fd(fd, timeout_ms) {
+    @process.close(fd)
     raise @process.ProcessError::Failed(op="recv_msg", errno=110)
   }
   let data = @process.recv_msg(fd)

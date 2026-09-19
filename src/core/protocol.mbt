@@ -1,5 +1,15 @@
 ///|
+/// Wire protocol revision. Bump it whenever Request or Response changes in
+/// a way an older peer cannot read, so version skew between a freshly
+/// installed CLI and a still-running daemon is reported as such instead of
+/// surfacing as an unexplained decode failure.
+pub const PROTOCOL_VERSION : Int = 1
+
+///|
+/// One CLI request. The field is optional so a peer predating versioning
+/// still decodes, and the mismatch is then reported by name.
 pub(all) struct Request {
+  protocol : Int?
   command : String
   app : String?
   /// Config path of the caller's project; used by `start` to register it.
@@ -24,60 +34,43 @@ pub(all) struct InstanceInfo {
 
 ///|
 pub(all) struct Response {
+  protocol : Int?
   ok : Bool
   message : String
   instances : Array[InstanceInfo]
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|
-/// Live snapshot of one instance. rss_kb is -1 when unavailable,
-/// uptime_ms is 0 when the instance is not running.
-pub fn InstanceInfo::of(inst : Instance, now : UInt64) -> InstanceInfo {
-  let rss_kb = if inst.status is Online {
-    match @process.read_rss_kb(inst.pid) {
-      Some(kb) => kb
-      None => -1
-    }
-  } else {
-    -1
-  }
-  // Saturating subtraction: a clock rollback must never show a huge uptime.
-  let uptime_ms = if inst.pid > 0 && inst.started_at_ms > 0UL {
-    if now >= inst.started_at_ms {
-      now - inst.started_at_ms
-    } else {
-      0UL
-    }
-  } else {
-    0UL
-  }
-  {
-    app_name: inst.app_name,
-    cwd: inst.cwd,
-    instance_id: inst.instance_id,
-    pid: inst.pid,
-    port: inst.port,
-    exec_mode: inst.exec_mode,
-    status: inst.status.as_string(),
-    times: inst.times,
-    restart_count: inst.restart_count,
-    rss_kb,
-    uptime_ms,
-    last_reason: inst.last_reason,
-  }
-}
-
-///|
 pub fn Response::ok(
   message : String,
   instances : Array[InstanceInfo],
 ) -> Response {
-  { ok: true, message, instances, }
+  { protocol: Some(PROTOCOL_VERSION), ok: true, message, instances, }
 }
 
 ///|
 pub fn Response::error(message : String) -> Response {
-  { ok: false, message, instances: [], }
+  { protocol: Some(PROTOCOL_VERSION), ok: false, message, instances: [], }
+}
+
+///|
+/// Human-readable protocol mismatch, or None when both sides agree. Kept
+/// here so the CLI and the daemon describe the same condition the same way.
+pub fn protocol_problem(peer : Int?) -> String? {
+  match peer {
+    Some(version) =>
+      if version == PROTOCOL_VERSION {
+        None
+      } else {
+        Some(
+          "protocol mismatch: the other side speaks \{version}, this binary speaks \{PROTOCOL_VERSION}; run 'bm2 reload'",
+        )
+      }
+    None =>
+      Some(
+        "protocol mismatch: the other side predates protocol versioning; run 'bm2 reload'",
+      )
+  }
 }
 
 ///|

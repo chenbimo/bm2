@@ -404,17 +404,39 @@ test "iso8601 formats epoch and current time" {
 ///|
 test "protocol request and response round-trip" {
   let req : @core.Request = {
+    protocol: Some(@core.PROTOCOL_VERSION),
     command: "start",
     app: Some("api"),
     config_path: Some("/srv/blog/bm2.toml"),
   }
   assert_eq(@core.decode_request(@core.encode_request(req)), req)
-  let bare : @core.Request = { command: "kill", app: None, config_path: None, }
+  let bare : @core.Request = {
+    protocol: Some(@core.PROTOCOL_VERSION),
+    command: "kill",
+    app: None,
+    config_path: None,
+  }
   assert_eq(@core.decode_request(@core.encode_request(bare)), bare)
   let resp = @core.Response::ok("started", [])
   assert_eq(@core.decode_response(@core.encode_response(resp)), resp)
   let err = @core.Response::error("boom")
   assert_eq(@core.decode_response(@core.encode_response(err)), err)
+}
+
+///|
+/// Version skew must be a named condition, not a decode failure: the field
+/// is optional so a peer that predates versioning still decodes, and every
+/// answer carries this binary's revision.
+test "protocol version is carried and skew is reported" {
+  assert_eq(@core.Response::ok("ok", []).protocol, Some(1))
+  assert_eq(@core.Response::error("boom").protocol, Some(1))
+  assert_eq(@core.protocol_problem(Some(1)), None)
+  assert_true(@core.protocol_problem(Some(2)) is Some(_))
+  assert_true(@core.protocol_problem(None) is Some(_))
+  // A request without the field (an older CLI) still decodes.
+  let legacy = @core.decode_request(@utf8.encode("{\"command\":\"list\"}"))
+  assert_eq(legacy.protocol, None)
+  assert_eq(legacy.command, "list")
 }
 
 ///|
