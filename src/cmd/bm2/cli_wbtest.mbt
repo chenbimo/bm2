@@ -45,3 +45,35 @@ test "format_uptime reads in the largest sensible unit" {
   assert_eq(format_uptime(3600000UL), "1h 00m")
   assert_eq(format_uptime(90000000UL), "1d 01h")
 }
+
+///|
+/// A daemon that accepts connections but never answers must be reported, not
+/// replaced: the CLI only clears a stale socket when nothing is listening, so
+/// a busy daemon is never split into two.
+test "a busy daemon is reported instead of being replaced" {
+  let state_dir = "/tmp/bm2-cli-busy-\{@process.get_pid()}"
+  @process.mkdir_p(state_dir)
+  // Listening but never accepting: connect() succeeds, no answer ever comes.
+  let listen_fd = @process.socket_listen(state_dir + "/bm2.sock")
+  let req : @core.Request = {
+    protocol: Some(@core.PROTOCOL_VERSION),
+    command: "list",
+    app: None,
+    config_path: None,
+  }
+  let outcome = try {
+    ignore(request_with_recovery(state_dir, req, 300))
+    "answered"
+  } catch {
+    NoDaemon => "no daemon"
+    Unresponsive(message) => message
+  } noraise {
+    _ => "answered"
+  }
+  assert_true(outcome.contains("did not answer"))
+  assert_true(outcome.contains("try again"))
+  @process.close(listen_fd)
+  @process.unlink(state_dir + "/bm2.sock")
+  @process.unlink(state_dir + "/bm2.events.jsonl")
+  @fs.remove_dir(state_dir)
+}

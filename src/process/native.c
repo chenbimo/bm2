@@ -420,6 +420,7 @@ int32_t bm2_socket_connect(moonbit_bytes_t path) {
     }
   }
   fcntl(fd, F_SETFL, flags);
+  set_sock_timeout(fd);
   return fd;
 }
 
@@ -442,7 +443,12 @@ int32_t bm2_poll_fd(int32_t fd, int32_t timeout_ms) {
 MOONBIT_FFI_EXPORT
 int32_t bm2_accept(int32_t listen_fd) {
   int fd = accept4(listen_fd, NULL, NULL, SOCK_CLOEXEC);
-  return fd < 0 ? -errno : fd;
+  if (fd < 0) return -errno;
+  /* The accepted fd is the daemon's side of the conversation, so it needs the
+   * same bound: a client that stops reading must fail the response write
+   * instead of blocking the single-threaded loop inside write(). */
+  set_sock_timeout(fd);
+  return fd;
 }
 
 MOONBIT_FFI_EXPORT

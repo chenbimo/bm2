@@ -5,6 +5,12 @@ pub(all) enum ChildExit {
 } derive(Debug, Eq)
 
 ///|
+pub extend ChildExit with Debug::{to_repr}
+
+///|
+pub extend ChildExit with Eq::{not_equal, equal}
+
+///|
 fn get_i32_le(bytes : Bytes, offset : Int) -> Int {
   bytes[offset].to_int() |
   (bytes[offset + 1].to_int() << 8) |

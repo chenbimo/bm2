@@ -1,0 +1,5 @@
+#!/bin/sh
+# Fast gate for every commit: formatting, version invariant, check.
+# The real work happens in scripts/pre-commit.sh, dispatched through
+# scripts/git-hook.sh so it runs wherever the toolchain lives.
+exec "$(git rev-parse --show-toplevel)/scripts/git-hook.sh" pre-commit

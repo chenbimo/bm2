@@ -257,11 +257,180 @@ test "wait_child_timeout reports a normal exit" {
 }
 
 ///|
+test "sending to a peer that stops reading fails instead of blocking" {
+  let path = "/tmp/bm2-process-test-stall-\{@process.get_pid()}.sock"
+  let listen_fd = @process.socket_listen(path)
+  let client = @process.socket_connect(path)
+  let server = @process.accept(listen_fd)
+  // Nobody ever reads `server`. Without a kernel send timeout the write below
+  // would block forever once the socket buffer filled, which is exactly how a
+  // dead CLI could wedge the single-threaded daemon. 8 MiB is far past any
+  // default socket buffer, so the send must give up on its own deadline.
+  let payload = Bytes::make(8 * 1024 * 1024, b'x')
+  let started = @env.now()
+  let raised = try {
+    @process.send_msg(client, payload)
+    false
+  } catch {
+    _ => true
+  } noraise {
+    _ => false
+  }
+  let elapsed = @env.now() - started
+  assert_true(raised)
+  assert_true(elapsed < 30000UL)
+  @process.close(client)
+  @process.close(server)
+  @process.close(listen_fd)
+  @process.unlink(path)
+}
+
+///|
+/// The receiver sizes its buffer from the announced length, so a peer that
+/// lies about that length has to be refused by name instead of allocating.
+test "an oversized announced message is refused by name" {
+  let path = "/tmp/bm2-process-test-lie-\{@process.get_pid()}.sock"
+  let listen_fd = @process.socket_listen(path)
+  let client = @process.socket_connect(path)
+  let server = @process.accept(listen_fd)
+  // 5 MiB announced (0x00500000), no body at all: past MAX_MSG_BYTES (4 MiB).
+  let header = Bytes::from_array([b'\x00', b'\x50', b'\x00', b'\x00'])
+  @process.write_fd(client, header)
+  let problem = try {
+    ignore(@process.recv_msg(server))
+    "accepted"
+  } catch {
+    e => e.to_string()
+  } noraise {
+    _ => "accepted"
+  }
+  assert_true(problem.contains("refused"))
+  assert_true(problem.contains("5242880"))
+  @process.close(client)
+  @process.close(server)
+  @process.close(listen_fd)
+  @process.unlink(path)
+}
+
+///|
+test "an empty message is a message" {
+  let path = "/tmp/bm2-process-test-empty-\{@process.get_pid()}.sock"
+  let listen_fd = @process.socket_listen(path)
+  let client = @process.socket_connect(path)
+  let server = @process.accept(listen_fd)
+  @process.write_fd(
+    client,
+    Bytes::from_array([b'\x00', b'\x00', b'\x00', b'\x00']),
+  )
+  assert_eq(@process.recv_msg(server).length(), 0)
+  @process.close(client)
+  @process.close(server)
+  @process.close(listen_fd)
+  @process.unlink(path)
+}
+
+///|
+/// A body that stops after the header must fail the read, not wait for bytes
+/// that will never arrive.
+test "a truncated message fails on the closed peer" {
+  let path = "/tmp/bm2-process-test-trunc-\{@process.get_pid()}.sock"
+  let listen_fd = @process.socket_listen(path)
+  let client = @process.socket_connect(path)
+  let server = @process.accept(listen_fd)
+  // Announces 64 bytes (0x40), delivers 8, then hangs up.
+  @process.write_fd(
+    client,
+    Bytes::from_array([b'\x00', b'\x00', b'\x00', b'\x40']),
+  )
+  @process.write_fd(client, @utf8.encode("12345678"))
+  @process.close(client)
+  let failed = try {
+    ignore(@process.recv_msg(server))
+    false
+  } catch {
+    _ => true
+  } noraise {
+    _ => false
+  }
+  assert_true(failed)
+  @process.close(server)
+  @process.close(listen_fd)
+  @process.unlink(path)
+}
+
+///|
+test "a silent peer is given up on at the read deadline" {
+  let path = "/tmp/bm2-process-test-silent-\{@process.get_pid()}.sock"
+  let listen_fd = @process.socket_listen(path)
+  let client = @process.socket_connect(path)
+  let server = @process.accept(listen_fd)
+  // Connected but never sends a byte: the read deadline (5 s) has to win.
+  let started = @env.now()
+  let failed = try {
+    ignore(@process.recv_msg(server))
+    false
+  } catch {
+    _ => true
+  } noraise {
+    _ => false
+  }
+  let elapsed = @env.now() - started
+  assert_true(failed)
+  assert_true(elapsed >= 4000UL)
+  assert_true(elapsed < 30000UL)
+  @process.close(client)
+  @process.close(server)
+  @process.close(listen_fd)
+  @process.unlink(path)
+}
+
+///|
 test "self_exe and read_small work on proc files" {
   let exe = @process.self_exe()
   assert_true(exe.has_prefix("/"))
   let cmdline = @utf8.decode_lossy(@process.read_small("/proc/self/cmdline"))
   assert_true(cmdline.length() > 0)
+}
+
+///|
+/// Log rotation runs over every registered instance, including ones that have
+/// not written anything yet, so a missing file has to be a no-op rather than an
+/// error that would be logged on every sweep.
+test "rotating or truncating a missing log is a no-op" {
+  let dir = "/tmp/bm2-process-test-missing-\{@process.get_pid()}"
+  @process.mkdir_p(dir)
+  @process.rotate(dir + "/none.log")
+  @process.copytruncate(dir + "/none.log")
+  assert_false(@fs.path_exists(dir + "/none.log"))
+  assert_false(@fs.path_exists(dir + "/none.log.1"))
+  @fs.remove_dir(dir)
+}
+
+///|
+test "chmod reports a missing path" {
+  let failed = try {
+    @process.chmod("/tmp/bm2-no-such-file-\{@process.get_pid()}", 0o600)
+    false
+  } catch {
+    _ => true
+  } noraise {
+    _ => false
+  }
+  assert_true(failed)
+}
+
+///|
+/// read_small backs the /proc reads (environ, status, cmdline), which is why it
+/// stops at the cap instead of growing a buffer to fit whatever it reads.
+test "read_small stops at the cap" {
+  let dir = "/tmp/bm2-process-test-cap-\{@process.get_pid()}"
+  @process.mkdir_p(dir)
+  let path = dir + "/big.txt"
+  @fs.write_string_to_file(path, "x".repeat(100))
+  assert_eq(@process.read_small(path, cap=10).length(), 10)
+  assert_eq(@process.read_small(path, cap=1000).length(), 100)
+  @process.unlink(path)
+  @fs.remove_dir(dir)
 }
 
 ///|

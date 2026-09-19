@@ -1,0 +1,5 @@
+#!/bin/sh
+# Full gate before pushing: scripts/verify.sh (fmt, check, tests, build,
+# end-to-end acceptance), dispatched into WSL by scripts/git-hook.sh.
+# Skip with: git push --no-verify
+exec "$(git rev-parse --show-toplevel)/scripts/git-hook.sh" pre-push

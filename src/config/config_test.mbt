@@ -321,6 +321,79 @@ test "rejects invalid numeric limits" {
 }
 
 ///|
+/// The accepted side of every boundary the validator states: an instance count
+/// at the documented maximum, a port at the top of the legal range, and zero
+/// for the delays that are documented as "0 means immediately".
+test "accepts values exactly at the documented bounds" {
+  let config = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1024
+      #|port = 3000
+      #|max_memory_mb = 1
+      #|max_restarts = 0
+      #|restart_delay_ms = 0
+      #|min_uptime_ms = 0
+      #|stop_timeout_ms = 60000
+      #|
+    ),
+    BASE_DIR,
+  )
+  assert_eq(config.instances, 1024)
+  assert_eq(config.max_restarts, 0)
+  assert_eq(config.restart_delay_ms, 0)
+  assert_eq(config.min_uptime_ms, 0)
+  assert_eq(config.stop_timeout_ms, 60000)
+  // One instance may still sit on the very last port.
+  let top = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|port = 65535
+      #|
+    ),
+    BASE_DIR,
+  )
+  assert_eq(top.port, 65535)
+}
+
+///|
+test "rejects a name that does not start with a letter" {
+  for name in ["_blog", "1blog", "-blog"] {
+    let message = parse_error(
+      "name = \"" +
+      name +
+      "\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\n",
+    )
+    assert_true(message.contains("invalid name"))
+  }
+}
+
+///|
+test "rejects numeric limits at the documented bounds" {
+  // Each case supplies the whole document: doubling up on a key would make the
+  // TOML parser reject it before the validator ever sees it.
+  let cases = [
+    ("instances = 1025\nport = 3000", "instances must be between 1 and 1024"),
+    ("instances = 1\nport = 0", "port must be within 1 ~ 65535"),
+    ("instances = 1\nport = 65536", "port must be within 1 ~ 65535"),
+    (
+      "instances = 1\nport = 3000\nmax_memory_mb = 0", "max_memory_mb must be at least 1",
+    ),
+    (
+      "instances = 1\nport = 3000\nstop_timeout_ms = 60001", "stop_timeout_ms must be between 1 and 60000",
+    ),
+  ]
+  for pair in cases {
+    let (fields, expect) = pair
+    let doc = "name = \"blog\"\nscript = \"index.ts\"\n" + fields + "\n"
+    assert_true(parse_error(doc).contains(expect))
+  }
+}
+
+///|
 test "load reads and validates a file with cwd default" {
   let dir = "/tmp/bm2-config-test-" + @env.now().to_string()
   @fs.create_dir(dir)

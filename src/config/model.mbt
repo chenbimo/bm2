@@ -18,6 +18,9 @@ pub(all) struct Config {
 } derive(Debug)
 
 ///|
+pub extend Config with Debug::{to_repr}
+
+///|
 pub(all) suberror ConfigError {
   InvalidDocument(String)
   InvalidField(String)
@@ -36,3 +39,6 @@ pub impl Show for ConfigError with fn output(self, logger) {
     }
   }
 }
+
+///|
+pub extend ConfigError with Show::{to_string, output}

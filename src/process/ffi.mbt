@@ -27,6 +27,9 @@ pub impl Show for ProcessError with fn output(self, logger) {
 }
 
 ///|
+pub extend ProcessError with Show::{to_string, output}
+
+///|
 fn cstr(s : String) -> Bytes {
   @utf8.encode(s + "\u{0}")
 }

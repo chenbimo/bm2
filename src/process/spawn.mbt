@@ -9,6 +9,9 @@ pub(all) struct SpawnSpec {
 } derive(Debug)
 
 ///|
+pub extend SpawnSpec with Debug::{to_repr}
+
+///|
 pub fn spawn(spec : SpawnSpec) -> Int raise ProcessError {
   let pid = c_spawn(
     cstr(spec.bun_path),

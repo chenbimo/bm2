@@ -451,6 +451,36 @@ fi
 check "old runtime project not registered" "0" "$(ls "$state_dir/oldver/project.json" 2>/dev/null | wc -l)"
 bm2 kill -y >/dev/null 2>&1 || true
 
+echo "===== Z. state dir permissions are tightened on startup ====="
+chmod 755 "$state_dir"
+bm2 list >/dev/null 2>&1
+check "state dir mode tightened to 0700" "700" "$(stat -c '%a' "$state_dir")"
+
+echo "===== AA. repeated restarts leave no zombies and no fd growth ====="
+write_project cycle cycle 4321 slow.ts 1 1000
+(cd "$ACC/cycle" && bm2 start >/dev/null)
+sleep 1
+DPID=$(cat "$state_dir/bm2d.pid")
+FD_FIRST=$(ls "/proc/$DPID/fd" | wc -l)
+for _ in 2 3 4 5; do
+  (cd "$ACC/cycle" && bm2 start >/dev/null)
+  sleep 1
+done
+FD_LAST=$(ls "/proc/$DPID/fd" | wc -l)
+check "instance online after four restarts" "online" "$(bm2 list cycle | tail -1 | awk '{print $6}')"
+check "no zombie children under bm2d" "0" "$(ps --ppid "$DPID" -o stat= 2>/dev/null | grep -c '^Z' || true)"
+check "fd count bounded across restarts" 1 "$([ "$FD_LAST" -le $((FD_FIRST + 3)) ] && echo 1 || echo 0)"
+bm2 kill cycle >/dev/null
+
+echo "===== AB. a second daemon refuses to start ====="
+bm2 list >/dev/null 2>&1
+DPID=$(cat "$state_dir/bm2d.pid")
+OUT=$(bm2d 2>&1)
+check "second daemon refused" 1 "$?"
+check "second daemon message" "bm2d: another daemon is already running" "$OUT"
+check "first daemon still alive" 0 "$(kill -0 "$DPID" 2>/dev/null; echo $?)"
+check "lock file present" 1 "$([ -f "$state_dir/bm2d.lock" ] && echo 1 || echo 0)"
+
 echo ""
 echo "e2e results: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

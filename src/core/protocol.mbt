@@ -17,6 +17,18 @@ pub(all) struct Request {
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|
+pub extend Request with ToJson::{to_json}
+
+///|
+pub extend Request with FromJson::{from_json}
+
+///|
+pub extend Request with Debug::{to_repr}
+
+///|
+pub extend Request with Eq::{not_equal, equal}
+
+///|
 pub(all) struct InstanceInfo {
   app_name : String
   cwd : String
@@ -33,12 +45,36 @@ pub(all) struct InstanceInfo {
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|
+pub extend InstanceInfo with ToJson::{to_json}
+
+///|
+pub extend InstanceInfo with FromJson::{from_json}
+
+///|
+pub extend InstanceInfo with Debug::{to_repr}
+
+///|
+pub extend InstanceInfo with Eq::{not_equal, equal}
+
+///|
 pub(all) struct Response {
   protocol : Int?
   ok : Bool
   message : String
   instances : Array[InstanceInfo]
 } derive(ToJson, FromJson, Debug, Eq)
+
+///|
+pub extend Response with ToJson::{to_json}
+
+///|
+pub extend Response with FromJson::{from_json}
+
+///|
+pub extend Response with Debug::{to_repr}
+
+///|
+pub extend Response with Eq::{not_equal, equal}
 
 ///|
 pub fn Response::ok(

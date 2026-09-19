@@ -9,6 +9,12 @@ pub(all) enum Status {
 } derive(Debug, Eq)
 
 ///|
+pub extend Status with Debug::{to_repr}
+
+///|
+pub extend Status with Eq::{not_equal, equal}
+
+///|
 pub fn Status::as_string(self : Status) -> String {
   match self {
     Stopped => "stopped"
@@ -30,6 +36,12 @@ pub(all) enum ExitIntent {
 } derive(Debug, Eq)
 
 ///|
+pub extend ExitIntent with Debug::{to_repr}
+
+///|
+pub extend ExitIntent with Eq::{not_equal, equal}
+
+///|
 /// Runtime SO_REUSEPORT probe state for cluster instances; the kernel is
 /// asked (via a bind test) whether the app's listener actually shares the
 /// port, so a missing `reusePort` is caught instead of crashing later.
@@ -39,6 +51,12 @@ pub(all) enum ReusePortState {
   ReuseOk
   ReuseExclusive
 } derive(Debug, Eq)
+
+///|
+pub extend ReusePortState with Debug::{to_repr}
+
+///|
+pub extend ReusePortState with Eq::{not_equal, equal}
 
 ///|
 pub(all) struct Instance {
@@ -69,6 +87,9 @@ pub(all) struct Instance {
   mut reuseport : ReusePortState
   mut reuseport_deadline_ms : UInt64
 } derive(Debug)
+
+///|
+pub extend Instance with Debug::{to_repr}
 
 ///|
 pub fn Instance::new(config : @config.Config, instance_id : Int) -> Instance {

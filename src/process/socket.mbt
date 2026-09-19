@@ -78,6 +78,18 @@ pub fn recv_msg(fd : Int) -> Bytes raise ProcessError {
 }
 
 ///|
+/// Write raw bytes to an open fd. `send_msg` is the framed protocol write;
+/// this is the byte-level counterpart, which is what lets tests drive the
+/// receive path's error branches (a forged length header, a body that stops
+/// early) instead of only the happy path.
+pub fn write_fd(fd : Int, data : Bytes) -> Unit raise ProcessError {
+  let rc = c_write_fd(fd, data)
+  if rc < 0 {
+    raise Failed(op="write_fd", errno=-rc)
+  }
+}
+
+///|
 /// uid of the connected peer (SO_PEERCRED).
 pub fn peer_uid(fd : Int) -> Int raise ProcessError {
   let uid = c_peer_uid(fd)

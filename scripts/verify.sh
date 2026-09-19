@@ -5,23 +5,24 @@ set -euo pipefail
 export PATH="$HOME/.moon/bin:$PATH"
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-# mktemp does not create parent directories, and a fresh checkout has no
-# _build yet (moon build runs only later in this script).
-mkdir -p "$root/_build"
-bin_dir=$(mktemp -d "$root/_build/bm2-e2e-bin.XXXXXX")
+# The build directory is per environment: Windows only edits the sources (its
+# IDE runs a newer toolchain), while every build, test and e2e run happens here
+# in WSL. Keeping WSL's outputs in a separate tree stops the two toolchains
+# from corrupting each other's caches.
+build_dir="$root/_build-wsl"
+# mktemp does not create parent directories, and a fresh checkout has no build
+# dir yet (moon build runs only later in this script).
+mkdir -p "$build_dir"
+bin_dir=$(mktemp -d "$build_dir/bm2-e2e-bin.XXXXXX")
 trap 'rm -rf "$bin_dir"' EXIT
 
 cd "$root"
 
-# The CLI's VERSION constant must match moon.mod so `bm2 version` and
-# mooncakes releases never drift apart.
-MV=$(sed -nE 's/^version = "([^"]+)"/\1/p' "$root/moon.mod")
-if ! grep -q "const VERSION : String = \"$MV\"" "$root/src/cmd/bm2/main.mbt"; then
-  echo "VERSION mismatch: moon.mod says $MV but src/cmd/bm2/main.mbt differs"
-  exit 1
-fi
+# shellcheck source=scripts/lib/checks.sh
+source "$root/scripts/lib/checks.sh"
+check_version_sync "$root" || exit 1
 
-moon fmt
+moon fmt --target-dir "$build_dir"
 
 # A fresh environment (CI, a new machine) starts with an empty mooncakes
 # registry index; fetch it before resolving dependencies. Locally the
@@ -31,12 +32,15 @@ if [ ! -f "$MOON_HOME/registry/index/user/bobzhang/toml.index" ]; then
   moon update
 fi
 
-moon check --target native --deny-warn
-moon test --target native
-moon build --target native
+# The explicit warn list adds the deprecation warnings the IDE shows by
+# default (implicit trait-method promotion); the pre-commit hook and CI both
+# gate on them, so they cannot creep back in unnoticed.
+moon check --target-dir "$build_dir" --target native --deny-warn --warn-list +implicit_impl_as_method
+moon test --target-dir "$build_dir" --target native
+moon build --target-dir "$build_dir" --target native
 
-cp _build/native/debug/build/cmd/bm2/bm2.exe "$bin_dir/bm2"
-cp _build/native/debug/build/cmd/bm2d/bm2d.exe "$bin_dir/bm2d"
+cp "$build_dir/native/debug/build/cmd/bm2/bm2.exe" "$bin_dir/bm2"
+cp "$build_dir/native/debug/build/cmd/bm2d/bm2d.exe" "$bin_dir/bm2d"
 chmod +x "$bin_dir/bm2" "$bin_dir/bm2d"
 
 BM2_BIN_DIR="$bin_dir" bash scripts/e2e/run.sh

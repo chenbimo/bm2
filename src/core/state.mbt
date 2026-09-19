@@ -9,6 +9,9 @@ pub(all) struct Event {
 } derive(ToJson)
 
 ///|
+pub extend Event with ToJson::{to_json}
+
+///|
 /// Append one management event. Logging failures never interrupt process
 /// supervision, and event data deliberately excludes environment values and
 /// protocol payloads.
@@ -62,6 +65,18 @@ pub(all) struct InstanceState {
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|
+pub extend InstanceState with ToJson::{to_json}
+
+///|
+pub extend InstanceState with FromJson::{from_json}
+
+///|
+pub extend InstanceState with Debug::{to_repr}
+
+///|
+pub extend InstanceState with Eq::{not_equal, equal}
+
+///|
 fn InstanceState::of(inst : Instance) -> InstanceState {
   {
     app_name: inst.app_name,
@@ -96,6 +111,18 @@ pub fn state_path(
 pub(all) struct ProjectInfo {
   config_path : String
 } derive(ToJson, FromJson, Debug, Eq)
+
+///|
+pub extend ProjectInfo with ToJson::{to_json}
+
+///|
+pub extend ProjectInfo with FromJson::{from_json}
+
+///|
+pub extend ProjectInfo with Debug::{to_repr}
+
+///|
+pub extend ProjectInfo with Eq::{not_equal, equal}
 
 ///|
 pub fn project_path(state_dir : String, name : String) -> String {

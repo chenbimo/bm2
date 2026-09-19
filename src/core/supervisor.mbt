@@ -34,6 +34,9 @@ pub impl Show for SupervisorError with fn output(self, logger) {
 }
 
 ///|
+pub extend SupervisorError with Show::{to_string, output}
+
+///|
 /// The whole control loop for every managed project. All state lives in
 /// the two maps below and is only ever mutated from `tick` or from a
 /// request handler, both of which run on the daemon's single thread — so

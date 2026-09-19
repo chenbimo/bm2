@@ -310,6 +310,55 @@ test "register rejects overlapping port ranges across projects" {
 }
 
 ///|
+/// Ranges may touch but must not overlap: a fork project occupies `port`
+/// through `port + instances - 1`, so the check is on inclusive intervals.
+test "port ranges that merely touch are accepted" {
+  let root = "/tmp/bm2-core-test-porttouch"
+  let dir = make_app_dir(root, "api", "sleep 30\n")
+  let sv = make_sv(root, app_config("api", dir, 4400, instances=2))
+  // api occupies 4400~4401, so 4402 is the next free port.
+  sv.register(app_config("next", dir, 4402, instances=2), root + "/next.toml")
+  assert_eq(sv.app_names().length(), 2)
+  // One port of overlap is still an overlap.
+  let rejected = try
+    sv.register(app_config("clash", dir, 4401), root + "/clash.toml")
+  catch {
+    e => e.to_string()
+  } noraise {
+    _ => "no error"
+  }
+  assert_true(rejected.contains("port conflict"))
+  assert_eq(sv.app_names().length(), 2)
+  stop_all(sv, "api")
+  stop_all(sv, "next")
+}
+
+///|
+test "a zero restart budget parks the instance on the first crash" {
+  let root = "/tmp/bm2-core-test-norestart"
+  let dir = make_app_dir(root, "api", "exit 1\n")
+  let sv = make_sv(root, app_config("api", dir, 4410, max_restarts=0))
+  sv.start_app("api")
+  drive(sv, 1200)
+  let inst = sv.instance("api", 0)
+  assert_eq(inst.status, @core.Status::Errored)
+  assert_eq(inst.restart_count, 1)
+  assert_eq(inst.pid, 0)
+}
+
+///|
+test "iso8601 handles epoch, leap days and rollover" {
+  assert_eq(@core.iso8601(0UL), "1970-01-01T00:00:00.000Z")
+  // 2024 is a leap year, 2100 is not (divisible by 100 but not 400).
+  assert_eq(@core.iso8601(1709164800000UL), "2024-02-29T00:00:00.000Z")
+  assert_eq(@core.iso8601(1709251200000UL), "2024-03-01T00:00:00.000Z")
+  assert_eq(@core.iso8601(951782400000UL), "2000-02-29T00:00:00.000Z")
+  assert_eq(@core.iso8601(4107542400000UL), "2100-03-01T00:00:00.000Z")
+  // Year, month, day and millisecond padding all at their boundary values.
+  assert_eq(@core.iso8601(1704067199999UL), "2023-12-31T23:59:59.999Z")
+}
+
+///|
 test "register accepts structural change and restart applies it" {
   let root = "/tmp/bm2-core-test-reload-struct"
   let dir = make_app_dir(root, "api", "sleep 30\n")
@@ -399,6 +448,27 @@ test "iso8601 formats epoch and current time" {
   assert_eq(now.length(), 24)
   assert_true(now.has_prefix("20"))
   assert_true(now.has_suffix("Z"))
+}
+
+///|
+/// A registration whose config file disappeared is skipped with an event, never
+/// started from a stale record.
+test "load_projects skips a project whose config is gone" {
+  let root = "/tmp/bm2-core-test-lost-config"
+  let state_dir = root + "/state"
+  @process.mkdir_p(state_dir + "/api")
+  @process.write_atomic(
+    state_dir + "/api/project.json",
+    @utf8.encode("{\"config_path\":\"/nonexistent/bm2.toml\"}"),
+  )
+  let sv = @core.Supervisor::new(state_dir~, bun_path="/bin/sh")
+  sv.load_projects()
+  assert_eq(sv.app_names().length(), 0)
+  assert_true(
+    @fs.read_file_to_string(state_dir + "/bm2d.events.jsonl").contains(
+      "project_load_failed",
+    ),
+  )
 }
 
 ///|
