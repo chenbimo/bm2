@@ -278,6 +278,17 @@ fn render_email(
     "Subject: =?UTF-8?B?" + @base64.encode(@utf8.encode(msg.title)[:]) + "?=\n",
   )
   buf.write_string("Date: " + @utils.rfc5322(msg.ts_ms) + "\n")
+  // A Message-ID is a SHOULD in RFC 5322 and its absence costs deliverability.
+  // (milliseconds, message key, host) is unique per message and needs no RNG.
+  buf.write_string(
+    "Message-ID: <" +
+    msg.ts_ms.to_string() +
+    "." +
+    msg.key +
+    "@" +
+    ctx.host +
+    ">\n",
+  )
   buf.write_string("MIME-Version: 1.0\n")
   buf.write_string("Content-Type: text/plain; charset=UTF-8\n")
   buf.write_string("Content-Transfer-Encoding: 8bit\n")

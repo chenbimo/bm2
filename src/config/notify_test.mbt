@@ -168,6 +168,25 @@ test "notify enforces per-platform endpoint rules" {
 }
 
 ///|
+test "an email target requires a mail_from" {
+  // Without mail_from the From header would be empty, which is the first thing
+  // a relay refuses — so the config layer refuses it up front.
+  assert_true(
+    notify_error(
+      "[notify]\nmail_url = \"smtps://smtp.example.com:465\"\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"email\"\nto = [\"ops@example.com\"]\n",
+    ).contains("mail_from"),
+  )
+  // With it the same document is accepted.
+  let config = @config.parse(
+    project_doc(
+      "[notify]\nmail_url = \"smtps://smtp.example.com:465\"\nmail_from = \"bm2@example.com\"\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"email\"\nto = [\"ops@example.com\"]\n",
+    ),
+    BASE_DIR,
+  )
+  assert_eq(config.notify.reports.length(), 1)
+}
+
+///|
 test "notify errors never echo a url, secret or password" {
   let message = notify_error(
     (

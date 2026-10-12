@@ -130,6 +130,17 @@ pub fn validate_notify(config : NotifyConfig) -> Unit raise ConfigError {
                 "\{endpoint_ctx} uses the email platform but notify has no mail_url",
               )
           }
+          // An empty From is the first thing a relay refuses, and that is not
+          // the kind of failure to discover when an incident needs reporting.
+          let has_from = match config.mail_from {
+            Some(from) => !from.is_empty()
+            None => false
+          }
+          if !has_from {
+            raise ConfigError::InvalidField(
+              "\{endpoint_ctx} uses the email platform but notify.mail_from is missing",
+            )
+          }
         }
         "feishu" | "dingtalk" | "wecom" | "slack" | "discord" | "webhook" => {
           check_web_scheme(endpoint.url, endpoint_ctx)

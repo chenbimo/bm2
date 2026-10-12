@@ -158,6 +158,9 @@ test "the generic preset and email carry a stable documented shape" {
   // The subject is RFC2047 encoded so non-ASCII titles survive SMTP.
   assert_true(mail.contains("Subject: =?UTF-8?B?"))
   assert_true(mail.contains("Date: Tue, 14 Nov 2023 22:13:20 +0000"))
+  // Unique per message and no RNG needed: milliseconds, key, host.
+  assert_true(mail.contains("Message-ID: <1700000000000.crash|"))
+  assert_true(mail.contains("@host1>"))
   assert_true(mail.contains("\n\n**api · 实例异常退出**"))
 }
 
