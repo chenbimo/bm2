@@ -36,6 +36,13 @@ pub async fn deliver(
 }
 
 ///|
+/// Ceiling on a response body we are willing to parse: 1 MiB. The chat platforms
+/// answer with a few hundred bytes, so a body past this is a broken or
+/// misconfigured endpoint rather than a delivery result worth interpreting — and
+/// parsing it as JSON is the expensive part, which is what this actually stops.
+pub const MAX_RESPONSE_BYTES : Int32 = 1048576
+
+///|
 /// 飞书、钉钉、企业微信都是"HTTP 200 + 响应体错误码":只看状态码会把 token
 /// 错误当成投递成功。应答形状对不上(空 body、纯文本)一律视为成功,避免把
 /// 不认识的结构误报为失败。
@@ -121,7 +128,13 @@ async fn http_deliver(
       if resp.code < 200 || resp.code >= 300 {
         return Some("HTTP " + resp.code.to_string() + " " + resp.reason)
       }
-      body_failure(target.preset, @utf8.decode_lossy(body.binary()))
+      let raw = body.binary()
+      if raw.length() > MAX_RESPONSE_BYTES {
+        return Some(
+          "response body too large: " + raw.length().to_string() + " bytes",
+        )
+      }
+      body_failure(target.preset, @utf8.decode_lossy(raw))
     }
   }
 }
