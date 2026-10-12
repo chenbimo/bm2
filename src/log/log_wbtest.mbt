@@ -25,6 +25,12 @@ test "event writes jsonl with ts, event and caller fields" {
 ///|
 test "maybe_rotate leaves small files alone" {
   let path = "/tmp/log-test/small.log"
+  @fsx.mkdir_p("/tmp/log-test")
+  // This is the one case that depends on the file staying small, and every run
+  // appends a line to it: start from nothing so a repeated run cannot creep past
+  // the limit and rotate where the test says it must not.
+  @utils.discard(() => @fsx.unlink(path))
+  @utils.discard(() => @fsx.unlink(path + ".1"))
   plain(path, "tiny")
   assert_false(maybe_rotate(path, 1024))
   assert_false(@fsx.file_size(path + ".1") is Some(_))
