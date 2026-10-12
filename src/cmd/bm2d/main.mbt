@@ -131,9 +131,9 @@ async fn run() -> Int32 {
     )
   })
   @core.log_event(state_dir, "bm2d.events.jsonl", "socket_listening")
-  // The accept loop runs as the group body; the supervision tick is a child
-  // task. An exit request (or SIGTERM) ends the group and lands in the
-  // shutdown paths below.
+  // Three long-lived tasks (supervision, delivery, control) plus the group body,
+  // which waits for an exit request to arrive from a served connection. SIGTERM
+  // cancels the whole group instead; both paths land in the shutdown code below.
   let outbound = sv.outbound()
   let commands = sv.commands()
   let outcome = @async.handle_cancellation(async fn() {

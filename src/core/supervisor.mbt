@@ -62,8 +62,9 @@ pub struct Supervisor {
   /// supervised state, so this queue is the control plane's whole vocabulary:
   /// `tick` drains it and applies each request on the supervision task.
   commands : @aqueue.Queue[Command]
-  /// Notification engine: events flow in, deliveries flow out, and supervision
-  /// never waits on it beyond its own delivery timeout.
+  /// Notification engine: events flow in (an in-memory publish), deliveries flow
+  /// out in the notify task. Supervision never waits on it — the tick has no
+  /// await point at all.
   notify : Notifier
   mut last_notify_check_ms : UInt64
   mut last_schedule_check_ms : UInt64
