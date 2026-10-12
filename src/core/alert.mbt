@@ -5,6 +5,37 @@
 /// 因此通知永远不会拖慢监督心跳。
 
 ///|
+/// How often bulk drops are reported to the event log: one line per interval,
+/// carrying how many messages were dropped since the previous one.
+const DROP_LOG_INTERVAL_MS : UInt64 = 60000UL
+
+///|
+/// A windowed counter for messages dropped in bulk. Under a sustained outage the
+/// alternative — one event line per dropped message — buries everything else in
+/// the log without adding information.
+struct DropWindow {
+  mut since_ms : UInt64
+  mut count : Int32
+}
+
+///|
+/// Count one drop. `Some` carries the number to report once the reporting window
+/// has elapsed (the first drop is reported immediately); `None` means the drop is
+/// counted but stays quiet.
+fn DropWindow::note(self : DropWindow, now : UInt64) -> Int32? {
+  self.count += 1
+  if self.since_ms != 0UL &&
+    now >= self.since_ms &&
+    now - self.since_ms < DROP_LOG_INTERVAL_MS {
+    return None
+  }
+  self.since_ms = now
+  let counted = self.count
+  self.count = 0
+  Some(counted)
+}
+
+///|
 /// Supervision's own notify state: the sampling windows it fills while watching
 /// instances, plus the queue it publishes alerts on. Delivery state (dedupe and
 /// rate windows, the retry queue, the network) belongs to `NotifyRunner` on the
@@ -22,6 +53,9 @@ pub struct Notifier {
   /// one since the last daily report. Sampled wherever RSS is already read.
   rss_peak : Map[String, Int32]
   rss_peak_daily : Map[String, Int32]
+  /// Backlog drops are reported through this window: a sustained outage should
+  /// leave a readable trace, not one event line per dropped alert.
+  drops : DropWindow
 }
 
 ///|
@@ -40,6 +74,7 @@ pub fn Notifier::new(
     cpu_samples: Map([]),
     rss_peak: Map([]),
     rss_peak_daily: Map([]),
+    drops: { since_ms: 0UL, count: 0, },
   }
 }
 
@@ -419,17 +454,28 @@ fn Notifier::publish(self : Notifier, outbound : Outbound) -> Unit {
     ok => ok
   }
   if !accepted {
-    match alert_of(outbound) {
-      Some(alert) =>
-        log_event(
-          self.state_dir,
-          "bm2d.events.jsonl",
-          "notify_backlog_dropped",
-          app=Some(alert.owner),
-          detail=alert.message.event,
-        )
-      None =>
-        log_event(self.state_dir, "bm2d.events.jsonl", "notify_forget_dropped")
+    // One line per reporting window, not per dropped alert: the count goes in
+    // the detail so a long outage stays readable.
+    match self.drops.note(@proc.monotonic_ms()) {
+      None => ()
+      Some(counted) =>
+        match alert_of(outbound) {
+          Some(alert) =>
+            log_event(
+              self.state_dir,
+              "bm2d.events.jsonl",
+              "notify_backlog_dropped",
+              app=Some(alert.owner),
+              detail=alert.message.event +
+                " (\{counted} dropped since the last line)",
+            )
+          None =>
+            log_event(
+              self.state_dir,
+              "bm2d.events.jsonl",
+              "notify_forget_dropped",
+            )
+        }
     }
   }
 }

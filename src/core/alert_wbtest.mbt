@@ -4,6 +4,22 @@
 /// engine itself are covered by the notify package's own suite.
 
 ///|
+/// Bulk drops are counted, not announced: one event line per reporting window,
+/// with the count of everything since the previous line in the detail.
+test "bulk drops are reported once per window" {
+  let window : DropWindow = { since_ms: 0UL, count: 0, }
+  // The first drop is reported immediately.
+  assert_eq(window.note(1000UL), Some(1))
+  // Everything inside the window is counted but stays quiet.
+  assert_eq(window.note(2000UL), None)
+  assert_eq(window.note(30000UL), None)
+  // The next report carries everything since the previous one: the 1000ms drop
+  // was already reported, so it is the two later ones plus this call.
+  assert_eq(window.note(61000UL), Some(3))
+  assert_eq(window.note(62000UL), None)
+}
+
+///|
 fn wb_report(
   events? : Array[String],
   min_level? : String,

@@ -61,6 +61,11 @@ pub struct NotifyRunner {
   engine : @notify.Engine
   ctx : @notify.Context
   state_dir : String
+  /// Rate-limited and queue-full drops are reported through this window, the
+  /// same way the supervision side reports its backlog drops. It is shared
+  /// across projects on purpose: the line names whichever project dropped last,
+  /// and what matters at that point is how loud the outage is, not the split.
+  drops : DropWindow
 }
 
 ///|
@@ -71,7 +76,14 @@ pub fn NotifyRunner::new(
   inbound : @aqueue.Queue[Outbound],
 ) -> NotifyRunner {
   let ctx : @notify.Context = { host, product: "bm2", }
-  { inbound, deferred: [], engine: @notify.Engine::new(ctx), ctx, state_dir, }
+  {
+    inbound,
+    deferred: [],
+    engine: @notify.Engine::new(ctx),
+    ctx,
+    state_dir,
+    drops: { since_ms: 0UL, count: 0, },
+  }
 }
 
 ///|
@@ -137,13 +149,20 @@ fn NotifyRunner::enqueue(
     _ => ""
   }
   if event != "" {
-    log_event(
-      self.state_dir,
-      "bm2d.events.jsonl",
-      event,
-      app=Some(alert.owner),
-      detail=alert.message.event,
-    )
+    // One line per reporting window, not per dropped message: a policy that
+    // drops a burst must not bury the rest of the log.
+    match self.drops.note(@proc.monotonic_ms()) {
+      None => ()
+      Some(counted) =>
+        log_event(
+          self.state_dir,
+          "bm2d.events.jsonl",
+          event,
+          app=Some(alert.owner),
+          detail=alert.message.event +
+            " (\{counted} dropped since the last line)",
+        )
+    }
   }
 }
 
