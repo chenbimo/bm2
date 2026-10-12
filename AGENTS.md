@@ -98,6 +98,8 @@ git config core.hooksPath .githooks
 - 配置不执行 shell 字符串;启动命令固定为参数数组
 - 环境变量值不得写入状态文件、事件、crash 日志或 CLI 输出
 - 状态文件一律原子写(经 `@fsx.write_atomic`)
+- 子进程只带自己的 stdio 启动:daemon 持有的任何 fd(pidfd / socket / tty)要么 CLOEXEC,要么由 spawn 在 execve 前统一关闭——应用不得继承守护进程的 fd
+- 注销项目必须清干净按项目状态:内存 map、通知队列与限流/去重状态一并回收,同名项目重新注册不得继承上一代的数字
 - 通知的端点与凭据(`url`/`secret`/`username`/`password`)不得进入事件、状态、日志与 CLI 输出;校验错误只报字段名与 `target[i]` 下标
 - 通知投递失败只记事件,绝不改变监督行为
 - 网络能力(HTTP/SMTP)由内联的 notify 库提供,bm2 内不自实现、不引入 curl
