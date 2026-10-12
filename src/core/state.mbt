@@ -18,7 +18,7 @@ pub fn log_event(
 ) -> Unit {
   let fields : Array[(String, String)] = []
   match app {
-    Some(name) => fields.push(("app", @fndash.jstr(name)))
+    Some(name) => fields.push(("app", @util.jstr(name)))
     None => ()
   }
   match instance {
@@ -30,10 +30,10 @@ pub fn log_event(
     None => ()
   }
   match detail {
-    Some(text) => fields.push(("detail", @fndash.jstr(text)))
+    Some(text) => fields.push(("detail", @util.jstr(text)))
     None => ()
   }
-  @fndash.discard(() => @logfly.event(state_dir + "/" + file, event, fields))
+  @util.discard(() => @util.event(state_dir + "/" + file, event, fields))
 }
 
 ///|
@@ -77,7 +77,7 @@ fn InstanceState::of(inst : Instance) -> InstanceState {
     pgid: inst.pid,
     port: inst.port,
     status: inst.status.as_string(),
-    started_at: @dateku.iso8601(inst.started_at_ms),
+    started_at: @util.iso8601(inst.started_at_ms),
     times: Some(inst.times),
     restart_count: inst.restart_count,
     last_exit_code: inst.last_exit_code,
@@ -127,7 +127,7 @@ pub fn save_project(
   info : ProjectInfo,
 ) -> Unit raise {
   let json = ToJson::to_json(info).stringify()
-  @fsx.write_atomic(project_path(state_dir, name), @utf8.encode(json))
+  @util.write_atomic(project_path(state_dir, name), @utf8.encode(json))
 }
 
 ///|
@@ -137,7 +137,7 @@ pub fn load_project(path : String) -> ProjectInfo raise {
 
 ///|
 pub fn remove_project(state_dir : String, name : String) -> Unit raise {
-  @fsx.unlink(project_path(state_dir, name))
+  @util.unlink(project_path(state_dir, name))
 }
 
 ///|
@@ -145,7 +145,7 @@ pub fn remove_project(state_dir : String, name : String) -> Unit raise {
 pub fn save_state(state_dir : String, inst : Instance) -> Unit raise {
   let json = ToJson::to_json(InstanceState::of(inst)).stringify()
   let path = state_path(state_dir, inst.app_name, inst.instance_id)
-  @fsx.write_atomic(path, @utf8.encode(json))
+  @util.write_atomic(path, @utf8.encode(json))
 }
 
 ///|
@@ -161,6 +161,6 @@ pub fn load_state(path : String) -> InstanceState raise {
 pub fn resolve_state_dir() -> String {
   match @env.get_env_var("HOME") {
     Some(home) if !home.is_empty() => home + "/.bm2"
-    _ => "/tmp/bm2-" + @subproc.get_uid().to_string()
+    _ => "/tmp/bm2-" + @util.get_uid().to_string()
   }
 }

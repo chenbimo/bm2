@@ -44,10 +44,7 @@ source "$root/scripts/lib/common.sh"
 source "$root/scripts/lib/checks.sh"
 check_version_sync "$root" || exit 1
 
-# Single-module repository: every package under src/ belongs to bm2.
-pkgs=$(module_pkgs "$root")
-
-moon fmt $pkgs --target-dir "$build_dir"
+moon fmt --target-dir "$build_dir"
 
 # A fresh environment (CI, a new machine) starts with an empty mooncakes
 # registry index; fetch it before resolving dependencies. Locally the
@@ -60,7 +57,7 @@ fi
 # The explicit warn list adds the deprecation warnings the IDE shows by
 # default (implicit trait-method promotion); the pre-commit hook and CI both
 # gate on them, so they cannot creep back in unnoticed.
-moon check $pkgs --target-dir "$build_dir" --target native --deny-warn --warn-list +implicit_impl_as_method
+moon check --target-dir "$build_dir" --target native --deny-warn --warn-list +implicit_impl_as_method
 moon test -p chensuiyi/bm2 --target-dir "$build_dir" --target native
 moon build "$root/src/cmd/bm2" "$root/src/cmd/bm2d" --target-dir "$build_dir" --target native
 

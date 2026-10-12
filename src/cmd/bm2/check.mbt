@@ -48,13 +48,13 @@ fn cmd_check() -> Int32 {
   let cwd = match @env.current_dir() {
     Some(dir) => dir
     None => {
-      @subproc.eprintln("bm2: cannot determine current directory")
+      @util.eprintln("bm2: cannot determine current directory")
       return 1
     }
   }
   let config = try @config.load(cwd + "/bm2.toml") catch {
     e => {
-      @subproc.eprintln("bm2: " + e.to_string())
+      @util.eprintln("bm2: " + e.to_string())
       return 1
     }
   } noraise {
@@ -62,7 +62,7 @@ fn cmd_check() -> Int32 {
   }
   match check_project(config, @fs.path_exists) {
     Some(problem) => {
-      @subproc.eprintln("bm2: " + problem)
+      @util.eprintln("bm2: " + problem)
       return 1
     }
     None => ()

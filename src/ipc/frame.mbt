@@ -75,7 +75,7 @@ fn constant_time_eq(a : String, b : String) -> Bool {
 /// 256 bits from the kernel RNG, hex-encoded: 64 characters, no ambiguity
 /// on the wire or in a file.
 pub fn generate_token() -> String raise {
-  hex_encode(@fsx.read_small("/dev/urandom", cap=32))
+  hex_encode(@util.read_small("/dev/urandom", cap=32))
 }
 
 ///|
@@ -96,7 +96,7 @@ pub fn hex_encode(bytes : Bytes) -> String {
 pub fn read_daemon_port(state_dir : String) -> Int32? {
   try {
     let text = @utf8.decode(
-      @fsx.read_small(state_dir + "/" + PORT_FILE, cap=32),
+      @util.read_small(state_dir + "/" + PORT_FILE, cap=32),
     )
     parse_port(text)
   } catch {
@@ -162,7 +162,7 @@ fn trim_ascii(text : String) -> String {
 pub fn read_token(state_dir : String) -> String? {
   try {
     let text = @utf8.decode(
-      @fsx.read_small(state_dir + "/" + TOKEN_FILE, cap=128),
+      @util.read_small(state_dir + "/" + TOKEN_FILE, cap=128),
     )
     let trimmed = trim_ascii(text)
     if trimmed.is_empty() {

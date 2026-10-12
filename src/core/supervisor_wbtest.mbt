@@ -1,6 +1,6 @@
 ///|
 fn wb_setup(root : String, port : Int32) -> Supervisor raise {
-  @fsx.mkdir_p(root)
+  @util.mkdir_p(root)
   let config : @config.Config = {
     name: "wbapp",
     cwd: root,
@@ -24,18 +24,18 @@ fn wb_setup(root : String, port : Int32) -> Supervisor raise {
 
 ///|
 test "spawn failures back off and exhaust the budget into errored" {
-  let root = "/tmp/bm2-wbtest-spawn-\{@subproc.get_pid()}"
+  let root = "/tmp/bm2-wbtest-spawn-\{@util.get_pid()}"
   let sv = wb_setup(root, 4451)
   let inst = sv.instance("wbapp", 0)
   sv.mark_spawn_failed(inst)
   assert_true(inst.status is Restarting)
   assert_eq(inst.restart_count, 1)
-  let first_wait = inst.restart_at_ms - @dateku.now_ms()
+  let first_wait = inst.restart_at_ms - @util.now_ms()
   assert_true(first_wait > 0UL)
   sv.mark_spawn_failed(inst)
   assert_eq(inst.restart_count, 2)
   // The backoff grows with the retry count: delay * restart_count.
-  assert_true(inst.restart_at_ms - @dateku.now_ms() >= first_wait)
+  assert_true(inst.restart_at_ms - @util.now_ms() >= first_wait)
   sv.mark_spawn_failed(inst)
   assert_true(inst.status is Errored)
   assert_eq(inst.restart_at_ms, 0UL)
@@ -48,29 +48,29 @@ test "spawn failures back off and exhaust the budget into errored" {
 
 ///|
 test "rotate_logs rotates oversized app logs with copytruncate" {
-  let root = "/tmp/bm2-wbtest-rotate-\{@subproc.get_pid()}"
+  let root = "/tmp/bm2-wbtest-rotate-\{@util.get_pid()}"
   let sv = wb_setup(root, 4452)
   let base = root + "/state/wbapp/logs/wbapp-0"
   // 11 MB exceeds the 10 MB rotation threshold.
-  @fsx.append_file(base + ".out.log", Bytes::make(11 * 1024 * 1024, b'x'))
-  @fsx.append_file(base + ".crash.log", @utf8.encode("small\n"))
+  @util.append_file(base + ".out.log", Bytes::make(11 * 1024 * 1024, b'x'))
+  @util.append_file(base + ".crash.log", @utf8.encode("small\n"))
   sv.rotate_logs()
-  match @fsx.file_size(base + ".out.log.1") {
+  match @util.file_size(base + ".out.log.1") {
     Some(size) => assert_true(size > 10L * 1024L * 1024L)
     None => fail("expected rotated generation .out.log.1")
   }
-  assert_eq(@fsx.file_size(base + ".out.log"), Some(0L))
+  assert_eq(@util.file_size(base + ".out.log"), Some(0L))
   assert_false(@fs.path_exists(base + ".crash.log.1"))
 }
 
 ///|
 async test "wait_settled gives up after the deadline" {
-  let root = "/tmp/bm2-wbtest-settle-\{@subproc.get_pid()}"
+  let root = "/tmp/bm2-wbtest-settle-\{@util.get_pid()}"
   let sv = wb_setup(root, 4453)
   let inst = sv.instance("wbapp", 0)
   inst.status = Restarting
   inst.pid = 0
-  inst.restart_at_ms = @dateku.now_ms() + 60000UL
+  inst.restart_at_ms = @util.now_ms() + 60000UL
   assert_false(sv.wait_settled(["wbapp"]))
 }
 

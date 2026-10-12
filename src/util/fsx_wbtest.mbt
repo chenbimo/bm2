@@ -32,7 +32,7 @@ test "mkdir_p is idempotent" {
 /// error that would be logged on every sweep.
 test "rotating or truncating a missing log is a no-op" {
   rotate("/tmp/fsx-test-missing/none.log")
-  copytruncate("/tmp/fsx-test-missing/none.log")
+  truncate_in_place("/tmp/fsx-test-missing/none.log")
   assert_false(exists("/tmp/fsx-test-missing/none.log"))
   assert_false(exists("/tmp/fsx-test-missing/none.log.1"))
 }
@@ -85,7 +85,7 @@ test "copytruncate copies and truncates in place" {
   let path = "/tmp/fsx-test-copytruncate/app.log"
   mkdir_p("/tmp/fsx-test-copytruncate")
   write_atomic(path, @utf8.encode("content"))
-  copytruncate(path)
+  truncate_in_place(path)
   assert_eq(@utf8.decode_lossy(read_small(path)), "")
   assert_eq(@utf8.decode_lossy(read_small(path + ".1")), "content")
 }

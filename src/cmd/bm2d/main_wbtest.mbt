@@ -12,7 +12,7 @@ async fn round_trip(
     ignore(
       tg.spawn(async fn() {
         // Server side, sequential exactly like the daemon's accept loop.
-        let conn = @dcipc.accept_authed(server, "wbtest")
+        let conn = @ipc.accept_authed(server, "wbtest")
         match conn {
           Some(conn) =>
             match @ipc.read_request(conn) {
@@ -51,7 +51,7 @@ async fn round_trip(
 
 ///|
 fn probe_sv(name : String) -> (@core.Supervisor, String) raise {
-  let state_dir = "/tmp/bm2-daemon-probe-\{name}-\{@subproc.get_pid()}"
+  let state_dir = "/tmp/bm2-daemon-probe-\{name}-\{@util.get_pid()}"
   let sv = @core.Supervisor::new(state_dir~, bun_path="bun")
   (sv, state_dir)
 }

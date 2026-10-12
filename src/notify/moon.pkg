@@ -8,6 +8,5 @@ import {
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/encoding/base64",
   "moonbitlang/x/crypto",
-  "chensuiyi/bm2/dateku",
-  "chensuiyi/bm2/fndash",
+  "chensuiyi/bm2/util",
 }

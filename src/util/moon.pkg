@@ -1,0 +1,9 @@
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
+}
+
+options(
+  "native-stub": [ "fsx_native.c", "subproc_native.c" ],
+)

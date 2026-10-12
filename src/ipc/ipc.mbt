@@ -5,7 +5,7 @@
 ///|
 /// Write one framed response to an authenticated connection.
 pub async fn write_response(conn : @socket.Tcp, resp : @core.Response) -> Unit {
-  @dcipc.write_frame(conn, @core.encode_response(resp))
+  write_frame(conn, @core.encode_response(resp))
 }
 
 ///|
@@ -20,7 +20,7 @@ pub async fn round_trip(
   timeout_ms : Int32,
 ) -> @core.Response {
   @core.decode_response(
-    @dcipc.round_trip_bytes(conn, token, @core.encode_request(req), timeout_ms),
+    round_trip_bytes(conn, token, @core.encode_request(req), timeout_ms),
   )
 }
 
@@ -29,7 +29,7 @@ pub async fn round_trip(
 /// client that connects and goes silent. None means the connection yielded
 /// nothing usable and has been closed.
 pub async fn read_request(conn : @socket.Tcp) -> @core.Request? {
-  match @dcipc.read_frame_timeout(conn, @dcipc.AUTH_TIMEOUT_MS) {
+  match read_frame_timeout(conn, AUTH_TIMEOUT_MS) {
     Some(payload) => Some(@core.decode_request(payload))
     None => None
   }

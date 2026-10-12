@@ -6,10 +6,5 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/x/fs",
-  "chensuiyi/bm2/dateku",
-  "chensuiyi/bm2/semver",
-  "chensuiyi/bm2/subproc",
-  "chensuiyi/bm2/fsx",
-  "chensuiyi/bm2/fndash",
-  "chensuiyi/bm2/logfly",
+  "chensuiyi/bm2/util",
 }

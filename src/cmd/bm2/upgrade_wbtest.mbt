@@ -75,9 +75,9 @@ test "pick_artifacts falls back to any" {
 ///|
 test "upgrade only fires when the published version is newer" {
   // 版本号相对当前 VERSION 动态构造,避免每次发版手动同步测试。
-  let v = @semver.parse(VERSION)
+  let v = @util.parse(VERSION)
   let newer = "\{v.major}.\{v.minor}.\{v.patch + 1}"
   let older = "\{v.major}.\{v.minor - 1}.\{v.patch}"
-  assert_true(@semver.compare(@semver.parse(newer), v) > 0)
-  assert_true(@semver.compare(@semver.parse(older), v) < 0)
+  assert_true(@util.compare(@util.parse(newer), v) > 0)
+  assert_true(@util.compare(@util.parse(older), v) < 0)
 }

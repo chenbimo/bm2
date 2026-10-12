@@ -19,7 +19,7 @@ fn hmac_sha256_base64(key : String, message : String) -> String {
 /// DingTalk signs `timestamp + "\n" + secret` with the secret as the key, and
 /// carries the timestamp in milliseconds.
 fn dingtalk_signature(secret : String, timestamp_ms : UInt64) -> String {
-  @fndash.url_encode(
+  @util.url_encode(
     hmac_sha256_base64(secret, timestamp_ms.to_string() + "\n" + secret),
   )
 }

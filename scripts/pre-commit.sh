@@ -51,11 +51,8 @@ dirty_snapshot() {
   done | sort
 }
 
-pkgs=$(module_pkgs "$root")
-
 dirty_snapshot > "$tmp/before"
-# shellcheck disable=SC2086
-moon fmt $pkgs --target-dir "$build_dir" >/dev/null
+moon fmt --target-dir "$build_dir" >/dev/null
 dirty_snapshot > "$tmp/after"
 
 awk -F'\t' '
@@ -92,7 +89,7 @@ done < "$tmp/reformatted"
 [ "$needs_attention" = 0 ] || exit 1
 
 echo "pre-commit: checking the module ..."
-if ! module_check "$root" "$build_dir"; then
+if ! module_check "$build_dir"; then
   echo "pre-commit: moon check failed; commit aborted."
   echo "            (git commit --no-verify skips this gate)"
   exit 1

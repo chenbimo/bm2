@@ -51,16 +51,16 @@ test "format_uptime reads in the largest sensible unit" {
 /// replaced: the CLI only clears the control-plane files when nothing is
 /// listening, so a busy daemon is never split into two.
 async test "a busy daemon is reported instead of being replaced" {
-  let state_dir = "/tmp/bm2-cli-busy-\{@subproc.get_pid()}"
-  @fsx.mkdir_p(state_dir)
+  let state_dir = "/tmp/bm2-cli-busy-\{@util.get_pid()}"
+  @util.mkdir_p(state_dir)
   // Listening but never accepting requests: connects succeed, no answer
   // ever comes.
   let server = @socket.TcpServer::TcpServer(@socket.Addr::new(2130706433U, 0))
   @fs.write_string_to_file(
-    state_dir + "/" + @dcipc.PORT_FILE,
+    state_dir + "/" + @ipc.PORT_FILE,
     server.addr.port().to_string() + "\n",
   )
-  @fs.write_string_to_file(state_dir + "/" + @dcipc.TOKEN_FILE, "wbtest-token")
+  @fs.write_string_to_file(state_dir + "/" + @ipc.TOKEN_FILE, "wbtest-token")
   let req : @core.Request = {
     protocol: Some(@core.PROTOCOL_VERSION),
     command: "list",
@@ -81,8 +81,8 @@ async test "a busy daemon is reported instead of being replaced" {
   assert_true(outcome.contains("did not answer"))
   assert_true(outcome.contains("try again"))
   server.close()
-  @fsx.unlink(state_dir + "/" + @dcipc.PORT_FILE)
-  @fsx.unlink(state_dir + "/" + @dcipc.TOKEN_FILE)
-  @fsx.unlink(state_dir + "/bm2.events.jsonl")
+  @util.unlink(state_dir + "/" + @ipc.PORT_FILE)
+  @util.unlink(state_dir + "/" + @ipc.TOKEN_FILE)
+  @util.unlink(state_dir + "/bm2.events.jsonl")
   @fs.remove_dir(state_dir)
 }

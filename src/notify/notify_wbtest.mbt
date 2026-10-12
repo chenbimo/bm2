@@ -52,12 +52,12 @@ test "request signing matches the platforms' published vectors" {
 
 ///|
 test "escaping survives the json layer" {
-  assert_eq(@fndash.json_escape("a\"b\\c\nd"), "a\\\"b\\\\c\\nd")
-  assert_eq(@fndash.json_escape("\u{1}"), "\\u0001")
-  assert_eq(@fndash.jstr("x"), "\"x\"")
-  assert_eq(@fndash.url_encode("a b/c?d=e&f"), "a%20b%2Fc%3Fd%3De%26f")
-  assert_eq(@fndash.url_encode("中文"), "%E4%B8%AD%E6%96%87")
-  assert_eq(@fndash.url_encode("AZaz09-_.~"), "AZaz09-_.~")
+  assert_eq(@util.json_escape("a\"b\\c\nd"), "a\\\"b\\\\c\\nd")
+  assert_eq(@util.json_escape("\u{1}"), "\\u0001")
+  assert_eq(@util.jstr("x"), "\"x\"")
+  assert_eq(@util.url_encode("a b/c?d=e&f"), "a%20b%2Fc%3Fd%3De%26f")
+  assert_eq(@util.url_encode("中文"), "%E4%B8%AD%E6%96%87")
+  assert_eq(@util.url_encode("AZaz09-_.~"), "AZaz09-_.~")
 }
 
 ///|

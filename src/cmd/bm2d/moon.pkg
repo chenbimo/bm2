@@ -5,13 +5,9 @@ import {
   "chensuiyi/bm2/config",
   "chensuiyi/bm2/core",
   "chensuiyi/bm2/ipc",
-  "chensuiyi/bm2/dcipc",
   "moonbitlang/core/env",
   "moonbitlang/core/encoding/utf8",
-  "chensuiyi/bm2/dateku",
-  "chensuiyi/bm2/subproc",
-  "chensuiyi/bm2/fsx",
-  "chensuiyi/bm2/fndash",
+  "chensuiyi/bm2/util",
 }
 
 pkgtype(kind: "executable")

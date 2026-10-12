@@ -1,7 +1,7 @@
 ///|
 fn make_app_dir(root : String, name : String, script : String) -> String raise {
   let dir = root + "/" + name
-  @fsx.mkdir_p(dir)
+  @util.mkdir_p(dir)
   @fs.write_string_to_file(dir + "/fixture.sh", script)
   dir
 }
@@ -46,7 +46,7 @@ fn make_sv(root : String, config : @config.Config) -> @core.Supervisor raise {
     memory_interval_ms=100,
   )
   // Persist a real config file so load_projects can reload the project.
-  @fsx.mkdir_p(root)
+  @util.mkdir_p(root)
   @fs.write_string_to_file(
     root + "/bm2.toml",
     "name = \"\{config.name}\"\ncwd = \"\{config.cwd}\"\nscript = \"\{config.script}\"\ninstances = \{config.instances}\nport = \{config.port}\n",
@@ -57,10 +57,10 @@ fn make_sv(root : String, config : @config.Config) -> @core.Supervisor raise {
 
 ///|
 async fn drive(sv : @core.Supervisor, ms : Int32) -> Unit {
-  let end = @dateku.now_ms() + ms.to_uint64()
-  while @dateku.now_ms() < end {
+  let end = @util.now_ms() + ms.to_uint64()
+  while @util.now_ms() < end {
     sv.tick()
-    @subproc.sleep_ms(20)
+    @util.sleep_ms(20)
   }
 }
 
@@ -81,10 +81,10 @@ async test "crash loop restarts then reaches errored" {
   let sv = make_sv(root, app_config("api", dir, 4100))
   sv.start_app("api")
   let inst = sv.instance("api", 0)
-  let deadline = @dateku.now_ms() + 5000UL
-  while @dateku.now_ms() < deadline && !(inst.status is @core.Status::Errored) {
+  let deadline = @util.now_ms() + 5000UL
+  while @util.now_ms() < deadline && !(inst.status is @core.Status::Errored) {
     sv.tick()
-    @subproc.sleep_ms(20)
+    @util.sleep_ms(20)
   }
   assert_eq(inst.status, @core.Status::Errored)
   assert_eq(inst.restart_count, 3)
@@ -268,7 +268,7 @@ async test "kill clears a stale pid so removal never blocks" {
   let inst = sv.instance("api", 0)
   // Kill the process behind the instance without letting the supervisor
   // reap it first: the pidfd still exists, so alive() reads dead.
-  @subproc.kill_group(inst.pid, @subproc.SIGKILL)
+  @util.kill_group(inst.pid, @util.SIGKILL)
   sv.kill_app("api")
   drive(sv, 600)
   assert_eq(sv.app_names().length(), 0)
@@ -426,7 +426,7 @@ test "resolve_state_dir uses fixed home directory" {
     _ =>
       assert_eq(
         @core.resolve_state_dir(),
-        "/tmp/bm2-" + @subproc.get_uid().to_string(),
+        "/tmp/bm2-" + @util.get_uid().to_string(),
       )
   }
 }
@@ -437,8 +437,8 @@ test "resolve_state_dir uses fixed home directory" {
 test "load_projects skips a project whose config is gone" {
   let root = "/tmp/bm2-core-test-lost-config"
   let state_dir = root + "/state"
-  @fsx.mkdir_p(state_dir + "/api")
-  @fsx.write_atomic(
+  @util.mkdir_p(state_dir + "/api")
+  @util.write_atomic(
     state_dir + "/api/project.json",
     @utf8.encode("{\"config_path\":\"/nonexistent/bm2.toml\"}"),
   )

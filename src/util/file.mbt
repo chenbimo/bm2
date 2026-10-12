@@ -68,7 +68,7 @@ pub fn rotate(path : String) -> Unit raise FileError {
 /// Copy path into path.1 (shifting the chain) and truncate path to zero.
 /// For logs held open by app processes, which keep writing to the old
 /// inode; a few bytes written during the copy are lost.
-pub fn copytruncate(path : String) -> Unit raise FileError {
+pub fn truncate_in_place(path : String) -> Unit raise FileError {
   let rc = c_copytruncate(cstr(path))
   if rc < 0 {
     raise Failed(op="copytruncate", errno=-rc)

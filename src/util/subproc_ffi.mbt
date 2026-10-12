@@ -18,11 +18,6 @@ pub impl Show for ProcessError with fn output(self, logger) {
 pub extend ProcessError with Show::{to_string, output}
 
 ///|
-fn cstr(s : String) -> Bytes {
-  @utf8.encode(s + "\u{0}")
-}
-
-///|
 #borrow(bun_path, script, cwd, out_path, err_path, env_blob)
 extern "C" fn c_spawn(
   bun_path : Bytes,
