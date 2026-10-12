@@ -317,8 +317,7 @@ bm2 总是把 socket、PID、状态和管理日志存放在当前 Linux 用户�
 每个用户一个守护进程，管理所有已注册项目：
 
 ```text
-daemon.port                      # 控制通道端口（本机 TCP）
-daemon.token                     # 控制通道共享令牌，0700 目录内
+daemon.endpoint                  # 控制通道端点：本机 TCP 端口 + 共享令牌（0700 目录内）
 bm2d.pid                         # 守护进程 PID
 bm2.events.jsonl                 # CLI 连接与重试事件
 bm2d.log                         # 守护进程 stderr / 运行时诊断
@@ -356,7 +355,7 @@ jq -c . ~/.bm2/bm2d.events.jsonl
 
 bm2 可以把运行情况上报出去。通知配置属于**项目**,写在同一份 `bm2.toml` 的 `[notify]` 段;改动在下一次 `bm2 start` 时生效。项目自己只上报自己的事件,收件人也是自己配置的目标。
 
-投递由内置实现(`moonbitlang/async` + `chensuiyi/notify`,含 HTTPS 与 SMTP),不依赖 `curl` 等外部命令。
+投递由内置实现(`moonbitlang/async` + 模块内 `src/notify` 包,含 HTTPS 与 SMTP),不依赖 `curl` 等外部命令。
 
 ```bash
 bm2 notify            # 在项目目录执行,给该项目所有目标发一条测试消息

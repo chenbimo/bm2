@@ -222,7 +222,7 @@ Intentionally stopped instances are omitted.
 
 `restarting` and `errored` instances remain visible for diagnosis.
 
-If a daemon dies abruptly and leaves stale control-plane files behind, the next CLI request waits briefly for a response, removes the stale files, starts one fresh daemon, and retries the request once.
+If a daemon dies abruptly and leaves a stale control-plane file behind, the next CLI request waits briefly for a response, removes the stale file, starts one fresh daemon, and retries the request once.
 
 ## Load balancing
 
@@ -300,8 +300,7 @@ bm2 always stores its socket, PID, state, and management logs in `~/.bm2` for th
 One daemon per user manages all registered projects:
 
 ```text
-daemon.port                      # control-channel port (loopback TCP)
-daemon.token                     # control-channel shared token, inside the 0700 dir
+daemon.endpoint                  # control-channel endpoint: loopback TCP port + shared token, inside the 0700 dir
 bm2d.pid                         # daemon PID
 bm2.events.jsonl                 # CLI connection and retry events
 bm2d.log                         # daemon stderr / runtime diagnostics
@@ -334,7 +333,7 @@ jq -c . ~/.bm2/bm2d.events.jsonl
 
 bm2 can report what it is doing. Notification config belongs to a **project** and lives in the same `bm2.toml`, under `[notify]`; changes take effect on the next `bm2 start`. A project reports only its own events, to the targets it configured itself.
 
-Delivery is built in (`moonbitlang/async` + `chensuiyi/notify`, HTTPS and SMTP included); no external commands such as `curl` are needed.
+Delivery is built in (`moonbitlang/async` + the in-module `src/notify` package, HTTPS and SMTP included); no external commands such as `curl` are needed.
 
 ```bash
 bm2 notify            # run inside the project: test every target it configures
