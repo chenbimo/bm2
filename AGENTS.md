@@ -13,15 +13,16 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## 目录结构
 
+- `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
 - `src/config` — bm2.toml 解析与校验(`[notify]` 订阅过滤也在此层)
-- `src/core` — 实例状态机、监督循环、恢复/收养、协议、状态持久化、通知适配层
+- `src/core` — 进程监督领域:supervisor(主循环)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
 - `src/fsx` — 文件读写、原子写与锁(含 C 桩)
-- `src/ipc` — CLI↔守护进程控制通道(长度前缀帧 + 子命令,经 loopback TCP + 共享令牌)
+- `src/ipc` — 长度前缀帧与子命令的收发(经 loopback TCP + 共享令牌)
 - `src/log` — 事件日志与按大小轮转
-- `src/notify` — 通知子系统(多平台 webhook 与 SMTP)
+- `src/notify` — 通知投递库(多平台 webhook 与 SMTP、去重与限流重试)
 - `src/proc` — 进程与系统调用(spawn / pidfd / procfs / 信号,含 C 桩)
 - `src/utils` — 纯函数工具(日期、文本与 JSON 辅助、版本比较)
-- `src/cmd/bm2`、`src/cmd/bm2d` — CLI 与守护进程入口(参数解析用 core/argparse);版本常量在 `src/cmd/bm2/version.mbt`
+- `src/cmd/bm2`、`src/cmd/bm2d` — 入口(main 分派 / daemon 连接 / render 输出 / update 升级);版本常量在 `src/cmd/bm2/version.mbt`
 
 按能力分包、按功能分文件;`src/utils` 只放纯函数,有副作用的能力各自成包。命令 main 放 `src/cmd/<命令名>` 子包,二进制名与目录名一致。
 
