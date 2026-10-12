@@ -44,8 +44,7 @@ source "$root/scripts/lib/common.sh"
 source "$root/scripts/lib/checks.sh"
 check_version_sync "$root" || exit 1
 
-# Single-module repository: every package under src/ belongs to bm2, including
-# the vendored libraries under src/vendor/.
+# Single-module repository: every package under src/ belongs to bm2.
 pkgs=$(module_pkgs "$root")
 
 moon fmt $pkgs --target-dir "$build_dir"

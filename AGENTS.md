@@ -1,6 +1,6 @@
 # bm2 仓库约定
 
-Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单模块仓库,模块名 `chensuiyi/bm2`,原先独立发布的依赖库全部内联在 `src/vendor/`。
+Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单模块仓库,模块名 `chensuiyi/bm2`,依赖库作为模块内包平铺在 `src/`。
 
 ## 工具链
 
