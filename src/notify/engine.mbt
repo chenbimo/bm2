@@ -17,6 +17,12 @@ struct Queued {
   owner : String
   targets : Array[Target]
   timeout_ms : Int32
+  /// Retry state, per message: how many delivery attempts have failed, and the
+  /// earliest time of the next one. Keeping it per message is what lets one
+  /// dead endpoint back off on its own instead of stalling every other
+  /// project's alerts.
+  mut attempts : Int32
+  mut next_attempt_ms : UInt64
 }
 
 ///|
@@ -28,12 +34,14 @@ pub struct Engine {
   max_attempts : Int32
   mut queue : Array[Queued]
   mut dropped : Int32
+  /// Owner the last attempt belonged to. The next attempt prefers a different
+  /// project, so a failing endpoint delays its own project's alerts rather than
+  /// everybody's.
+  mut last_owner : String?
   /// Owner → (window started ms, emitted in window). Each owner gets its own
   /// rolling minute budget, so one project's throttle never starves another.
   rate_window : Map[String, (UInt64, Int32)]
   dedupe : Map[String, DedupeEntry]
-  mut next_attempt_ms : UInt64
-  mut attempts : Int32
 }
 
 ///|
@@ -49,10 +57,9 @@ pub fn Engine::new(
     max_attempts,
     queue: [],
     dropped: 0,
+    last_owner: None,
     rate_window: Map([]),
     dedupe: Map([]),
-    next_attempt_ms: 0UL,
-    attempts: 0,
   }
 }
 
@@ -147,7 +154,14 @@ pub fn Engine::emit(
     self.dropped += 1
     return QueueFull
   }
-  self.queue.push({ message, owner, targets, timeout_ms, })
+  self.queue.push({
+    message,
+    owner,
+    targets,
+    timeout_ms,
+    attempts: 0,
+    next_attempt_ms: 0UL,
+  })
   EmitOutcome::Queued
 }
 
@@ -186,16 +200,25 @@ pub(all) struct PumpReport {
 pub extend PumpReport with Debug::{to_repr}
 
 ///|
-/// One pass of the engine: deliver at most one queued message.
+/// One pass of the engine: attempt delivery on at most one queued message.
+///
+/// The message is chosen by `pick`, which skips whatever is waiting out its own
+/// backoff and prefers a project other than the last one attempted. A queue
+/// that mixes projects therefore keeps making progress on all of them while one
+/// endpoint is down.
 pub async fn Engine::pump(self : Engine, now : UInt64) -> PumpReport {
-  if self.queue.length() == 0 || now < self.next_attempt_ms {
-    return { remaining: self.queue.length(), outcome: Idle, owner: None, }
+  let picked = self.pick(now)
+  let index = match picked {
+    Some(index) => index
+    None =>
+      return { remaining: self.queue.length(), outcome: Idle, owner: None, }
   }
-  let notice = self.queue[0]
+  let queued = self.queue[index]
+  self.last_owner = Some(queued.owner)
   let results = deliver_all(
-    notice.targets,
-    notice.message,
-    notice.timeout_ms,
+    queued.targets,
+    queued.message,
+    queued.timeout_ms,
     self.ctx,
   )
   let delivered = results.filter(fn(pair) {
@@ -207,37 +230,66 @@ pub async fn Engine::pump(self : Engine, now : UInt64) -> PumpReport {
     failure is Some(_)
   })
   let outcome = if failures.length() == 0 {
-    self.drop_head()
-    self.attempts = 0
-    self.next_attempt_ms = 0UL
+    self.drop_at(index)
     Delivered
   } else if delivered.length() > 0 {
     // Somebody got it; retrying now would only duplicate it for them.
-    self.drop_head()
-    self.attempts = 0
-    self.next_attempt_ms = 0UL
+    self.drop_at(index)
     Partial
   } else {
-    self.attempts += 1
-    if self.attempts >= self.max_attempts {
-      self.drop_head()
-      self.attempts = 0
-      self.next_attempt_ms = 0UL
+    queued.attempts += 1
+    if queued.attempts >= self.max_attempts {
+      self.drop_at(index)
       Exhausted
     } else {
       // Backoff grows linearly: 5s after the first failure, 15s after the
       // second — long enough to clear a blip, short enough for an alert.
-      self.next_attempt_ms = now +
-        (5000 * (1 + 2 * (self.attempts - 1))).to_uint64()
-      Failed(attempt=self.attempts)
+      queued.next_attempt_ms = now +
+        (5000 * (1 + 2 * (queued.attempts - 1))).to_uint64()
+      Failed(attempt=queued.attempts)
     }
   }
-  { remaining: self.queue.length(), outcome, owner: Some(notice.owner), }
+  { remaining: self.queue.length(), outcome, owner: Some(queued.owner), }
 }
 
 ///|
-fn Engine::drop_head(self : Engine) -> Unit {
-  self.queue = self.queue[1:].to_owned()
+/// Choose the message to attempt: the oldest one that is not waiting out its own
+/// backoff, preferring a project other than the last one attempted. None while
+/// every queued message is in backoff.
+fn Engine::pick(self : Engine, now : UInt64) -> Int32? {
+  let mut fallback : Int32? = None
+  for index, queued in self.queue {
+    if queued.next_attempt_ms > 0UL && now < queued.next_attempt_ms {
+      continue
+    }
+    match self.last_owner {
+      Some(owner) =>
+        if queued.owner != owner {
+          return Some(index)
+        } else {
+          match fallback {
+            None => fallback = Some(index)
+            Some(_) => ()
+          }
+        }
+      None => return Some(index)
+    }
+  }
+  fallback
+}
+
+///|
+/// Drop the message at `index`, keeping the rest in order. The queue is short
+/// (each project's own `queue_size` caps it), so rebuilding it is cheaper to
+/// reason about than an in-place removal.
+fn Engine::drop_at(self : Engine, index : Int32) -> Unit {
+  let kept : Array[Queued] = []
+  for i, queued in self.queue {
+    if i != index {
+      kept.push(queued)
+    }
+  }
+  self.queue = kept
 }
 
 ///|

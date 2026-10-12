@@ -311,6 +311,52 @@ async test "the engine dedupes, rate limits and enforces the queue limit" {
 }
 
 ///|
+/// Retry state is per message: while one project's endpoint is backing off,
+/// another project's alerts are still attempted instead of queueing up behind
+/// it.
+async test "a failing endpoint backs off on its own" {
+  let dead = [n_target("webhook", "http://127.0.0.1:9/hook")]
+  let engine = Engine::new(n_ctx())
+  assert_eq(
+    engine.emit(1000UL, "a1", "a", n_message("warn", 1000UL), dead, 300),
+    Queued,
+  )
+  assert_eq(
+    engine.emit(1000UL, "b1", "b", n_message("warn", 1000UL), dead, 300),
+    Queued,
+  )
+  // The first pass takes the older message and fails it into a 5s backoff.
+  let first = engine.pump(1000UL)
+  assert_eq(first.owner, Some("a"))
+  assert_eq(first.outcome, Failed(attempt=1))
+  // "b" is attempted right away rather than waiting out "a"'s backoff, which
+  // is what a single shared backoff used to force.
+  let second = engine.pump(2000UL)
+  assert_eq(second.owner, Some("b"))
+  assert_eq(second.outcome, Failed(attempt=1))
+  // Both are waiting out their own backoff now, so the pass is idle.
+  assert_eq(engine.pump(3000UL).outcome, Idle)
+  // "a" is retried when its own backoff expires …
+  let third = engine.pump(6000UL)
+  assert_eq(third.owner, Some("a"))
+  assert_eq(third.outcome, Failed(attempt=2))
+  // … and "b" when its own does.
+  let fourth = engine.pump(7000UL)
+  assert_eq(fourth.owner, Some("b"))
+  assert_eq(fourth.outcome, Failed(attempt=2))
+  assert_eq(engine.queued(), 2)
+  // Each message exhausts its own attempt budget and is dropped on its own.
+  let fifth = engine.pump(21000UL)
+  assert_eq(fifth.owner, Some("a"))
+  assert_eq(fifth.outcome, Exhausted)
+  assert_eq(fifth.remaining, 1)
+  let sixth = engine.pump(22000UL)
+  assert_eq(sixth.owner, Some("b"))
+  assert_eq(sixth.outcome, Exhausted)
+  assert_eq(engine.queued(), 0)
+}
+
+///|
 async test "pump retries with backoff, then exhausts" {
   let dead = [n_target("webhook", "http://127.0.0.1:9/hook?token=SECRET")]
   let engine = Engine::new(n_ctx())
