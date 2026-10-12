@@ -12,13 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pin the toolchain to the local dev version. The version string is
-      # the full moonc version from `moon -V` (e.g. 0.10.14+7d59c7ec9);
-      # dated 0.1.YYYYMMDD strings are not served by the binary host.
+      # Pin the toolchain to the local dev version — the WSL toolchain is the
+      # reference. The version string is the full moonc version from `moon -V`
+      # (e.g. 0.10.15+943464bfa); dated 0.1.YYYYMMDD strings are not served by
+      # the binary host.
       - name: Install MoonBit
         run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
         env:
-          MOONBIT_INSTALL_VERSION: 0.10.14+7d59c7ec9
+          MOONBIT_INSTALL_VERSION: 0.10.15+943464bfa
 
       - uses: oven-sh/setup-bun@v2
 
