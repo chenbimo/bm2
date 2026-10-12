@@ -2,7 +2,8 @@
 # Run from the Remote-WSL terminal: bash scripts/verify.sh
 # Default gate: fmt / check / unit tests / native build.
 # Pass --with-e2e to also run the end-to-end suite — that full gate belongs
-# to the release flow (scripts/release.sh), not to everyday commits.
+# to the release flow (run it manually before publishing), not to everyday
+# commits.
 set -euo pipefail
 
 WITH_E2E=0
@@ -29,26 +30,23 @@ export PATH="$(command -v moon | xargs dirname):$PATH"
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # The build directory is per environment: Windows only edits the sources (its
-# IDE runs its own toolchain against the default workspace _build), while every
-# build, test and e2e run happens here in WSL, redirected to the workspace-level
-# _build-wsl. Keeping WSL's outputs in a separate tree stops the two toolchains
-# from corrupting each other's caches. moon.work 模式下 --target-dir 指到哪,
-# 全 workspace 的产物就整体落在哪,所以两棵树都在大仓根,成员目录内不落产物。
-build_dir="$(dirname "$root")/_build-wsl"
+# IDE runs its own toolchain against the default _build), while every build,
+# test and e2e run happens here in WSL, redirected to _build-wsl. Keeping the
+# two trees apart stops the toolchains from corrupting each other's caches.
+build_dir="$root/_build-wsl"
 mkdir -p "$build_dir"
 
 cd "$root"
 
+# shellcheck source=scripts/lib/common.sh
+source "$root/scripts/lib/common.sh"
 # shellcheck source=scripts/lib/checks.sh
 source "$root/scripts/lib/checks.sh"
 check_version_sync "$root" || exit 1
 
-# bm2 lives inside the moonbit workspace (../moon.work): moon commands at the
-# workspace level would compile every member, and the pcap member only builds
-# on Windows (windows.h). Every gate below is therefore scoped to bm2's own
-# packages; the build output is module-qualified (chensuiyi/bm2/...) in
-# workspace mode.
-pkgs="$root/src $root/src/config $root/src/core $root/src/ipc $root/src/cmd/bm2 $root/src/cmd/bm2d"
+# Single-module repository: every package under src/ belongs to bm2, including
+# the vendored libraries under src/vendor/.
+pkgs=$(module_pkgs "$root")
 
 moon fmt $pkgs --target-dir "$build_dir"
 

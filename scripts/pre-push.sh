@@ -1,11 +1,8 @@
 #!/bin/bash
-# The full gate before anything leaves the machine: every member runs its
-# complete verification, regardless of what the push contains — a push is
-# rare and cheap compared to a broken main.
-#
-#   bm2     -> scripts/verify.sh (fmt/check/unit/build; e2e 属发布流程)
-#   notify  -> moon check --deny-warn + unit tests
-#   release -> moon check --deny-warn + native build
+# The full gate before anything leaves the machine: the whole module is
+# verified regardless of what the push contains — a push is rare and cheap
+# compared to a broken main. The end-to-end suite stays manual (run
+# `bash scripts/verify.sh --with-e2e` before publishing).
 #
 # Runs inside WSL via scripts/hook-dispatch.sh.
 set -euo pipefail
@@ -22,20 +19,12 @@ if ! command -v moon > /dev/null 2>&1; then
 fi
 
 root=$(pwd)
-[ -f "$root/moon.work" ] || {
-  echo "pre-push: no moon.work here; run from the workspace root"
+[ -f "$root/moon.mod" ] || {
+  echo "pre-push: no moon.mod here; run from the repository root"
   exit 1
 }
 
-echo "pre-push: bm2 验证(fmt/check/单测/构建;e2e 仅发布时跑)..."
-bash "$root/bm2/scripts/verify.sh"
-
-echo "pre-push: notify 检查与测试..."
-moon check --target native --deny-warn --warn-list +implicit_impl_as_method notify/src
-moon test -p chensuiyi/notify --target native
-
-echo "pre-push: release 检查与构建..."
-moon check --target native --deny-warn --warn-list +implicit_impl_as_method release/src
-moon build --target native release/src
+echo "pre-push: 完整验证(fmt/check/单测/构建;e2e 发布前手动跑)..."
+bash "$root/scripts/verify.sh"
 
 echo "pre-push: ok"

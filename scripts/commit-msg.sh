@@ -25,17 +25,14 @@ case "$first" in
     ;;
 esac
 
-# 允许的项目名 = moon.work 全体成员目录名 + root。成员列表动态解析,
-# 新增成员无需再改本钩子(与 AGENTS.md"项目名=成员目录名自动适用"一致)。
-members=$(grep -oE '^  "[^"]+"' moon.work | tr -d ' "' | paste -sd '|' - || true)
-
-if ! printf '%s' "$first" | grep -qE "^\[(${members}|root)\]\((feat|fix|docs|refactor|test|chore)\) [^ ].*$"; then
+# 单模块仓库:项目名只有 bm2(代码与脚本)和 root(仓库级配置)。
+if ! printf '%s' "$first" | grep -qE "^\[(bm2|root)\]\((feat|fix|docs|refactor|test|chore)\) [^ ].*$"; then
   cat <<EOF
 commit-msg: 提交说明不符合工作区约定(见根目录 AGENTS.md)。
 
   实际首行: $first
   要求格式: [项目名](类型) 提交内容
-    项目名: moon.work 成员(${members})或 root
+    项目名: bm2(代码与脚本)或 root(仓库级配置)
     类型:   feat | fix | docs | refactor | test | chore
   示例:    [bm2](feat) 新增 reload 命令
 

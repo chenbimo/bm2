@@ -3,9 +3,7 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # Same per-environment build dir as verify.sh: builds only ever happen in WSL.
-# Workspace mode qualifies outputs by module: _build-wsl lives at the workspace
-# root, not inside the member.
-source_dir="$(dirname "$root")/_build-wsl/native/debug/build/chensuiyi/bm2/cmd"
+source_dir="$root/_build-wsl/native/debug/build/chensuiyi/bm2/cmd"
 target_dir="$HOME/.local/bin"
 
 mkdir -p "$target_dir"
