@@ -38,7 +38,7 @@ static int redirect_fd(const char *path, int target_fd) {
  * Returns the child pid, or -errno on failure.
  */
 MOONBIT_FFI_EXPORT
-int32_t subproc_spawn(moonbit_bytes_t bun_path, moonbit_bytes_t script,
+int32_t proc_spawn(moonbit_bytes_t bun_path, moonbit_bytes_t script,
                       moonbit_bytes_t cwd, moonbit_bytes_t out_path,
                       moonbit_bytes_t err_path, moonbit_bytes_t env_blob) {
   int blob_len = Moonbit_array_length(env_blob);
@@ -123,7 +123,7 @@ int32_t subproc_spawn(moonbit_bytes_t bun_path, moonbit_bytes_t script,
  * reaped pid (>0), raw wait status, errno (only when reaped pid < 0).
  */
 MOONBIT_FFI_EXPORT
-int32_t subproc_waitpid(int32_t pid, int32_t nohang, moonbit_bytes_t out) {
+int32_t proc_waitpid(int32_t pid, int32_t nohang, moonbit_bytes_t out) {
   int status = 0;
   errno = 0;
   pid_t r = waitpid((pid_t)pid, &status, nohang ? WNOHANG : 0);
@@ -136,12 +136,12 @@ int32_t subproc_waitpid(int32_t pid, int32_t nohang, moonbit_bytes_t out) {
 }
 
 MOONBIT_FFI_EXPORT
-int32_t subproc_kill_pg(int32_t pgid, int32_t sig) {
+int32_t proc_kill_pg(int32_t pgid, int32_t sig) {
   return kill(-(pid_t)pgid, sig) == 0 ? 0 : -errno;
 }
 
 MOONBIT_FFI_EXPORT
-int32_t subproc_kill0(int32_t pid) {
+int32_t proc_kill0(int32_t pid) {
   return kill((pid_t)pid, 0) == 0 ? 0 : -errno;
 }
 
@@ -150,7 +150,7 @@ int32_t subproc_kill0(int32_t pid) {
  * spaces, so parsing restarts after the last ')': field 3 is the state
  * character, then ppid (4) ... utime (14), stime (15). */
 MOONBIT_FFI_EXPORT
-int64_t subproc_read_cpu_ticks(int32_t pid) {
+int64_t proc_read_cpu_ticks(int32_t pid) {
   char path[64];
   snprintf(path, sizeof(path), "/proc/%d/stat", pid);
   FILE *f = fopen(path, "r");
@@ -179,14 +179,14 @@ int64_t subproc_read_cpu_ticks(int32_t pid) {
 
 /* Clock ticks per second, the divisor that turns cpu ticks into seconds. */
 MOONBIT_FFI_EXPORT
-int32_t subproc_clk_tck(void) {
+int32_t proc_clk_tck(void) {
   long value = sysconf(_SC_CLK_TCK);
   return value > 0 ? (int32_t)value : 100;
 }
 
 /* Host name, so notifications can say which machine they came from. */
 MOONBIT_FFI_EXPORT
-int32_t subproc_hostname(moonbit_bytes_t buf, int32_t cap) {
+int32_t proc_hostname(moonbit_bytes_t buf, int32_t cap) {
   if (cap <= 0) return -EINVAL;
   if (gethostname((char *)buf, (size_t)cap) != 0) return -errno;
   buf[cap - 1] = 0;
@@ -194,13 +194,13 @@ int32_t subproc_hostname(moonbit_bytes_t buf, int32_t cap) {
 }
 
 MOONBIT_FFI_EXPORT
-int32_t subproc_getpid(void) {
+int32_t proc_getpid(void) {
   return (int32_t)getpid();
 }
 
 /* VmRSS in kB from /proc/<pid>/status, or -1 when unavailable. */
 MOONBIT_FFI_EXPORT
-int32_t subproc_read_rss_kb(int32_t pid) {
+int32_t proc_read_rss_kb(int32_t pid) {
   char path[64];
   snprintf(path, sizeof(path), "/proc/%d/status", pid);
   FILE *f = fopen(path, "r");
@@ -218,7 +218,7 @@ int32_t subproc_read_rss_kb(int32_t pid) {
 }
 
 MOONBIT_FFI_EXPORT
-void subproc_sleep_ms(int32_t ms) {
+void proc_sleep_ms(int32_t ms) {
   struct timespec ts;
   ts.tv_sec = ms / 1000;
   ts.tv_nsec = (long)(ms % 1000) * 1000000L;
@@ -227,14 +227,14 @@ void subproc_sleep_ms(int32_t ms) {
 
 /* Close a pidfd or lock fd. */
 MOONBIT_FFI_EXPORT
-int32_t subproc_close(int32_t fd) {
+int32_t proc_close(int32_t fd) {
   return close(fd) == 0 ? 0 : -errno;
 }
 
 /* Local-time components of epoch_ms: year, month(1-12), day(1-28+),
  * weekday(0=Sunday..6), hour(0-23), minute(0-59). */
 MOONBIT_FFI_EXPORT
-int32_t subproc_local_parts(int64_t epoch_ms, int32_t out[6]) {
+int32_t proc_local_parts(int64_t epoch_ms, int32_t out[6]) {
   time_t secs = (time_t)(epoch_ms / 1000);
   struct tm tm;
   if (localtime_r(&secs, &tm) == NULL) return -1;
@@ -249,7 +249,7 @@ int32_t subproc_local_parts(int64_t epoch_ms, int32_t out[6]) {
 
 /* One-minute load average, or -1.0 when unavailable. */
 MOONBIT_FFI_EXPORT
-double subproc_load_1m(void) {
+double proc_load_1m(void) {
   double loads[1];
   if (getloadavg(loads, 1) != 1) return -1.0;
   return loads[0];
@@ -257,7 +257,7 @@ double subproc_load_1m(void) {
 
 /* Free space on the filesystem holding path, in KiB, or -1 on error. */
 MOONBIT_FFI_EXPORT
-int64_t subproc_disk_free_kb(const char *path) {
+int64_t proc_disk_free_kb(const char *path) {
   struct statvfs fs;
   if (statvfs(path, &fs) != 0) return -1;
   return (int64_t)fs.f_bavail * ((int64_t)fs.f_bsize / 1024);
@@ -271,7 +271,7 @@ int64_t subproc_disk_free_kb(const char *path) {
  * Returns 0 (port free, app not listening yet), 1 (shared, reusePort on),
  * 2 (held exclusively, reusePort missing), or -errno. */
 MOONBIT_FFI_EXPORT
-int32_t subproc_probe_reuseport(int32_t port) {
+int32_t proc_probe_reuseport(int32_t port) {
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
   addr.sin_family = AF_INET;
@@ -304,16 +304,16 @@ int32_t subproc_probe_reuseport(int32_t port) {
  * correct even for adopted (non-child) instances. Requires Linux >= 5.3.
  */
 MOONBIT_FFI_EXPORT
-int32_t subproc_pidfd_open(int32_t pid) {
+int32_t proc_pidfd_open(int32_t pid) {
   int fd = (int)syscall(SYS_pidfd_open, (pid_t)pid, 0);
   return fd < 0 ? -errno : fd;
 }
 
-/* Like subproc_waitpid but through a pidfd (waitid P_PIDFD); same output
+/* Like proc_waitpid but through a pidfd (waitid P_PIDFD); same output
  * layout. waitid reports si_status raw (exit code or signal number), so it
  * is converted here to the waitpid-compatible wait status encoding. */
 MOONBIT_FFI_EXPORT
-int32_t subproc_wait_pidfd(int32_t fd, int32_t nohang, moonbit_bytes_t out) {
+int32_t proc_wait_pidfd(int32_t fd, int32_t nohang, moonbit_bytes_t out) {
   siginfo_t info;
   memset(&info, 0, sizeof(info));
   int flags = WEXITED | (nohang ? WNOHANG : 0);
@@ -344,7 +344,7 @@ int32_t subproc_wait_pidfd(int32_t fd, int32_t nohang, moonbit_bytes_t out) {
 
 /* 1 while the pidfd's process is alive, 0 once it has exited, -errno. */
 MOONBIT_FFI_EXPORT
-int32_t subproc_pidfd_alive(int32_t fd) {
+int32_t proc_pidfd_alive(int32_t fd) {
   struct pollfd pfd;
   pfd.fd = fd;
   pfd.events = POLLIN;
@@ -358,13 +358,13 @@ int32_t subproc_pidfd_alive(int32_t fd) {
 }
 
 MOONBIT_FFI_EXPORT
-int32_t subproc_getuid(void) {
+int32_t proc_getuid(void) {
   return (int32_t)getuid();
 }
 
 /* Kernel name from uname(2), e.g. "Linux", for platform gating. */
 MOONBIT_FFI_EXPORT
-int32_t subproc_uname(moonbit_bytes_t buf, int32_t cap) {
+int32_t proc_uname(moonbit_bytes_t buf, int32_t cap) {
   struct utsname uts;
   if (uname(&uts) != 0) return -errno;
   size_t n = strlen(uts.sysname);
@@ -376,7 +376,7 @@ int32_t subproc_uname(moonbit_bytes_t buf, int32_t cap) {
 /* ---------------- process helpers ---------------- */
 
 MOONBIT_FFI_EXPORT
-int32_t subproc_self_exe(moonbit_bytes_t buf, int32_t cap) {
+int32_t proc_self_exe(moonbit_bytes_t buf, int32_t cap) {
   ssize_t n = readlink("/proc/self/exe", (char *)buf, (size_t)cap - 1);
   if (n < 0) return -errno;
   buf[n] = 0;
@@ -384,7 +384,7 @@ int32_t subproc_self_exe(moonbit_bytes_t buf, int32_t cap) {
 }
 
 MOONBIT_FFI_EXPORT
-void subproc_exit(int32_t code) {
+void proc_exit(int32_t code) {
   /* Flush stdio (println output) but skip atexit handlers: the MoonBit
    * runtime registers one that would override our exit code. */
   fflush(NULL);
@@ -393,7 +393,7 @@ void subproc_exit(int32_t code) {
 
 /* Bounded write used by eprintln; same poll-guarded loop as fsx, kept local
  * so the two stubs stay independently linkable. */
-static int subproc_write_all(int fd, const uint8_t *data, size_t len) {
+static int proc_write_all(int fd, const uint8_t *data, size_t len) {
   size_t off = 0;
   while (off < len) {
     ssize_t n = write(fd, data + off, len - off);
@@ -407,6 +407,6 @@ static int subproc_write_all(int fd, const uint8_t *data, size_t len) {
 }
 
 MOONBIT_FFI_EXPORT
-int32_t subproc_write_fd(int32_t fd, moonbit_bytes_t data) {
-  return subproc_write_all(fd, data, (size_t)Moonbit_array_length(data));
+int32_t proc_write_fd(int32_t fd, moonbit_bytes_t data) {
+  return proc_write_all(fd, data, (size_t)Moonbit_array_length(data));
 }

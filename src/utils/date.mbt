@@ -151,9 +151,3 @@ pub fn make_epoch(
     second.to_int64()
   (secs * 1000L + millisecond.to_int64()).reinterpret_as_uint64()
 }
-
-///|
-/// Gregorian leap-year rule.
-pub fn is_leap_year(year : Int32) -> Bool {
-  (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
-}

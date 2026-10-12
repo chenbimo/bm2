@@ -1,7 +1,7 @@
 ///|
 test "plain prefixes the iso timestamp" {
-  let path = "/tmp/logfly-test/app.log"
-  @fsx.mkdir_p("/tmp/logfly-test")
+  let path = "/tmp/log-test/app.log"
+  @fsx.mkdir_p("/tmp/log-test")
   plain(path, "app=demo reason=test")
   let line = @utf8.decode_lossy(@fsx.read_small(path))
   assert_true(line.has_prefix("20"))
@@ -11,7 +11,7 @@ test "plain prefixes the iso timestamp" {
 
 ///|
 test "event writes jsonl with ts, event and caller fields" {
-  let path = "/tmp/logfly-test/events.jsonl"
+  let path = "/tmp/log-test/events.jsonl"
   event(path, "spawn_failed", [("app", @utils.jstr("api")), ("pid", "42")])
   let line = @utf8.decode_lossy(@fsx.read_small(path))
   assert_true(line.has_prefix("{\"ts\":\"20"))
@@ -24,7 +24,7 @@ test "event writes jsonl with ts, event and caller fields" {
 
 ///|
 test "maybe_rotate leaves small files alone" {
-  let path = "/tmp/logfly-test/small.log"
+  let path = "/tmp/log-test/small.log"
   plain(path, "tiny")
   assert_false(maybe_rotate(path, 1024))
   assert_false(@fsx.file_size(path + ".1") is Some(_))
@@ -32,7 +32,7 @@ test "maybe_rotate leaves small files alone" {
 
 ///|
 test "maybe_rotate renames past the limit" {
-  let path = "/tmp/logfly-test/renamed.log"
+  let path = "/tmp/log-test/renamed.log"
   // One timestamped line is ~28 bytes, over the tiny limit.
   plain(path, "x")
   assert_true(maybe_rotate(path, 10))
@@ -42,7 +42,7 @@ test "maybe_rotate renames past the limit" {
 
 ///|
 test "maybe_rotate copytruncate empties in place" {
-  let path = "/tmp/logfly-test/trunc.log"
+  let path = "/tmp/log-test/trunc.log"
   plain(path, "content")
   assert_true(maybe_rotate(path, 10, copytruncate=true))
   assert_eq(@utf8.decode_lossy(@fsx.read_small(path)), "")
