@@ -20,10 +20,10 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 - `src/log` — 事件日志与按大小轮转
 - `src/notify` — 通知子系统(多平台 webhook 与 SMTP)
 - `src/proc` — 进程与系统调用(spawn / pidfd / procfs / 信号,含 C 桩)
-- `src/util` — 纯函数工具(日期、文本与 JSON 辅助、版本比较)
+- `src/utils` — 纯函数工具(日期、文本与 JSON 辅助、版本比较)
 - `src/cmd/bm2`、`src/cmd/bm2d` — CLI 与守护进程入口(参数解析用 core/argparse);版本常量在 `src/cmd/bm2/version.mbt`
 
-按能力分包、按功能分文件;`src/util` 只放纯函数,有副作用的能力各自成包。命令 main 放 `src/cmd/<命令名>` 子包,二进制名与目录名一致。
+按能力分包、按功能分文件;`src/utils` 只放纯函数,有副作用的能力各自成包。命令 main 放 `src/cmd/<命令名>` 子包,二进制名与目录名一致。
 
 ## bm2d 监督循环(严格遵守)
 
