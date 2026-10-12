@@ -24,6 +24,19 @@ pub fn Supervisor::check_runtime(
   self : Supervisor,
   runtime : String,
 ) -> Unit raise SupervisorError {
+  // The probe below blocks this daemon's only thread for as long as the runtime
+  // takes to answer (up to RUNTIME_PROBE_TIMEOUT_MS, plus the bounded post-kill
+  // reap), and every restart of an existing project asks the same question
+  // again. The verdict is therefore remembered per daemon: one probe per
+  // runtime, not one per start.
+  match self.runtime_checked.get(runtime) {
+    Some(verdict) =>
+      match verdict {
+        None => return
+        Some(msg) => raise RuntimeRejected(msg)
+      }
+    None => ()
+  }
   let min_text = if runtime == "node" { MIN_NODE } else { MIN_BUN }
   let min = @utils.parse(min_text)
   let out = "\{self.state_dir}/runtime-version.tmp"
@@ -75,6 +88,7 @@ pub fn Supervisor::check_runtime(
     }
   }
   @utils.discard(() => @fsx.unlink(out))
+  self.runtime_checked[runtime] = problem
   match problem {
     Some(msg) => raise RuntimeRejected(msg)
     None => ()
