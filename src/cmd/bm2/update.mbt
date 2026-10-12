@@ -321,6 +321,18 @@ fn restore(dir : String, backed : Array[String]) -> Unit {
 /// The manifest and the online layout are defined in yicode-tech
 /// `specs/update-spec.md`.
 async fn cmd_upgrade(state_dir : String) -> Int32 {
+  // One upgrade at a time: two of them would stage and swap the same files. The
+  // lock is released when this process exits, so a crashed upgrade never blocks
+  // the next one.
+  @utils.discard(() => @fsx.mkdir_p(state_dir, mode=0o700))
+  let _lock = try @fsx.lock_exclusive(state_dir + "/upgrade.lock") catch {
+    _ => {
+      @proc.eprintln("bm2: another upgrade is already running")
+      return 1
+    }
+  } noraise {
+    fd => fd
+  }
   let base = update_base()
   let manifest_url = base +
     "/products/bm2/latest.json?t=" +
