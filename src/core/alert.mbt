@@ -1,12 +1,17 @@
 ///|
-/// bm2 的通知适配层:订阅过滤(events/levels)、事件日志与监督采样留在这里,
-/// 投递、去重、限流与重试委托给 chensuiyi/notify 库。库返回结构化结果,
-/// 是否落日志由 bm2 决定。
+/// bm2 的通知适配层:订阅过滤(events/levels)、监督采样与消息发布留在这里。
+/// 渲染、投递、去重、限流与重试属于 `src/notify` 与 `notify_runner.mbt`,
+/// 由独立的通知任务执行;监督侧只把渲染好的消息放进队列,不做任何网络调用,
+/// 因此通知永远不会拖慢监督心跳。
 
 ///|
+/// Supervision's own notify state: the sampling windows it fills while watching
+/// instances, plus the queue it publishes alerts on. Delivery state (dedupe and
+/// rate windows, the retry queue, the network) belongs to `NotifyRunner` on the
+/// other side of that queue, so everything here is touched only by the
+/// supervision task.
 pub struct Notifier {
-  engine : @notify.Engine
-  ctx : @notify.Context
+  outbound : @aqueue.Queue[Outbound]
   host : String
   state_dir : String
   /// Instance key → when it was first seen away from online, and the previous
@@ -20,13 +25,15 @@ pub struct Notifier {
 }
 
 ///|
-/// An engine with no policy of its own: each project brings its own when it
-/// emits an event. `host` brands outgoing messages and the SMTP greeting.
-pub fn Notifier::new(state_dir : String, host : String) -> Notifier {
-  let ctx : @notify.Context = { host, product: "bm2", }
+/// The supervision side of notifications, bound to the queue that carries
+/// messages to the notify task. `host` brands the outgoing message fields.
+pub fn Notifier::new(
+  state_dir : String,
+  host : String,
+  outbound : @aqueue.Queue[Outbound],
+) -> Notifier {
   {
-    engine: @notify.Engine::new(ctx),
-    ctx,
+    outbound,
     host,
     state_dir,
     offline_since: Map([]),
@@ -125,19 +132,6 @@ pub fn Notifier::cpu_percent(
         }
       }
   }
-}
-
-///|
-/// Messages dropped since the daemon started: queue overflow plus rate
-/// limiting.
-pub fn Notifier::dropped(self : Notifier) -> Int32 {
-  self.engine.dropped()
-}
-
-///|
-/// Messages currently queued.
-pub fn Notifier::queued(self : Notifier) -> Int32 {
-  self.engine.queued()
 }
 
 ///|
@@ -279,96 +273,95 @@ pub fn Notifier::emit(
   if instant.length() == 0 {
     return
   }
-  let outcome = self.engine.emit(
-    msg.ts_ms,
-    msg.key,
-    app,
-    msg,
-    lib_endpoints(flatten_endpoints(instant), policy),
-    policy.timeout_ms,
-    dedupe_window_s=policy.dedupe_window_s,
-    rate_per_minute=policy.max_per_minute,
-    queue_limit=policy.queue_size,
+  self.publish(
+    Instant({
+      owner: app,
+      key: msg.key,
+      policy,
+      targets: lib_endpoints(flatten_endpoints(instant), policy),
+      message: msg,
+    }),
   )
-  match outcome {
-    RateLimited =>
-      log_event(
-        self.state_dir,
-        "bm2d.events.jsonl",
-        "notify_rate_limited",
-        app=Some(app),
-        detail=msg.event,
-      )
-    _ => ()
-  }
 }
 
 ///|
-/// One pass of the engine: deliver at most one queued message. Returns the
-/// number of messages still queued; the outcome lands in the event log.
-pub async fn Notifier::pump(self : Notifier, now : UInt64) -> Int32 {
-  let report = self.engine.pump(now)
-  match report.outcome {
-    Partial =>
-      log_event(
-        self.state_dir,
-        "bm2d.events.jsonl",
-        "notify_partial",
-        app=report.owner,
-        detail="partial delivery",
-      )
-    Failed(attempt~) =>
-      log_event(
-        self.state_dir,
-        "bm2d.events.jsonl",
-        "notify_failed",
-        app=report.owner,
-        detail="attempt \{attempt}/3",
-      )
-    Exhausted =>
-      log_event(
-        self.state_dir,
-        "bm2d.events.jsonl",
-        "notify_failed",
-        app=report.owner,
-        detail="attempt 3/3, dropped",
-      )
-    _ => ()
-  }
-  report.remaining
-}
-
-///|
-/// Deliver immediately, ignoring subscriptions — this is `bm2 notify`, where the
-/// operator explicitly asks for a message on a project's targets.
-pub async fn Notifier::deliver_now(
+/// Publish one periodic report. Periodic delivery has no dedupe and no rate
+/// limit by design: the schedule already says how often it should arrive.
+pub fn Notifier::publish_schedule(
   self : Notifier,
-  endpoints : Array[@config.NotifyEndpoint],
+  app : String,
   policy : @config.NotifyConfig,
-  timeout_ms : Int32,
+  endpoints : Array[@config.NotifyEndpoint],
   msg : @notify.Message,
-) -> Array[(String, String?)] {
-  let results = @notify.deliver_all(
-    lib_endpoints(endpoints, policy),
-    msg,
-    timeout_ms,
-    self.ctx,
+) -> Unit {
+  self.publish(
+    Schedule({
+      owner: app,
+      key: msg.key,
+      policy,
+      targets: lib_endpoints(endpoints, policy),
+      message: msg,
+    }),
   )
-  for pair in results {
-    let (name, failure) = pair
+}
+
+///|
+/// Publish one `bm2 notify` test and hand back the queue its results arrive on.
+/// The caller owns the reply and decides how long to wait for it.
+pub fn Notifier::publish_test(
+  self : Notifier,
+  app : String,
+  policy : @config.NotifyConfig,
+  endpoints : Array[@config.NotifyEndpoint],
+  msg : @notify.Message,
+) -> @aqueue.Queue[Array[(String, String?)]] {
+  let reply : @aqueue.Queue[Array[(String, String?)]] = @aqueue.Queue::Queue(
+    kind=Blocking(1),
+  )
+  self.publish(
+    Test(
+      {
+        owner: app,
+        key: msg.key,
+        policy,
+        targets: lib_endpoints(endpoints, policy),
+        message: msg,
+      },
+      reply,
+    ),
+  )
+  reply
+}
+
+///|
+/// The alert inside one outbound message; every variant carries one.
+fn alert_of(outbound : Outbound) -> Alert {
+  match outbound {
+    Instant(alert) => alert
+    Schedule(alert) => alert
+    Test(alert, _) => alert
+  }
+}
+
+///|
+/// Put one message on the queue to the notify task. The queue never blocks: if
+/// the notify task is stuck far behind, the newest alert is dropped and the
+/// drop is logged, which is the same "keep the root cause, drop the tail"
+/// behaviour the per-owner queue limit documents.
+fn Notifier::publish(self : Notifier, outbound : Outbound) -> Unit {
+  let accepted = try self.outbound.try_put(outbound) catch {
+    _ => false
+  } noraise {
+    ok => ok
+  }
+  if !accepted {
+    let alert = alert_of(outbound)
     log_event(
       self.state_dir,
       "bm2d.events.jsonl",
-      match failure {
-        None => "notify_sent"
-        Some(_) => "notify_target_failed"
-      },
-      app=Some(name),
-      detail=match failure {
-        None => msg.event
-        Some(reason) => msg.event + ": " + reason
-      },
+      "notify_backlog_dropped",
+      app=Some(alert.owner),
+      detail=alert.message.event,
     )
   }
-  results
 }

@@ -50,8 +50,19 @@ fn wb_policy(notify_section : String) -> @config.NotifyConfig raise {
 }
 
 ///|
+/// A supervision-side notifier plus the delivery-side runner, wired over one
+/// queue exactly as the daemon wires them.
+fn wb_pair(tag : String) -> (Notifier, NotifyRunner) {
+  let dir = "/tmp/bm2-notify-\{tag}-\{@proc.get_pid()}"
+  @utils.discard(() => @fsx.mkdir_p(dir))
+  let queue : @aqueue.Queue[Outbound] = @aqueue.Queue::Queue(kind=Blocking(64))
+  (Notifier::new(dir, "host1", queue), NotifyRunner::new(dir, "host1", queue))
+}
+
+///|
 fn wb_notifier(tag : String) -> Notifier {
-  Notifier::new("/tmp/bm2-notify-\{tag}-\{@proc.get_pid()}", "host1")
+  let (notifier, _) = wb_pair(tag)
+  notifier
 }
 
 ///|
@@ -75,13 +86,14 @@ test "dedupe counts repeats and the rate limit drops the rest" {
       #|
     ),
   )
-  let notifier = wb_notifier("dedupe")
+  let (notifier, runner) = wb_pair("dedupe")
   assert_true(policy.enabled)
   // Same signature inside the window: queued once, the rest counted.
   notifier.emit(policy, "api", wb_message("crash", "warn", 1000UL))
   notifier.emit(policy, "api", wb_message("crash", "warn", 2000UL))
   notifier.emit(policy, "api", wb_message("crash", "warn", 3000UL))
-  assert_eq(notifier.queued(), 1)
+  runner.drain(1000UL)
+  assert_eq(runner.queued(), 1)
   // A different signature is a different event.
   notifier.emit(
     policy,
@@ -90,7 +102,8 @@ test "dedupe counts repeats and the rate limit drops the rest" {
       "crash", "warn", "other", "body", "crash|api|1", 3000UL,
     ),
   )
-  assert_eq(notifier.queued(), 2)
+  runner.drain(1000UL)
+  assert_eq(runner.queued(), 2)
 }
 
 ///|
@@ -114,12 +127,13 @@ test "rate limiting and queue overflow are counted, never unbounded" {
       #|
     ),
   )
-  let notifier = wb_notifier("limit")
+  let (notifier, runner) = wb_pair("limit")
   notifier.emit(
     policy,
     "api",
     @notify.Message::new("crash", "warn", "a", "b", "s1", 1000UL),
   )
+  runner.drain(1000UL)
   // Each owner has its own minute budget: the second and third emissions of
   // the same project are rate limited, never queued.
   notifier.emit(
@@ -127,27 +141,31 @@ test "rate limiting and queue overflow are counted, never unbounded" {
     "api",
     @notify.Message::new("crash", "warn", "a", "b", "s2", 1000UL),
   )
+  runner.drain(1000UL)
   notifier.emit(
     policy,
     "api",
     @notify.Message::new("crash", "warn", "a", "b", "s3", 1000UL),
   )
-  assert_eq(notifier.queued(), 1)
-  assert_eq(notifier.dropped(), 2)
+  runner.drain(1000UL)
+  assert_eq(runner.queued(), 1)
+  assert_eq(runner.dropped(), 2)
   // An unsubscribed event never queues at all.
   notifier.emit(
     policy,
     "api",
     @notify.Message::new("report", "info", "r", "b", "s4", 1000UL),
   )
-  assert_eq(notifier.queued(), 1)
+  runner.drain(1000UL)
+  assert_eq(runner.queued(), 1)
   // Another project's events queue separately, with its own minute budget.
   notifier.emit(
     policy,
     "other",
     @notify.Message::new("crash", "warn", "a", "b", "s5", 1000UL),
   )
-  assert_eq(notifier.queued(), 2)
+  runner.drain(1000UL)
+  assert_eq(runner.queued(), 2)
 }
 
 ///|
@@ -203,19 +221,32 @@ async test "a failed delivery reports a reason without the credential" {
       #|
     ),
   )
-  let notifier = wb_notifier("fail")
+  let (notifier, runner) = wb_pair("fail")
   let endpoints = []
   for report in policy.reports {
     for endpoint in report.targets {
       endpoints.push(endpoint)
     }
   }
-  let results = notifier.deliver_now(
-    endpoints,
+  let reply = notifier.publish_test(
+    "api",
     policy,
-    policy.timeout_ms,
+    endpoints,
     @notify.Message::new("crash", "warn", "t", "b", "s", 1000UL),
   )
+  // One pass takes the test off the queue and delivers it; the result comes
+  // back on the reply queue rather than as a return value, because the
+  // delivery happens in the notify task.
+  runner.step(1000UL)
+  let received = try reply.try_get() catch {
+    _ => None
+  } noraise {
+    item => item
+  }
+  let results = match received {
+    Some(results) => results
+    None => fail("expected the test delivery to report its results")
+  }
   assert_eq(results.length(), 1)
   let (name, failure) = results[0]
   assert_eq(name, "webhook")

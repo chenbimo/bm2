@@ -52,6 +52,9 @@ pub struct Supervisor {
   bun_path : String
   /// Test seam: the production daemon uses the default.
   memory_interval_ms : Int32
+  /// Interval gates: all four hold monotonic milliseconds, like every other
+  /// deadline in this struct, so a system clock change cannot desynchronise
+  /// them. Wall-clock time is read where an absolute time is needed.
   mut last_memory_check_ms : UInt64
   mut last_log_check_ms : UInt64
   mut last_reuseport_probe_ms : UInt64
@@ -69,7 +72,7 @@ pub struct Supervisor {
   last_daily_report_day : Map[String, UInt64]
   /// Per project: restart timestamps inside the storm window.
   storm_hits : Map[String, Array[UInt64]]
-  /// Instance key → the spawn generation (started_at_ms) already probed
+  /// Instance key → the spawn generation (started_mono_ms) already probed
   /// for a missing listener, so each spawn is judged once.
   start_probe_done : Map[String, UInt64]
 }
@@ -89,6 +92,11 @@ pub extend StatsWindow with Debug::{to_repr}
 /// Create an empty supervisor. Projects are added by `register` (on
 /// `bm2 start`) or by `load_projects` (adoption after a daemon restart);
 /// nothing is ever started automatically.
+///
+/// The notification queue is created here and shared by both sides: the
+/// supervision task publishes on it (`Notifier`) and the notify task consumes
+/// it (`NotifyRunner`, through `outbound`). That queue is the only thing the
+/// two tasks have in common.
 pub fn Supervisor::new(
   state_dir~ : String,
   bun_path~ : String,
@@ -98,6 +106,9 @@ pub fn Supervisor::new(
   // mkdir only applies its mode to directories it creates; tighten a state
   // dir left behind by an older version, since it holds app logs.
   @utils.discard(() => @fsx.chmod(state_dir, 0o700))
+  let outbound : @aqueue.Queue[Outbound] = @aqueue.Queue::Queue(
+    kind=Blocking(NOTIFY_INBOUND_CAPACITY),
+  )
   {
     apps: Map([]),
     instances: Map([]),
@@ -109,7 +120,7 @@ pub fn Supervisor::new(
     last_memory_check_ms: 0UL,
     last_log_check_ms: 0UL,
     last_reuseport_probe_ms: 0UL,
-    notify: Notifier::new(state_dir, @proc.hostname()),
+    notify: Notifier::new(state_dir, @proc.hostname(), outbound),
     last_notify_check_ms: 0UL,
     schedule_last: Map([]),
     last_schedule_check_ms: 0UL,
@@ -181,6 +192,13 @@ pub fn Supervisor::notifier(self : Supervisor) -> Notifier {
 }
 
 ///|
+/// The queue supervision publishes notifications on. The daemon hands it to the
+/// notify task once, at startup, and nothing else takes it.
+pub fn Supervisor::outbound(self : Supervisor) -> @aqueue.Queue[Outbound] {
+  self.notify.outbound
+}
+
+///|
 pub fn Supervisor::snapshot(self : Supervisor) -> Array[Instance] {
   let result = []
   for pair in self.instances.iter() {
@@ -240,7 +258,7 @@ pub async fn Supervisor::wait_settled(
       None => ()
     }
   }
-  let deadline = @utils.now_ms() + (timeout + 2000).to_uint64()
+  let deadline = @proc.monotonic_ms() + (timeout + 2000).to_uint64()
   while true {
     self.tick()
     let mut ok = true
@@ -253,7 +271,7 @@ pub async fn Supervisor::wait_settled(
     if ok {
       return true
     }
-    if @utils.now_ms() > deadline {
+    if @proc.monotonic_ms() > deadline {
       return false
     }
     @async.sleep(50)
@@ -282,9 +300,18 @@ pub async fn Supervisor::wait_settled(
 /// allows. The expensive scans (memory, log size) gate themselves on their
 /// own timestamps, so the 50 ms cadence is a scheduling tick, not a
 /// promise to rescan every instance that often.
-pub async fn Supervisor::tick(self : Supervisor) -> Unit {
+///
+/// This function is deliberately synchronous: it contains no await point, so
+/// nothing in supervision can be delayed by the network, by a notification
+/// endpoint, or by another task. Notifications are *published* here (an
+/// in-memory queue put) and delivered by the notify task.
+pub fn Supervisor::tick(self : Supervisor) -> Unit {
   self.reap()
-  let now = @utils.now_ms()
+  // Every gate and deadline below is measured on the monotonic clock, so a
+  // system time change can neither stall a scan forever nor make it run on
+  // every tick. Wall-clock time is read separately, where a human needs an
+  // absolute time (cron fields, message timestamps).
+  let now = @proc.monotonic_ms()
   if now - self.last_memory_check_ms >= self.memory_interval_ms.to_uint64() {
     self.last_memory_check_ms = now
     self.check_memory()
@@ -298,13 +325,10 @@ pub async fn Supervisor::tick(self : Supervisor) -> Unit {
   self.check_restarts(now)
   self.check_pending()
   self.check_removals()
-  self.check_uptime_resets()
-  // Notifications come last: events recorded by this pass are queued, cron
-  // schedules are evaluated, and one queued message is delivered per pass
-  // (bounded by the notify timeout).
+  // Threshold alerts and periodic reports come last: they publish onto the
+  // notify queue and never wait for a delivery.
   self.check_notify(now)
-  self.check_schedules(now)
-  ignore(self.notify.pump(now))
+  self.check_schedules(now, @utils.now_ms())
 }
 
 ///|
@@ -450,28 +474,6 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
       _ => ()
     } noraise {
       _ => ()
-    }
-  }
-}
-
-///|
-/// A stable run means the instance earned back its whole crash budget.
-/// The counter is its own guard: resetting it to zero makes the condition
-/// false until the next abnormal exit, so no extra flag is needed.
-fn Supervisor::check_uptime_resets(self : Supervisor) -> Unit {
-  for pair in self.instances.iter() {
-    let (name, arr) = pair
-    let app = match self.apps.get(name) {
-      Some(app) => app
-      None => continue
-    }
-    for inst in arr {
-      if inst.status is Online &&
-        inst.restart_count > 0 &&
-        elapsed_since(inst.started_at_ms) >= app.min_uptime_ms.to_uint64() {
-        inst.restart_count = 0
-        self.try_save_state(inst)
-      }
     }
   }
 }
@@ -627,7 +629,8 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
     )
     self.mark_restarting(
       inst,
-      @utils.now_ms() + (app.restart_delay_ms * inst.restart_count).to_uint64(),
+      @proc.monotonic_ms() +
+      (app.restart_delay_ms * inst.restart_count).to_uint64(),
     )
   }
 }
@@ -643,7 +646,7 @@ fn terminate(
 ) -> Unit {
   inst.mark_stopping(intent, reason)
   @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGTERM))
-  inst.kill_deadline_ms = @utils.now_ms() + app.stop_timeout_ms.to_uint64()
+  inst.kill_deadline_ms = @proc.monotonic_ms() + app.stop_timeout_ms.to_uint64()
 }
 
 ///|

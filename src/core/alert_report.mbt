@@ -11,10 +11,6 @@
 const NOTIFY_CHECK_INTERVAL_MS : UInt64 = 60000UL
 
 ///|
-/// How far back restart-storm detection looks.
-const STORM_WINDOW_MS : UInt64 = 600000UL
-
-///|
 /// The `[notify]` policy of one project. A project that never configured
 /// notifications gets the disabled policy, so callers stay unconditional.
 fn Supervisor::project_policy(
@@ -45,7 +41,13 @@ fn human_duration(ms : UInt64) -> String {
 }
 
 ///|
-fn instance_fields(inst : Instance, now : UInt64) -> Array[(String, String)] {
+/// The field list of one instance for a message. `now_mono` is monotonic
+/// milliseconds, so the uptime line is a real duration rather than a number
+/// a system time change could distort.
+fn instance_fields(
+  inst : Instance,
+  now_mono : UInt64,
+) -> Array[(String, String)] {
   let fields : Array[(String, String)] = [
     ("app", inst.app_name),
     ("instance", inst.instance_id.to_string()),
@@ -56,8 +58,8 @@ fn instance_fields(inst : Instance, now : UInt64) -> Array[(String, String)] {
     ("starts", inst.times.to_string()),
     ("crashes", inst.restart_count.to_string()),
   ]
-  if inst.started_at_ms > 0UL && now > inst.started_at_ms {
-    fields.push(("uptime", human_duration(now - inst.started_at_ms)))
+  if inst.started_mono_ms > 0UL && now_mono > inst.started_mono_ms {
+    fields.push(("uptime", human_duration(now_mono - inst.started_mono_ms)))
   }
   fields
 }
@@ -84,7 +86,10 @@ pub fn Supervisor::notify_instance(
   title : String,
   body : String,
 ) -> Unit {
-  let now = @utils.now_ms()
+  // Two clocks, two jobs: the message timestamp is wall-clock time (it is what
+  // the recipient reads and what platform signatures are computed over), while
+  // the uptime field is a duration, measured on the monotonic clock.
+  let now_mono = @proc.monotonic_ms()
   self.notify.emit(
     self.project_policy(inst.app_name),
     inst.app_name,
@@ -94,8 +99,8 @@ pub fn Supervisor::notify_instance(
       "\{inst.app_name} · \{title}",
       body,
       instance_signature(event, inst),
-      now,
-      fields=instance_fields(inst, now),
+      @utils.now_ms(),
+      fields=instance_fields(inst, now_mono),
     ),
   )
 }
@@ -174,7 +179,7 @@ pub fn Supervisor::online_count(self : Supervisor, app_name : String) -> Int32 {
 fn Supervisor::report_line(
   self : Supervisor,
   inst : Instance,
-  now : UInt64,
+  now_mono : UInt64,
   lang~ : String = "en",
   peak~ : Int32? = None,
 ) -> String {
@@ -206,18 +211,18 @@ fn Supervisor::report_line(
       self.notify.cpu_percent(
         inst.app_name + "/" + inst.instance_id.to_string(),
         inst.pid,
-        now,
+        now_mono,
       ) {
       Some(percent) =>
         line = line + " · " + lb_cpu + " " + format_percent(percent) + "%"
       None => ()
     }
-    if inst.started_at_ms > 0UL && now > inst.started_at_ms {
+    if inst.started_mono_ms > 0UL && now_mono > inst.started_mono_ms {
       line = line +
         " · " +
         lb_uptime +
         " " +
-        human_duration(now - inst.started_at_ms)
+        human_duration(now_mono - inst.started_mono_ms)
     }
   } else if inst.last_reason is Some(reason) {
     line = line + " · " + reason
@@ -251,7 +256,7 @@ fn Supervisor::build_report(
   self : Supervisor,
   app_name : String,
   policy : @config.NotifyConfig,
-  now : UInt64,
+  now_mono : UInt64,
   stats~ : Bool = false,
 ) -> @notify.Message {
   let lines = []
@@ -267,7 +272,7 @@ fn Supervisor::build_report(
         }
         let key = inst.app_name + "/" + inst.instance_id.to_string()
         let peak = self.notify.take_report_peak(key)
-        lines.push(self.report_line(inst, now, lang=policy.lang, peak~))
+        lines.push(self.report_line(inst, now_mono, lang=policy.lang, peak~))
       }
     None => ()
   }
@@ -330,7 +335,9 @@ fn Supervisor::build_report(
     } else {
       "report|" + app_name
     },
-    now,
+    // The message timestamp is wall-clock time: it is what the recipient
+    // sees, and what platform signatures are computed over.
+    @utils.now_ms(),
     fields~,
   )
 }
@@ -339,12 +346,12 @@ fn Supervisor::build_report(
 /// Threshold alerts and the periodic report, evaluated once a minute per
 /// project. Each condition is deduplicated by the engine, so something that
 /// persists alerts once per dedupe window instead of on every pass.
-pub fn Supervisor::check_notify(self : Supervisor, now : UInt64) -> Unit {
-  if now >= self.last_notify_check_ms &&
-    now - self.last_notify_check_ms < NOTIFY_CHECK_INTERVAL_MS {
+pub fn Supervisor::check_notify(self : Supervisor, now_mono : UInt64) -> Unit {
+  if now_mono >= self.last_notify_check_ms &&
+    now_mono - self.last_notify_check_ms < NOTIFY_CHECK_INTERVAL_MS {
     return
   }
-  self.last_notify_check_ms = now
+  self.last_notify_check_ms = now_mono
   for app_name in self.app_names() {
     let policy = self.project_policy(app_name)
     match self.instances.get(app_name) {
@@ -365,11 +372,12 @@ pub fn Supervisor::check_notify(self : Supervisor, now : UInt64) -> Unit {
               Some(generation) => generation
               None => 0UL
             }
-            if probed != inst.started_at_ms &&
-              now >= inst.started_at_ms + policy.start_timeout_ms.to_uint64() {
+            if probed != inst.started_mono_ms &&
+              now_mono >=
+              inst.started_mono_ms + policy.start_timeout_ms.to_uint64() {
               let rc = @proc.probe_reuseport(inst.port)
               if rc == 0 {
-                self.start_probe_done[probe_key] = inst.started_at_ms
+                self.start_probe_done[probe_key] = inst.started_mono_ms
                 let (title, body) = render_msg(
                   policy.lang,
                   StartTimeout(inst.port, policy.start_timeout_ms),
@@ -377,7 +385,7 @@ pub fn Supervisor::check_notify(self : Supervisor, now : UInt64) -> Unit {
                 self.notify_instance(inst, "start_timeout", "warn", title, body)
               } else if rc > 0 {
                 // Listening (shared or exclusive) — settled for this spawn.
-                self.start_probe_done[probe_key] = inst.started_at_ms
+                self.start_probe_done[probe_key] = inst.started_mono_ms
               }
               // rc < 0: probe itself failed; retry on the next pass.
             }
@@ -385,9 +393,9 @@ pub fn Supervisor::check_notify(self : Supervisor, now : UInt64) -> Unit {
           if inst.status is Online || inst.status is Stopped {
             self.notify.forget_offline(key)
           } else if policy.threshold_offline_min > 0 {
-            let since = self.notify.offline_since(key, now)
+            let since = self.notify.offline_since(key, now_mono)
             let limit = (policy.threshold_offline_min * 60000).to_uint64()
-            if now >= since && now - since >= limit {
+            if now_mono >= since && now_mono - since >= limit {
               let (title, body) = render_msg(
                 policy.lang,
                 ThresholdOffline(
@@ -426,7 +434,7 @@ pub fn Supervisor::check_notify(self : Supervisor, now : UInt64) -> Unit {
         Some(hits) => hits
         None => []
       }
-      let count = storm_hit_count(hits, now, STORM_WINDOW_MS)
+      let count = storm_hit_count(hits, now_mono, STORM_WINDOW_MS)
       if count >= policy.threshold_storm {
         let (title, body) = render_msg(
           policy.lang,
@@ -446,20 +454,24 @@ pub fn Supervisor::check_notify(self : Supervisor, now : UInt64) -> Unit {
 }
 
 ///|
-/// Periodic targets: every `[[notify.target]]` with an `interval` gets its
-/// content rendered and delivered on its own schedule, straight through
-/// deliver_all — no event queue, no dedupe, no rate limit.
-pub async fn Supervisor::check_schedules(
+/// Periodic reports: every `[[notify.report]]` with a `cron` gets its content
+/// rendered on its own schedule and published to the notify task, which
+/// delivers it straight through — no event queue, no dedupe, no rate limit.
+/// Rendering happens here because supervised state lives here; delivery is the
+/// notify task's job. Nothing in this function waits on the network.
+pub fn Supervisor::check_schedules(
   self : Supervisor,
-  now : UInt64,
+  now_mono : UInt64,
+  now_wall : UInt64,
 ) -> Unit {
   // Cron granularity is minutes; evaluate once per minute, not on every
-  // 50 ms tick — otherwise a matching minute fires once per tick.
-  if now >= self.last_schedule_check_ms &&
-    now - self.last_schedule_check_ms < NOTIFY_CHECK_INTERVAL_MS {
+  // 50 ms tick — otherwise a matching minute fires once per tick. The gate is
+  // a duration (monotonic), the cron fields are local wall-clock time.
+  if now_mono >= self.last_schedule_check_ms &&
+    now_mono - self.last_schedule_check_ms < NOTIFY_CHECK_INTERVAL_MS {
     return
   }
-  self.last_schedule_check_ms = now
+  self.last_schedule_check_ms = now_mono
   for app_name in self.app_names() {
     let policy = self.project_policy(app_name)
     if !policy.enabled {
@@ -470,7 +482,7 @@ pub async fn Supervisor::check_schedules(
         Some(cron) => cron
         None => continue
       }
-      let parts = match @proc.local_parts(now) {
+      let parts = match @proc.local_parts(now_wall) {
         Some(parts) => parts
         None => continue
       }
@@ -478,29 +490,8 @@ pub async fn Supervisor::check_schedules(
         continue
       }
       let stats = report.template == Some("stats")
-      let message = self.build_report(app_name, policy, now, stats~)
-      let results = @notify.deliver_all(
-        lib_endpoints(report.targets, policy),
-        message,
-        policy.timeout_ms,
-        self.notify.ctx,
-      )
-      for pair in results {
-        let (name, failure) = pair
-        log_event(
-          self.state_dir,
-          "bm2d.events.jsonl",
-          match failure {
-            None => "notify_sent"
-            Some(_) => "notify_target_failed"
-          },
-          app=Some(name),
-          detail=match failure {
-            None => "schedule"
-            Some(reason) => "schedule: " + reason
-          },
-        )
-      }
+      let message = self.build_report(app_name, policy, now_mono, stats~)
+      self.notify.publish_schedule(app_name, policy, report.targets, message)
     }
   }
 }
@@ -534,16 +525,18 @@ pub fn Supervisor::notify_memory_pressure(
     return
   }
   let limit_kb = match self.apps.get(inst.app_name) {
-    Some(app) => app.max_memory_mb * 1024
-    None => 0
+    Some(app) => app.max_memory_mb.to_int64() * 1024L
+    None => 0L
   }
-  if limit_kb > 0 && rss_kb * 100 >= limit_kb * policy.threshold_rss_percent {
+  if limit_kb > 0L &&
+    rss_kb.to_int64() * 100L >=
+    limit_kb * policy.threshold_rss_percent.to_int64() {
     let (title, body) = render_msg(
       policy.lang,
       ThresholdMemory(
         rss_kb / 1024,
         policy.threshold_rss_percent,
-        limit_kb / 1024,
+        (limit_kb / 1024L).to_int(),
       ),
     )
     self.notify_instance(inst, "threshold", "warn", title, body)

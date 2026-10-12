@@ -124,7 +124,18 @@ async fn run() -> Int32 {
   // shutdown paths below.
   let outcome = @async.handle_cancellation(async fn() {
     @async.with_task_group(async fn(tg) {
-      ignore(tg.spawn(async fn() { tick_loop(sv) }))
+      // Two long-lived tasks, each owning its own state and neither able to
+      // take the other down. Supervision is synchronous and never waits on the
+      // network; delivery is the only place that touches it. `allow_failure`
+      // keeps a failure in one task from cancelling the other, and each task
+      // records its own failures in the event log.
+      let runner = @core.NotifyRunner::new(
+        state_dir,
+        @proc.hostname(),
+        sv.outbound(),
+      )
+      ignore(tg.spawn(async fn() { tick_loop(sv) }, allow_failure=true))
+      ignore(tg.spawn(async fn() { runner.run() }, allow_failure=true))
       let mode = accept_loop(server, sv, state_dir, token)
       tg.return_immediately(mode)
       mode
@@ -163,6 +174,9 @@ async fn run() -> Int32 {
 /// Supervision heartbeat: the same 50ms cadence as the old poll loop, now a
 /// timer inside the async runtime. Timer cancellation is what unwinds this
 /// task when the daemon exits.
+///
+/// `Supervisor::tick` declares no error type, so this loop cannot raise and
+/// cannot end early: supervision stops only when the daemon stops.
 async fn tick_loop(sv : @core.Supervisor) -> Unit {
   while true {
     let timer = @async.Timer::Timer(50)
@@ -309,11 +323,55 @@ async fn shutdown(
 }
 
 ///|
+/// Wait for the notify task's per-target results. Polls rather than cancelling
+/// a pending read, so the semantics stay obvious and no result can be lost to a
+/// cancellation.
+async fn wait_notify_results(
+  reply : @aqueue.Queue[Array[(String, String?)]],
+  budget_ms : UInt64,
+) -> Array[(String, String?)]? {
+  let deadline = @proc.monotonic_ms() + budget_ms
+  while true {
+    let results = try reply.try_get() catch {
+      _ => None
+    } noraise {
+      item => item
+    }
+    match results {
+      Some(results) => return Some(results)
+      None => ()
+    }
+    if @proc.monotonic_ms() >= deadline {
+      return None
+    }
+    @async.sleep(20)
+  } nobreak {
+    None
+  }
+}
+
+///|
+/// How long to wait for a test delivery: one `timeout_ms` per target plus
+/// margin, capped so a pathological endpoint count cannot pin the request. The
+/// CLI derives its own request timeout from the same shape of bound, so it
+/// gives up first and reports the timeout to the user.
+fn test_wait_budget_ms(
+  policy : @config.NotifyConfig,
+  targets : Int32,
+) -> UInt64 {
+  let count = if targets > 0 { targets } else { 1 }
+  let budget = policy.timeout_ms.to_uint64() * count.to_uint64()
+  let capped = if budget > 120000UL { 120000UL } else { budget }
+  capped + 2000UL
+}
+
+///|
 /// `bm2 notify [name]`: deliver one test message on the calling project's
 /// targets, so an operator can prove an endpoint and its credential work without
-/// waiting for an incident. Delivery happens synchronously, in the request,
-/// because it is an explicit administrative action rather than a side effect of
-/// supervision.
+/// waiting for an incident. The delivery itself happens in the notify task (the
+/// only place that talks to the network); this request publishes the test and
+/// waits for the per-target results, which keeps the control plane free of
+/// delivery work while still reporting exactly what happened.
 async fn cmd_notify(
   sv : @core.Supervisor,
   req : @protocol.Request,
@@ -358,14 +416,22 @@ async fn cmd_notify(
       },
     )
   }
-  let results = sv
+  let reply = sv
     .notifier()
-    .deliver_now(
-      endpoints,
+    .publish_test(
+      config.name,
       policy,
-      policy.timeout_ms,
+      endpoints,
       @core.test_message(@utils.now_ms(), lang=policy.lang),
     )
+  let results = match
+    wait_notify_results(reply, test_wait_budget_ms(policy, endpoints.length())) {
+    Some(results) => results
+    None =>
+      return @protocol.Response::error(
+        "the notify task did not report a result within the delivery timeout",
+      )
+  }
   if results.length() == 0 {
     return @protocol.Response::error(
       match req.notify_target {
@@ -491,13 +557,13 @@ fn infos_of(
   sv : @core.Supervisor,
   names : Array[String],
 ) -> Array[@protocol.InstanceInfo] {
-  let now = @utils.now_ms()
+  let now_mono = @proc.monotonic_ms()
   let infos = []
   for name in names {
     try {
       for inst in sv.app_instances(name) {
         if !(inst.status is @core.Status::Stopped) {
-          infos.push(@core.instance_info_of(inst, now))
+          infos.push(@core.instance_info_of(inst, now_mono))
         }
       }
     } catch {

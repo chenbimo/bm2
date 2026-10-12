@@ -19,6 +19,7 @@ fn app_config(
   script~ : String = "fixture.sh",
   instances~ : Int32 = 1,
   exec_mode~ : String = "fork",
+  notify~ : @config.NotifyConfig? = None,
 ) -> @config.Config {
   {
     name,
@@ -33,7 +34,7 @@ fn app_config(
     restart_delay_ms,
     min_uptime_ms,
     stop_timeout_ms,
-    notify: @config.NotifyConfig::disabled(),
+    notify: notify.unwrap_or(@config.NotifyConfig::disabled()),
     env: [],
   }
 }
@@ -56,11 +57,14 @@ fn make_sv(root : String, config : @config.Config) -> @core.Supervisor raise {
 }
 
 ///|
+/// Drive the supervisor for roughly `ms`, yielding to the async runtime between
+/// passes. `Supervisor::tick` itself is synchronous now, so the yield is what
+/// keeps these tests cooperative.
 async fn drive(sv : @core.Supervisor, ms : Int32) -> Unit {
   let end = @utils.now_ms() + ms.to_uint64()
   while @utils.now_ms() < end {
     sv.tick()
-    @proc.sleep_ms(20)
+    @async.sleep(20)
   }
 }
 
@@ -84,7 +88,7 @@ async test "crash loop restarts then reaches errored" {
   let deadline = @utils.now_ms() + 5000UL
   while @utils.now_ms() < deadline && !(inst.status is @core.Status::Errored) {
     sv.tick()
-    @proc.sleep_ms(20)
+    @async.sleep(20)
   }
   assert_eq(inst.status, @core.Status::Errored)
   assert_eq(inst.restart_count, 3)
@@ -130,19 +134,105 @@ test "cluster mode shares one port across instances" {
 }
 
 ///|
-async test "stable run over min uptime resets restart count" {
-  let root = "/tmp/bm2-core-test-reset"
-  let dir = make_app_dir(root, "api", "sleep 30\n")
-  let sv = make_sv(root, app_config("api", dir, 4120, min_uptime_ms=300))
+async test "crash after min uptime still consumes the crash budget" {
+  // Pins the loophole the old implementation had: resetting the budget merely
+  // because the instance had been online past min_uptime let a process that
+  // crashes on a period longer than min_uptime loop forever without ever
+  // reaching errored. An abnormal exit must always count.
+  let root = "/tmp/bm2-core-test-budget"
+  let dir = make_app_dir(root, "api", "sleep 0.3\nexit 1\n")
+  let sv = make_sv(
+    root,
+    app_config(
+      "api",
+      dir,
+      4120,
+      max_restarts=2,
+      restart_delay_ms=50,
+      min_uptime_ms=100,
+    ),
+  )
   sv.start_app("api")
-  drive(sv, 500)
   let inst = sv.instance("api", 0)
-  assert_eq(inst.status, @core.Status::Online)
+  let deadline = @proc.monotonic_ms() + 8000UL
+  while @proc.monotonic_ms() < deadline &&
+        !(inst.status is @core.Status::Errored) {
+    sv.tick()
+    @async.sleep(20)
+  }
+  assert_eq(inst.status, @core.Status::Errored)
+  assert_eq(inst.restart_count, 3)
+  let crash = @fs.read_file_to_string(root + "/state/api/logs/api-0.crash.log")
+  assert_true(crash.contains("reason=exit_code"))
+}
+
+///|
+async test "a clean exit after min uptime earns back the crash budget" {
+  let root = "/tmp/bm2-core-test-budget-reset"
+  let dir = make_app_dir(root, "api", "sleep 0.3\nexit 0\n")
+  let sv = make_sv(
+    root,
+    app_config(
+      "api",
+      dir,
+      4122,
+      max_restarts=2,
+      restart_delay_ms=50,
+      min_uptime_ms=100,
+    ),
+  )
+  sv.start_app("api")
+  let inst = sv.instance("api", 0)
   inst.restart_count = 2
-  sv.tick()
+  // One clean-exit cycle: 0.3s of runtime, then the reap and the restart delay.
+  drive(sv, 700)
   assert_eq(inst.restart_count, 0)
   stop_all(sv, "api")
   assert_eq(sv.instance("api", 0).status, @core.Status::Stopped)
+}
+
+///|
+/// The decoupling invariant, at the unit level: a tick that produces an alert
+/// publishes it and returns. Delivery belongs to the notify task, so a tick
+/// never pays for a network round trip — not even a failing one.
+async test "ticks publish alerts instead of delivering them" {
+  let root = "/tmp/bm2-core-test-publish"
+  let dir = make_app_dir(root, "api", "exit 1\n")
+  let doc = "name = \"api\"\nscript = \"fixture.sh\"\ninstances = 1\nport = 4124\n" +
+    "[notify]\nenabled = true\nqueue_size = 4\nevents = [\"crash\"]\n" +
+    "[[notify.report]]\nname = \"t\"\nevents = [\"crash\"]\n" +
+    "[[notify.report.target]]\nplatform = \"webhook\"\n" +
+    "url = \"http://127.0.0.1:9/hook\"\n"
+  let policy = @config.parse(doc, dir).notify
+  let sv = make_sv(
+    root,
+    app_config(
+      "api",
+      dir,
+      4124,
+      max_restarts=1,
+      restart_delay_ms=50,
+      notify=Some(policy),
+    ),
+  )
+  sv.start_app("api")
+  drive(sv, 600)
+  // Nothing in this test ever stepped the notify task, so had a tick delivered
+  // the alerts itself, it would have had to reach the unreachable endpoint.
+  let mut published = 0
+  for _ in 0..<8 {
+    let item = try sv.outbound().try_get() catch {
+      _ => None
+    } noraise {
+      got => got
+    }
+    match item {
+      Some(@core.Instant(_)) => published += 1
+      Some(_) => ()
+      None => break
+    }
+  }
+  assert_true(published > 0)
 }
 
 ///|
