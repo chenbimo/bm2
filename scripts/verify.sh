@@ -65,13 +65,15 @@ if [ "$WITH_E2E" = "1" ]; then
   # mktemp does not create parent directories; the build above made the tree.
   bin_dir=$(mktemp -d "$build_dir/bm2-e2e-bin.XXXXXX")
   trap 'rm -rf "$bin_dir"' EXIT
-  # Resolve the executables by name and require them to be newer than the newest
-  # source. moon moved its native artifact directory between releases
-  # (build/<module>/<pkg>/x.exe became build/<pkg>/x.exe), and a hardcoded path
-  # kept matching the pre-move copy: the e2e then ran against whatever binary
-  # happened to sit there and went green anyway.
-  newest=$(find "$root/src" -name '*.mbt' -printf '%T@ %p\n' | sort -rn | head -1)
-  newest_time=${newest%%.*}
+  # Resolve the executables by name and require each to be newer than the newest
+  # source of its own package. moon moved its native artifact directory between
+  # releases (build/<module>/<pkg>/x.exe became build/<pkg>/x.exe), and a
+  # hardcoded path kept matching the pre-move copy: the e2e then ran against
+  # whatever binary happened to sit there and went green anyway.
+  #
+  # The freshness rule stays package-local on purpose: moon legitimately does not
+  # relink bm2d when only the CLI changed, so a rule covering the whole tree would
+  # fail on a healthy build — while this one still catches a stale artifact.
   for name in bm2 bm2d; do
     exe=$(find "$build_dir" -name "$name.exe" -printf '%T@ %p\n' |
       sort -rn | head -1 | cut -d' ' -f2-)
@@ -79,8 +81,10 @@ if [ "$WITH_E2E" = "1" ]; then
       echo "verify.sh: no built $name.exe under $build_dir" >&2
       exit 1
     fi
-    if [ "$(stat -c %Y "$exe")" -lt "$newest_time" ]; then
-      echo "verify.sh: $name.exe is older than the newest source ($exe): the build did not refresh it" >&2
+    newest=$(find "$root/src/cmd/$name" -name '*.mbt' -printf '%T@ %p\n' |
+      sort -rn | head -1)
+    if [ "$(stat -c %Y "$exe")" -lt "${newest%%.*}" ]; then
+      echo "verify.sh: $name.exe is older than its own package sources ($exe): the build did not refresh it" >&2
       exit 1
     fi
     cp "$exe" "$bin_dir/$name"
