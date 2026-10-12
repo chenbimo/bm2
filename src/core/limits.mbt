@@ -148,7 +148,7 @@ fn Supervisor::check_memory(self : Supervisor) -> Unit {
               kb,
             )
             self.record_stats_peak(inst.app_name, kb)
-            if kb > app.max_memory_mb * 1024 {
+            if kb.to_int64() > app.max_memory_mb.to_int64() * 1024L {
               inst.last_rss_kb = kb
               log_event(
                 self.state_dir,

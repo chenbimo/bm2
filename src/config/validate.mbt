@@ -56,9 +56,12 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
       "project \{config.name}: port range \{config.port} ~ \{config.port + config.instances - 1} is out of 1 ~ 65535",
     )
   }
-  if config.max_memory_mb < 1 {
+  // The RSS limit is compared against a sampled value in kB, so the ceiling
+  // keeps that arithmetic inside Int64's exact range: 1048576 MB = 1 TiB is
+  // already far beyond any real instance.
+  if config.max_memory_mb < 1 || config.max_memory_mb > 1048576 {
     raise ConfigError::InvalidField(
-      "project \{config.name}: max_memory_mb must be at least 1",
+      "project \{config.name}: max_memory_mb must be between 1 and 1048576",
     )
   }
   // max_restarts/restart_delay_ms/min_uptime_ms are guaranteed >= 0 by the

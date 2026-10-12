@@ -334,7 +334,8 @@ test "rejects port near int max before the range sum wraps" {
 ///|
 test "rejects invalid numeric limits" {
   let cases = [
-    ("max_memory_mb = 0", "max_memory_mb must be at least 1"),
+    ("max_memory_mb = 0", "max_memory_mb must be between 1 and 1048576"),
+    ("max_memory_mb = 1048577", "max_memory_mb must be between 1 and 1048576"),
     ("max_restarts = -1", "out of range"),
     ("restart_delay_ms = -1", "out of range"),
     ("min_uptime_ms = -1", "out of range"),
@@ -410,7 +411,7 @@ test "rejects numeric limits at the documented bounds" {
     ("instances = 1\nport = 0", "port must be within 1 ~ 65535"),
     ("instances = 1\nport = 65536", "port must be within 1 ~ 65535"),
     (
-      "instances = 1\nport = 3000\nmax_memory_mb = 0", "max_memory_mb must be at least 1",
+      "instances = 1\nport = 3000\nmax_memory_mb = 0", "max_memory_mb must be between 1 and 1048576",
     ),
     (
       "instances = 1\nport = 3000\nstop_timeout_ms = 60001", "stop_timeout_ms must be between 1 and 60000",

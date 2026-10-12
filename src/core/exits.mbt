@@ -49,7 +49,7 @@ fn Supervisor::handle_exit(
   pid : Int32,
   exit : @proc.ChildExit?,
 ) -> Unit {
-  let now = @utils.now_ms()
+  let now = @proc.monotonic_ms()
   match exit {
     None => {
       inst.last_exit_code = None
@@ -96,9 +96,9 @@ fn Supervisor::handle_exit(
       self.counted_exit(app, inst, now, reason)
     }
     Idle => {
-      // elapsed_since clamps clock rollback so a clean exit shortly after
-      // a spawn is never misread as a long-lived process.
-      let uptime = elapsed_since(inst.started_at_ms)
+      // Uptime is measured on the monotonic clock, so a system time change
+      // can never make a fresh spawn look long-lived (or the reverse).
+      let uptime = elapsed_mono_since(inst.started_mono_ms)
       let abnormal = match exit {
         Some(@proc.ChildExit::Exited(0)) =>
           uptime < app.min_uptime_ms.to_uint64()
@@ -113,9 +113,13 @@ fn Supervisor::handle_exit(
         }
         self.counted_exit(app, inst, now, reason)
       } else {
-        // Clean self-exit after min_uptime: keep the service alive per
-        // plan, but do not burn the consecutive-restart budget. Still
-        // log the restart so silent restart storms stay observable.
+        // Clean self-exit after min_uptime: keep the service alive per plan,
+        // and earn back the whole crash budget. This is the only place the
+        // budget resets, which is what makes `max_restarts` mean "consecutive
+        // abnormal restarts": an abnormal exit always counts, no matter how
+        // long the instance had been up, so a process crashing on a period
+        // longer than min_uptime can never launder its way out of the budget.
+        inst.restart_count = 0
         let (title, body) = render_msg(app.notify.lang, CleanExitRestarting)
         self.notify_instance(inst, "lifecycle", "info", title, body)
         log_event(
@@ -209,20 +213,34 @@ fn Supervisor::counted_exit(
 /// own paths (which carry explicit reasons), and an app does not SIGKILL
 /// itself right after growing near its limit.
 pub fn is_oom_kill(sig : Int32?, rss_kb : Int32, max_memory_mb : Int32) -> Bool {
-  sig == Some(9) && rss_kb * 10 >= max_memory_mb * 1024 * 9
+  sig == Some(9) &&
+  rss_kb.to_int64() * 10L >= max_memory_mb.to_int64() * 1024L * 9L
 }
 
 ///|
-/// Record a restart inside the storm window for a project.
+/// How far back restart-storm detection looks.
+const STORM_WINDOW_MS : UInt64 = 600000UL
+
+///|
+/// Record a restart inside the storm window for a project. Pruning happens
+/// here, on the write, so the per-project array stays bounded by what the
+/// window holds. Deliberately independent of `[notify]`: an unbounded array
+/// in a long-running daemon must not depend on whether alerts are configured.
 fn Supervisor::record_storm_hit(
   self : Supervisor,
   app_name : String,
   now : UInt64,
 ) -> Unit {
-  match self.storm_hits.get(app_name) {
-    Some(hits) => hits.push(now)
-    None => self.storm_hits[app_name] = [now]
+  let hits = match self.storm_hits.get(app_name) {
+    Some(hits) => hits
+    None => {
+      let fresh : Array[UInt64] = []
+      self.storm_hits[app_name] = fresh
+      fresh
+    }
   }
+  hits.push(now)
+  ignore(storm_hit_count(hits, now, STORM_WINDOW_MS))
 }
 
 ///|

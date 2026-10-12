@@ -30,12 +30,12 @@ test "spawn failures back off and exhaust the budget into errored" {
   sv.mark_spawn_failed(inst)
   assert_true(inst.status is Restarting)
   assert_eq(inst.restart_count, 1)
-  let first_wait = inst.restart_at_ms - @utils.now_ms()
+  let first_wait = inst.restart_at_ms - @proc.monotonic_ms()
   assert_true(first_wait > 0UL)
   sv.mark_spawn_failed(inst)
   assert_eq(inst.restart_count, 2)
   // The backoff grows with the retry count: delay * restart_count.
-  assert_true(inst.restart_at_ms - @utils.now_ms() >= first_wait)
+  assert_true(inst.restart_at_ms - @proc.monotonic_ms() >= first_wait)
   sv.mark_spawn_failed(inst)
   assert_true(inst.status is Errored)
   assert_eq(inst.restart_at_ms, 0UL)
@@ -70,7 +70,7 @@ async test "wait_settled gives up after the deadline" {
   let inst = sv.instance("wbapp", 0)
   inst.status = Restarting
   inst.pid = 0
-  inst.restart_at_ms = @utils.now_ms() + 60000UL
+  inst.restart_at_ms = @proc.monotonic_ms() + 60000UL
   assert_false(sv.wait_settled(["wbapp"]))
 }
 
@@ -102,6 +102,26 @@ test "storm window counts recent restarts and prunes old ones" {
   // A later pass over the pruned array keeps the count stable while the
   // entry is still inside the window.
   assert_eq(storm_hit_count(hits, 12000UL, 5000UL), 1)
+}
+
+///|
+/// The restart array must stay bounded by the window whether or not storm
+/// alerts are configured: pruning happens on the write, not in the alert path.
+test "recorded storm hits are pruned on write" {
+  let root = "/tmp/bm2-wbtest-storm-\{@proc.get_pid()}"
+  let sv = wb_setup(root, 4454)
+  for i in 0..<200 {
+    sv.record_storm_hit("wbapp", 1000UL + i.to_uint64())
+  }
+  let hits = match sv.storm_hits.get("wbapp") {
+    Some(hits) => hits
+    None => []
+  }
+  assert_eq(hits.length(), 200)
+  // One restart further than the window's width past the last hit (1199 ms)
+  // drops every entry that fell out of it.
+  sv.record_storm_hit("wbapp", 1199UL + 600001UL)
+  assert_eq(hits.length(), 1)
 }
 
 ///|

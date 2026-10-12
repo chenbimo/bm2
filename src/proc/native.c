@@ -231,6 +231,18 @@ int32_t proc_close(int32_t fd) {
   return close(fd) == 0 ? 0 : -errno;
 }
 
+/* Milliseconds from the monotonic clock: immune to system time changes, so
+ * every supervision interval and deadline is measured with it. The wall
+ * clock is reserved for what a human reads (ISO timestamps, cron fields) and
+ * for message timestamps. Returns 0 on failure, which is safe: any deadline
+ * computed from it already lies in the past, so nothing waits forever. */
+MOONBIT_FFI_EXPORT
+int64_t proc_monotonic_ms(void) {
+  struct timespec ts;
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
+  return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+}
+
 /* Local-time components of epoch_ms: year, month(1-12), day(1-28+),
  * weekday(0=Sunday..6), hour(0-23), minute(0-59). */
 MOONBIT_FFI_EXPORT

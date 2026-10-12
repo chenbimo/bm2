@@ -70,6 +70,11 @@ pub(all) struct Instance {
   mut pidfd : Int32
   mut status : Status
   mut started_at_ms : UInt64
+  /// Monotonic start stamp. Every duration (uptime, min_uptime, probe
+  /// generations) is measured against this, so a system time change cannot
+  /// corrupt them. `started_at_ms` stays the wall clock, used only for the
+  /// ISO timestamp written to the state file.
+  mut started_mono_ms : UInt64
   /// Total launch count: every start (manual or automatic) increments
   /// it; resets only when the project is killed and started fresh.
   mut times : Int32
@@ -107,6 +112,7 @@ pub fn Instance::new(config : @config.Config, instance_id : Int32) -> Instance {
     pidfd: 0,
     status: Stopped,
     started_at_ms: 0UL,
+    started_mono_ms: 0UL,
     times: 0,
     restart_count: 0,
     exit_intent: Idle,

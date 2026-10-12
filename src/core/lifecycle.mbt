@@ -43,6 +43,7 @@ fn Supervisor::mark_online(
   inst.pidfd = pidfd
   inst.status = Online
   inst.started_at_ms = @utils.now_ms()
+  inst.started_mono_ms = @proc.monotonic_ms()
   inst.times += 1
   inst.exit_intent = Idle
   inst.kill_deadline_ms = 0UL

@@ -22,6 +22,12 @@ fn Supervisor::rotate_logs(self : Supervisor) -> Unit {
     }
   }
   self.rotate_log("\{self.state_dir}/bm2d.events.jsonl", copytruncate=false)
+  // The other two daemon-level logs have no other writer that could bound
+  // them: the CLI's own event log grows one line per invocation, and the
+  // daemon's stderr is held open by the daemon itself (so it rotates by
+  // copytruncate, the same trade-off as the app logs).
+  self.rotate_log("\{self.state_dir}/bm2.events.jsonl", copytruncate=false)
+  self.rotate_log("\{self.state_dir}/bm2d.log", copytruncate=true)
 }
 
 ///|

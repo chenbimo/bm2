@@ -2,10 +2,11 @@
 /// Live snapshot of one instance, taken by the supervisor and handed to the
 /// protocol layer as plain data. Reading /proc lives here rather than in
 /// protocol.mbt so the wire format stays free of side effects.
-/// rss_kb is -1 when unavailable, uptime_ms is 0 when not running.
+/// `now_mono` is monotonic milliseconds; rss_kb is -1 when unavailable and
+/// uptime_ms is 0 when not running.
 pub fn instance_info_of(
   inst : Instance,
-  now : UInt64,
+  now_mono : UInt64,
 ) -> @protocol.InstanceInfo {
   let rss_kb = if inst.status is Online {
     match @proc.read_rss_kb(inst.pid) {
@@ -15,10 +16,11 @@ pub fn instance_info_of(
   } else {
     -1
   }
-  // Saturating subtraction: a clock rollback must never show a huge uptime.
-  let uptime_ms = if inst.pid > 0 && inst.started_at_ms > 0UL {
-    if now >= inst.started_at_ms {
-      now - inst.started_at_ms
+  // Uptime is a duration, so it is measured on the monotonic clock: a system
+  // time change can neither inflate nor hide how long an instance has run.
+  let uptime_ms = if inst.pid > 0 && inst.started_mono_ms > 0UL {
+    if now_mono >= inst.started_mono_ms {
+      now_mono - inst.started_mono_ms
     } else {
       0UL
     }
