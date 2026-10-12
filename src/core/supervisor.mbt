@@ -58,18 +58,18 @@ pub struct Supervisor {
   mut last_memory_check_ms : UInt64
   mut last_log_check_ms : UInt64
   mut last_reuseport_probe_ms : UInt64
+  /// Control requests from the control plane. Nothing else may mutate
+  /// supervised state, so this queue is the control plane's whole vocabulary:
+  /// `tick` drains it and applies each request on the supervision task.
+  commands : @aqueue.Queue[Command]
   /// Notification engine: events flow in, deliveries flow out, and supervision
   /// never waits on it beyond its own delivery timeout.
   notify : Notifier
   mut last_notify_check_ms : UInt64
-  /// Periodic target key (app/name) -> when it last fired.
-  schedule_last : Map[String, UInt64]
   mut last_schedule_check_ms : UInt64
   /// Per project: rolling stats window since the last stats push
   /// (peak sampled RSS in kB, automatic restarts).
   stats_window : Map[String, StatsWindow]
-  /// Per project: the epoch day its last daily report went out.
-  last_daily_report_day : Map[String, UInt64]
   /// Per project: restart timestamps inside the storm window.
   storm_hits : Map[String, Array[UInt64]]
   /// Instance key → the spawn generation (started_mono_ms) already probed
@@ -120,12 +120,11 @@ pub fn Supervisor::new(
     last_memory_check_ms: 0UL,
     last_log_check_ms: 0UL,
     last_reuseport_probe_ms: 0UL,
+    commands: @aqueue.Queue::Queue(kind=Blocking(COMMAND_QUEUE_CAPACITY)),
     notify: Notifier::new(state_dir, @proc.hostname(), outbound),
     last_notify_check_ms: 0UL,
-    schedule_last: Map([]),
     last_schedule_check_ms: 0UL,
     stats_window: Map([]),
-    last_daily_report_day: Map([]),
     storm_hits: Map([]),
     start_probe_done: Map([]),
   }
@@ -305,7 +304,12 @@ pub async fn Supervisor::wait_settled(
 /// nothing in supervision can be delayed by the network, by a notification
 /// endpoint, or by another task. Notifications are *published* here (an
 /// in-memory queue put) and delivered by the notify task.
+///
+/// Control requests are applied here too, at the top of the tick: that is what
+/// makes supervision the single writer of its own state, with the control plane
+/// as one more queue to drain.
 pub fn Supervisor::tick(self : Supervisor) -> Unit {
+  self.drain_commands()
   self.reap()
   // Every gate and deadline below is measured on the monotonic clock, so a
   // system time change can neither stall a scan forever nor make it run on

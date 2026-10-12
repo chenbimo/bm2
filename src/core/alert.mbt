@@ -138,7 +138,7 @@ pub fn Notifier::cpu_percent(
 /// A message for `bm2 notify`: proves a project's endpoints and credentials work
 /// without waiting for a real incident.
 pub fn test_message(now : UInt64, lang~ : String = "en") -> @notify.Message {
-  let (title, body) = if lang == "zh" {
+  let (title, body) = if is_zh(lang) {
     ("bm2 通知测试", "收到此消息说明通知目标配置正确。")
   } else {
     (
@@ -306,10 +306,15 @@ pub fn Notifier::publish_schedule(
 }
 
 ///|
-/// Publish one `bm2 notify` test and hand back the queue its results arrive on.
-/// The caller owns the reply and decides how long to wait for it.
-pub fn Notifier::publish_test(
-  self : Notifier,
+/// Publish one `bm2 notify` test straight onto the notify queue and hand back the
+/// queue its results arrive on. The caller owns the reply and decides how long to
+/// wait for it.
+///
+/// This is the one outbound message the control side sends by itself: a test
+/// reads no supervised state, so it needs nothing but the queue the two tasks
+/// already share.
+pub fn publish_test(
+  outbound : @aqueue.Queue[Outbound],
   app : String,
   policy : @config.NotifyConfig,
   endpoints : Array[@config.NotifyEndpoint],
@@ -318,19 +323,40 @@ pub fn Notifier::publish_test(
   let reply : @aqueue.Queue[Array[(String, String?)]] = @aqueue.Queue::Queue(
     kind=Blocking(1),
   )
-  self.publish(
-    Test(
-      {
-        owner: app,
-        key: msg.key,
-        policy,
-        targets: lib_endpoints(endpoints, policy),
-        message: msg,
-      },
-      reply,
-    ),
-  )
+  let alert : Alert = {
+    owner: app,
+    key: msg.key,
+    policy,
+    targets: lib_endpoints(endpoints, policy),
+    message: msg,
+  }
+  let accepted = try outbound.try_put(Test(alert, reply)) catch {
+    _ => false
+  } noraise {
+    ok => ok
+  }
+  if !accepted {
+    // The notify task is far behind. Answer on the reply rather than losing the
+    // request silently, so `bm2 notify` can report it.
+    @utils.discard(() => {
+      ignore(
+        reply.try_put([("notify queue", Some("the notification queue is full"))]),
+      )
+    })
+  }
   reply
+}
+
+///|
+/// The same test, for callers that already hold the notifier.
+pub fn Notifier::publish_test(
+  self : Notifier,
+  app : String,
+  policy : @config.NotifyConfig,
+  endpoints : Array[@config.NotifyEndpoint],
+  msg : @notify.Message,
+) -> @aqueue.Queue[Array[(String, String?)]] {
+  publish_test(self.outbound, app, policy, endpoints, msg)
 }
 
 ///|

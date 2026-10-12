@@ -79,6 +79,32 @@ fn pad4(n : UInt64) -> String {
 }
 
 ///|
+/// Human-readable duration in the largest sensible unit, at most two units:
+/// `45s`, `5m 03s`, `2h 05m`, `3d 04h`. `pad` zero-pads the second unit, which
+/// is what an aligned table wants; chat messages read better unpadded.
+pub fn human_duration(ms : UInt64, pad~ : Bool = false) -> String {
+  let seconds = (ms / 1000UL).to_int()
+  if seconds < 60 {
+    return "\{seconds}s"
+  }
+  let minutes = seconds / 60
+  if minutes < 60 {
+    return "\{minutes}m " + second_unit(seconds % 60, "s", pad)
+  }
+  let hours = minutes / 60
+  if hours < 24 {
+    return "\{hours}h " + second_unit(minutes % 60, "m", pad)
+  }
+  "\{hours / 24}d " + second_unit(hours % 24, "h", pad)
+}
+
+///|
+/// The second unit of a duration: `03s` when padded, `3s` when not.
+fn second_unit(value : Int32, suffix : String, pad : Bool) -> String {
+  (if pad { pad2(value.to_uint64()) } else { value.to_string() }) + suffix
+}
+
+///|
 /// Two decimal digits at a known offset of an ASCII string. Only ever used
 /// on the ISO timestamp produced by `iso8601`, so byte and char offsets
 /// coincide.

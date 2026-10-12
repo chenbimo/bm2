@@ -23,11 +23,12 @@ pub const MAX_MSG_BYTES : Int32 = 4 * 1024 * 1024
 pub const AUTH_TIMEOUT_MS : Int32 = 5000
 
 ///|
-/// Files under the state dir that publish the daemon's contact point.
-pub const PORT_FILE : String = "daemon.port"
-
-///|
-pub const TOKEN_FILE : String = "daemon.token"
+/// File under the state dir that publishes the daemon's contact point: the
+/// loopback port on the first line, the access token on the second. Keeping both
+/// in one file means a client can never pair the port of one daemon generation
+/// with the token of another — `reload` replaces both halves in a single atomic
+/// write.
+pub const ENDPOINT_FILE : String = "daemon.endpoint"
 
 ///|
 /// 4-byte big-endian length header + payload, over the connection.
@@ -91,18 +92,56 @@ pub fn hex_encode(bytes : Bytes) -> String {
 }
 
 ///|
-/// Read the port file the daemon wrote after binding. None when there is
-/// nothing readable (no daemon, or a stale file from a dead one).
-pub fn read_daemon_port(state_dir : String) -> Int32? {
+/// Publish the contact point. One atomic replace, so a client reads either the
+/// previous daemon's pair or this one's, never a mixture of the two.
+pub fn write_endpoint(
+  state_dir : String,
+  port : Int32,
+  token : String,
+) -> Unit raise {
+  @fsx.write_atomic(
+    state_dir + "/" + ENDPOINT_FILE,
+    @utf8.encode(port.to_string() + "\n" + token + "\n"),
+  )
+}
+
+///|
+/// Read the contact point. None when there is nothing readable (no daemon, or a
+/// stale file from a dead one) or when either half is malformed.
+pub fn read_endpoint(state_dir : String) -> (Int32, String)? {
   try {
     let text = @utf8.decode(
-      @fsx.read_small(state_dir + "/" + PORT_FILE, cap=32),
+      @fsx.read_small(state_dir + "/" + ENDPOINT_FILE, cap=160),
     )
-    parse_port(text)
+    parse_endpoint(text)
   } catch {
     _ => None
   } noraise {
-    port => port
+    endpoint => endpoint
+  }
+}
+
+///|
+/// Split "port\ntoken\n": the first newline is the separator and everything after
+/// it is the token, exactly as `write_endpoint` laid it out.
+fn parse_endpoint(text : String) -> (Int32, String)? {
+  let body = trim_ascii(text)
+  let mut split_at = -1
+  for i in 0..<body.length() {
+    if body[i] == '\n' {
+      split_at = i
+      break
+    }
+  } nobreak {
+    ()
+  }
+  if split_at < 0 {
+    return None
+  }
+  let token = trim_ascii(body[split_at + 1:].to_owned())
+  match parse_port(trim_ascii(body[0:split_at].to_owned())) {
+    Some(port) => if token.is_empty() { None } else { Some((port, token)) }
+    None => None
   }
 }
 
@@ -157,33 +196,17 @@ fn trim_ascii(text : String) -> String {
 }
 
 ///|
-/// Read the shared token. None when missing/unreadable — callers report
-/// "no daemon" rather than leaking the reason.
-pub fn read_token(state_dir : String) -> String? {
-  try {
-    let text = @utf8.decode(
-      @fsx.read_small(state_dir + "/" + TOKEN_FILE, cap=128),
-    )
-    let trimmed = trim_ascii(text)
-    if trimmed.is_empty() {
-      None
-    } else {
-      Some(trimmed)
+/// Dial the daemon over loopback TCP and return the token belonging to the same
+/// endpoint generation, read once so the two halves cannot come from different
+/// daemons. Raises Closed when there is nothing to dial (no daemon, or a stale
+/// file from a dead one).
+pub async fn dial_with_token(state_dir : String) -> (@socket.Tcp, String) {
+  match read_endpoint(state_dir) {
+    Some((port, token)) => {
+      let conn = @socket.Tcp::connect_to_host("127.0.0.1", port~)
+      (conn, token)
     }
-  } catch {
-    _ => None
-  } noraise {
-    token => token
-  }
-}
-
-///|
-/// Dial the daemon over loopback TCP using the recorded port. Raises
-/// Closed when there is no readable port file (no daemon, or a stale one).
-pub async fn dial(state_dir : String) -> @socket.Tcp {
-  match read_daemon_port(state_dir) {
-    Some(port) => @socket.Tcp::connect_to_host("127.0.0.1", port~)
-    None => raise Closed("no daemon port file")
+    None => raise Closed("no daemon endpoint file")
   }
 }
 

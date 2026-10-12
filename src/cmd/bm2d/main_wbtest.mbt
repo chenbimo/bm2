@@ -2,16 +2,29 @@
 /// One request/response round trip against the real daemon handler, driven
 /// over a real loopback TCP connection so the wire format, the token
 /// handshake and the dispatch are exercised end to end rather than stubbed.
+/// The control side reaches supervision only through the command queue, so the
+/// test runs the same tiny tick loop the daemon does.
 async fn round_trip(
   sv : @core.Supervisor,
   _state_dir : String,
   req : @protocol.Request,
 ) -> @protocol.Response {
   let server = @socket.TcpServer::TcpServer(@socket.Addr::new(2130706433U, 0))
+  let commands = sv.commands()
+  let outbound = sv.outbound()
   @async.with_task_group(async fn(tg) {
+    // Supervision, sped up so the test does not wait out the daemon's cadence.
     ignore(
       tg.spawn(async fn() {
-        // Server side, sequential exactly like the daemon's accept loop.
+        while true {
+          sv.tick()
+          @async.sleep(5)
+        }
+      }),
+    )
+    ignore(
+      tg.spawn(async fn() {
+        // Server side: one connection, served exactly like the daemon's.
         let conn = @ipc.accept_authed(server, "wbtest")
         match conn {
           Some(conn) =>
@@ -20,8 +33,8 @@ async fn round_trip(
                 let (response, _) = match
                   @protocol.protocol_problem(received.protocol) {
                   Some(problem) =>
-                    (@protocol.Response::error(problem), Exit::Stay)
-                  None => dispatch(sv, received)
+                    (@protocol.Response::error(problem), @core.ExitMode::Stay)
+                  None => dispatch(commands, outbound, received)
                 }
                 let _ = @ipc.write_response(conn, response)
                 conn.close()

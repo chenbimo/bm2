@@ -148,7 +148,7 @@ check "quick registration removed" "0" "$([ -f "$state_dir/quick/project.json" ]
 echo "===== G. daemon crash adopts running instances ====="
 SLOW_PID_BEFORE=$(bm2 list slow | tail -1 | awk '{print $3}')
 kill -9 "$(cat "$state_dir/bm2d.pid")"
-check "stale control-plane files remain after daemon kill" 1 "$([ -f "$state_dir/daemon.port" ] && echo 1 || echo 0)"
+check "stale control-plane file remains after daemon kill" 1 "$([ -f "$state_dir/daemon.endpoint" ] && echo 1 || echo 0)"
 sleep 1
 bm2 list slow >/dev/null
 SLOW_PID_AFTER=$(bm2 list slow | tail -1 | awk '{print $3}')
@@ -203,10 +203,10 @@ check "bare kill refused message" "bm2: refusing to stop bm2d and all apps; use 
 check "daemon survives refused kill" 0 "$(kill -0 "$DPID" 2>/dev/null; echo $?)"
 check "bare kill response" "bm2d stopping" "$(bm2 kill -y)"
 sleep 1
-if [ -f "$state_dir/daemon.port" ] || [ -f "$state_dir/bm2d.pid" ]; then
-  FAIL=$((FAIL + 1)); echo "FAIL: control-plane files not cleaned"
+if [ -f "$state_dir/daemon.endpoint" ] || [ -f "$state_dir/bm2d.pid" ]; then
+  FAIL=$((FAIL + 1)); echo "FAIL: control-plane file not cleaned"
 else
-  PASS=$((PASS + 1)); echo "PASS: control-plane files cleaned"
+  PASS=$((PASS + 1)); echo "PASS: control-plane file cleaned"
 fi
 if kill -0 "$DPID" 2>/dev/null; then
   FAIL=$((FAIL + 1)); echo "FAIL: bm2d still running"

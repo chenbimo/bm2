@@ -6,6 +6,14 @@
 /// translated.
 
 ///|
+/// True for the Chinese copy. One place decides what counts as Chinese, so the
+/// rendering sites cannot drift apart — `[notify] lang` validation already
+/// restricts the value to "en" / "zh".
+fn is_zh(lang : String) -> Bool {
+  lang == "zh"
+}
+
+///|
 /// All notification messages bm2 can render.
 pub enum Bm2Msg {
   ProjectStarted(Int32, String, Int32)
@@ -34,7 +42,7 @@ pub enum Bm2Msg {
 /// Turn a message into (title, body) in the given language. Unknown
 /// languages fall back to English, matching the `[notify] lang` validation.
 pub fn render_msg(lang : String, msg : Bm2Msg) -> (String, String) {
-  if lang == "zh" {
+  if is_zh(lang) {
     render_zh(msg)
   } else {
     render_en(msg)
@@ -240,13 +248,13 @@ pub fn crash_cause(
   detail : String,
   port_conflict : Bool,
 ) -> String {
-  let mut text = if lang == "zh" {
+  let mut text = if is_zh(lang) {
     "原因：\{reason}\{detail}"
   } else {
     "Cause: \{reason}\{detail}"
   }
   if port_conflict {
-    let suffix = if lang == "zh" {
+    let suffix = if is_zh(lang) {
       "；端口已被其他进程独占"
     } else {
       "; the port is held exclusively by another process"

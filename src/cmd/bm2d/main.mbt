@@ -1,12 +1,15 @@
 ///|
-enum Exit {
-  Stay
-  /// Bare `kill` or SIGTERM: stop all apps, then exit.
-  Shutdown
-  /// `reload`: detach without stopping apps; the CLI starts a fresh bm2d
-  /// which adopts the surviving instances.
-  Detach
-}
+/// How long the control side waits for the supervision task to answer a command.
+/// One tick is 50 ms, but `start` also probes the runtime (up to 5 s) before it
+/// can answer, so the ceiling is deliberately generous — a CLI that tires of
+/// waiting reports the timeout itself.
+const COMMAND_REPLY_MS : UInt64 = 15000
+
+///|
+/// How many connections may request a daemon exit before the task group body
+/// picks one up. More than one is conceivable (a `kill` racing a `reload`), and
+/// the first one to arrive wins.
+const EXIT_SIGNAL_CAPACITY : Int32 = 4
 
 ///|
 async fn main {
@@ -94,11 +97,7 @@ async fn run() -> Int32 {
     generated => generated
   }
   let ok = try {
-    @fsx.write_atomic(
-      state_dir + "/" + @ipc.PORT_FILE,
-      @utf8.encode(port.to_string() + "\n"),
-    )
-    @fsx.write_atomic(state_dir + "/" + @ipc.TOKEN_FILE, @utf8.encode(token))
+    @ipc.write_endpoint(state_dir, port, token)
     true
   } catch {
     _ => false
@@ -106,7 +105,7 @@ async fn run() -> Int32 {
     written => written
   }
   if !ok {
-    @proc.eprintln("bm2d: cannot write the control-plane files")
+    @proc.eprintln("bm2d: cannot write the control-plane file")
     server.close()
     return 2
   }
@@ -122,35 +121,49 @@ async fn run() -> Int32 {
   // The accept loop runs as the group body; the supervision tick is a child
   // task. An exit request (or SIGTERM) ends the group and lands in the
   // shutdown paths below.
+  let outbound = sv.outbound()
+  let commands = sv.commands()
   let outcome = @async.handle_cancellation(async fn() {
     @async.with_task_group(async fn(tg) {
-      // Two long-lived tasks, each owning its own state and neither able to
-      // take the other down. Supervision is synchronous and never waits on the
-      // network; delivery is the only place that touches it. `allow_failure`
-      // keeps a failure in one task from cancelling the other, and each task
-      // records its own failures in the event log.
+      // Three long-lived tasks, each owning its own state and none able to take
+      // another down. Supervision is synchronous and never waits on the network;
+      // delivery is the only place that touches it; the control plane serves one
+      // connection per task and reaches supervision only through the command
+      // queue. `allow_failure` keeps a failure in one task from cancelling the
+      // others, and each task records its own failures in the event log.
       let runner = @core.NotifyRunner::new(
         state_dir,
         @proc.hostname(),
-        sv.outbound(),
+        outbound,
+      )
+      let exits : @aqueue.Queue[@core.ExitMode] = @aqueue.Queue::Queue(
+        kind=Blocking(EXIT_SIGNAL_CAPACITY),
       )
       ignore(tg.spawn(async fn() { tick_loop(sv) }, allow_failure=true))
       ignore(tg.spawn(async fn() { runner.run() }, allow_failure=true))
-      let mode = accept_loop(server, sv, state_dir, token)
+      ignore(
+        tg.spawn(async fn() {
+          accept_loop(server, commands, outbound, state_dir, token, exits, tg)
+        }),
+      )
+      // The group body waits for a served request to ask for an exit; when it
+      // returns, the tasks above are cancelled. A failure in the accept task
+      // (the only one without `allow_failure`) ends the daemon the same way,
+      // exactly as when the accept loop was the body itself.
+      let mode = wait_exit(exits)
       tg.return_immediately(mode)
       mode
     })
   })
   match outcome {
-    Some(Exit::Detach) => {
+    Some(@core.ExitMode::Detach) => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
       server.close()
-      @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
-      @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+      @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.ENDPOINT_FILE))
       @utils.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detached")
     }
-    Some(Exit::Shutdown) => {
+    Some(@core.ExitMode::Shutdown) => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopping")
       server.close()
       shutdown(sv, state_dir, false)
@@ -163,8 +176,8 @@ async fn run() -> Int32 {
       shutdown(sv, state_dir, true)
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopped")
     }
-    Some(Exit::Stay) =>
-      // Unreachable: accept_loop never returns Stay.
+    Some(@core.ExitMode::Stay) =>
+      // Unreachable: `wait_exit` only ever sees a real exit request.
       ()
   }
   0
@@ -186,15 +199,19 @@ async fn tick_loop(sv : @core.Supervisor) -> Unit {
 }
 
 ///|
-/// Accept and serve connections until an exit request arrives. Cancellation
-/// unwinds the blocked accept without touching the catch; per-connection
-/// failures never kill the daemon.
+/// Accept connections and hand each one to its own task. Cancellation unwinds
+/// the blocked accept; a failure here (this is the one task without
+/// `allow_failure`) ends the daemon, exactly as when the loop was the task group
+/// body itself.
 async fn accept_loop(
   server : @socket.TcpServer,
-  sv : @core.Supervisor,
+  commands : @aqueue.Queue[@core.Command],
+  outbound : @aqueue.Queue[@core.Outbound],
   state_dir : String,
   token : String,
-) -> Exit {
+  exits : @aqueue.Queue[@core.ExitMode],
+  tg : @async.TaskGroup[@core.ExitMode],
+) -> Unit {
   while true {
     let conn = try @ipc.accept_authed(server, token) catch {
       _ => None
@@ -209,29 +226,38 @@ async fn accept_loop(
         continue
       }
       Some(conn) =>
-        match serve_conn(conn, sv, state_dir) {
-          Some(mode) => return mode
-          None => ()
-        }
+        // One task per connection: a slow request (a stop timeout, a runtime
+        // probe) no longer holds up the next caller. Supervision mutations stay
+        // serialized regardless — every one of them happens on the supervision
+        // task now.
+        ignore(
+          tg.spawn(
+            async fn() {
+              serve_conn(conn, commands, outbound, state_dir, exits)
+            },
+            allow_failure=true,
+          ),
+        )
     }
   }
-  Exit::Shutdown
 }
 
 ///|
-/// Serve one connection; requests stay sequential so all supervisor
-/// mutations are serialized exactly as in the poll-loop daemon. Exit
-/// requests (kill/reload) are honored only after their success response
-/// has reached the caller.
+/// Serve one connection to completion: read the request, apply it, answer, and
+/// signal an exit request to the task group body. Requests stay sequential per
+/// connection, and a failure here ends only this connection.
 async fn serve_conn(
   conn : @socket.Tcp,
-  sv : @core.Supervisor,
+  commands : @aqueue.Queue[@core.Command],
+  outbound : @aqueue.Queue[@core.Outbound],
   state_dir : String,
-) -> Exit? {
+  exits : @aqueue.Queue[@core.ExitMode],
+) -> Unit {
   let (response, exit) = match @ipc.read_request(conn) {
     Some(req) =>
       match @protocol.protocol_problem(req.protocol) {
-        Some(problem) => (@protocol.Response::error(problem), Exit::Stay)
+        Some(problem) =>
+          (@protocol.Response::error(problem), @core.ExitMode::Stay)
         None => {
           @core.log_event(
             state_dir,
@@ -240,10 +266,10 @@ async fn serve_conn(
             app=req.app,
             detail=req.command,
           )
-          dispatch(sv, req)
+          dispatch(commands, outbound, req)
         }
       }
-    None => (@protocol.Response::error("invalid request"), Exit::Stay)
+    None => (@protocol.Response::error("invalid request"), @core.ExitMode::Stay)
   }
   let sent = try {
     @ipc.write_response(conn, response)
@@ -263,27 +289,90 @@ async fn serve_conn(
       "response_failed"
     },
   )
-  if sent && !(exit is Exit::Stay) {
-    Some(exit)
-  } else {
-    None
+  // Exit requests are honored only after their response has reached the caller.
+  if sent && !(exit is @core.ExitMode::Stay) {
+    @utils.discard(() => ignore(exits.try_put(exit)))
   }
 }
 
 ///|
+/// Route one request. `notify` is served here — it reads no supervised state and
+/// only publishes onto the notification queue, which is made for cross-task use.
+/// Every other command travels to the supervision task and is applied inside its
+/// next tick, so the control plane never becomes a second writer of supervised
+/// state.
 async fn dispatch(
-  sv : @core.Supervisor,
+  commands : @aqueue.Queue[@core.Command],
+  outbound : @aqueue.Queue[@core.Outbound],
   req : @protocol.Request,
-) -> (@protocol.Response, Exit) {
-  match req.command {
-    "list" => (cmd_list(sv, req.app), Exit::Stay)
-    "start" => (cmd_start(sv, req), Exit::Stay)
-    "kill" => cmd_kill(sv, req.app)
-    "reload" => cmd_reload()
-    "notify" => (cmd_notify(sv, req), Exit::Stay)
-    _ =>
-      (@protocol.Response::error("unknown command: " + req.command), Exit::Stay)
+) -> (@protocol.Response, @core.ExitMode) {
+  if req.command == "notify" {
+    return (cmd_notify(outbound, req), @core.ExitMode::Stay)
   }
+  let command = @core.Command::new(req)
+  let queued = try commands.try_put(command) catch {
+    _ => false
+  } noraise {
+    ok => ok
+  }
+  if !queued {
+    return (
+      @protocol.Response::error("too many control requests in flight"),
+      @core.ExitMode::Stay,
+    )
+  }
+  match wait_reply(command.reply) {
+    Some(reply) => (reply.response, reply.exit)
+    None =>
+      (
+        @protocol.Response::error(
+          "bm2d did not answer within \{COMMAND_REPLY_MS}ms; try again in a moment",
+        ),
+        @core.ExitMode::Stay,
+      )
+  }
+}
+
+///|
+/// Wait for the supervision task's answer. Polls the reply queue so the wait
+/// stays cancellable and bounded: one connection never blocks forever.
+async fn wait_reply(reply : @aqueue.Queue[@core.Reply]) -> @core.Reply? {
+  let deadline = @proc.monotonic_ms() + COMMAND_REPLY_MS
+  while true {
+    let answer = try reply.try_get() catch {
+      _ => None
+    } noraise {
+      item => item
+    }
+    match answer {
+      Some(reply) => return Some(reply)
+      None => ()
+    }
+    if @proc.monotonic_ms() >= deadline {
+      return None
+    }
+    @async.sleep(20)
+  }
+  None
+}
+
+///|
+/// Wait for a served request to ask for an exit. Polls rather than blocking on
+/// the queue: the task group body must stay cancellable, and a 50 ms poll costs
+/// nothing next to the tick that produced the signal.
+async fn wait_exit(exits : @aqueue.Queue[@core.ExitMode]) -> @core.ExitMode {
+  while true {
+    let signal = try exits.try_get() catch {
+      _ => None
+    } noraise {
+      item => item
+    }
+    match signal {
+      Some(mode) => return mode
+      None => @async.sleep(50)
+    }
+  }
+  @core.ExitMode::Shutdown
 }
 
 ///|
@@ -317,8 +406,7 @@ async fn shutdown(
   for name in names {
     @utils.discard(() => @core.remove_project(state_dir, name))
   }
-  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
-  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.ENDPOINT_FILE))
   @utils.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
 }
 
@@ -370,10 +458,10 @@ fn test_wait_budget_ms(
 /// targets, so an operator can prove an endpoint and its credential work without
 /// waiting for an incident. The delivery itself happens in the notify task (the
 /// only place that talks to the network); this request publishes the test and
-/// waits for the per-target results, which keeps the control plane free of
-/// delivery work while still reporting exactly what happened.
+/// waits for the per-target results. It needs no supervised state — only the
+/// queue the two tasks share — so it runs entirely on the control side.
 async fn cmd_notify(
-  sv : @core.Supervisor,
+  outbound : @aqueue.Queue[@core.Outbound],
   req : @protocol.Request,
 ) -> @protocol.Response {
   let config_path = match req.config_path {
@@ -416,14 +504,13 @@ async fn cmd_notify(
       },
     )
   }
-  let reply = sv
-    .notifier()
-    .publish_test(
-      config.name,
-      policy,
-      endpoints,
-      @core.test_message(@utils.now_ms(), lang=policy.lang),
-    )
+  let reply = @core.publish_test(
+    outbound,
+    config.name,
+    policy,
+    endpoints,
+    @core.test_message(@utils.now_ms(), lang=policy.lang),
+  )
   let results = match
     wait_notify_results(reply, test_wait_budget_ms(policy, endpoints.length())) {
     Some(results) => results
@@ -458,119 +545,4 @@ async fn cmd_notify(
   } else {
     @protocol.Response::error(message)
   }
-}
-
-///|
-fn cmd_list(sv : @core.Supervisor, app : String?) -> @protocol.Response {
-  let names = try targets(sv, app) catch {
-    e => return @protocol.Response::error(e.to_string())
-  } noraise {
-    found => found
-  }
-  @protocol.Response::ok("ok", infos_of(sv, names))
-}
-
-///|
-/// Every start re-reads the config from the request's config path, so
-/// `bm2 start` always reflects the current bm2.toml, verifies the runtime
-/// meets the minimum version, then registers the project (updating it
-/// when it already runs) and starts it.
-/// Async: the request returns immediately with the in-flight state; the
-/// CLI polls `list` for the terminal state so the accept loop never
-/// blocks on stop timeouts.
-fn cmd_start(
-  sv : @core.Supervisor,
-  req : @protocol.Request,
-) -> @protocol.Response {
-  let config_path = match req.config_path {
-    Some(path) => path
-    None => return @protocol.Response::error("start requires a config path")
-  }
-  let config = try @config.load(config_path) catch {
-    e => return @protocol.Response::error(e.to_string())
-  } noraise {
-    loaded => loaded
-  }
-  try sv.check_runtime(config.runtime) catch {
-    e => return @protocol.Response::error(e.to_string())
-  } noraise {
-    _ => ()
-  }
-  try sv.register(config, config_path) catch {
-    e => return @protocol.Response::error(e.to_string())
-  } noraise {
-    _ => ()
-  }
-  let name = config.name
-  try sv.start_app(name) catch {
-    e => return @protocol.Response::error(e.to_string())
-  } noraise {
-    _ => ()
-  }
-  @protocol.Response::ok("started", infos_of(sv, [name]))
-}
-
-///|
-/// Kill an app immediately, or request a complete bm2d shutdown when no app
-/// name was supplied. The daemon loop performs the all-app kill after reply.
-/// Async: an app kill returns right away; the CLI polls for the terminal
-/// state instead of blocking the loop. A killed project is unregistered
-/// once its instances have stopped.
-fn cmd_kill(sv : @core.Supervisor, app : String?) -> (@protocol.Response, Exit) {
-  match app {
-    None => (@protocol.Response::ok("bm2d stopping", []), Exit::Shutdown)
-    Some(name) => {
-      try sv.kill_app(name) catch {
-        e => return (@protocol.Response::error(e.to_string()), Exit::Stay)
-      } noraise {
-        _ => ()
-      }
-      (@protocol.Response::ok("killed", infos_of(sv, [name])), Exit::Stay)
-    }
-  }
-}
-
-///|
-/// Reload detaches bm2d without stopping apps; the CLI then starts a fresh
-/// daemon which adopts the surviving instances (and the new binary).
-fn cmd_reload() -> (@protocol.Response, Exit) {
-  (@protocol.Response::ok("reloading", []), Exit::Detach)
-}
-
-///|
-/// Resolve the optional app filter to concrete app names, verifying that
-/// a named app exists.
-fn targets(sv : @core.Supervisor, app : String?) -> Array[String] raise {
-  match app {
-    Some(name) => {
-      ignore(sv.app_instances(name))
-      [name]
-    }
-    None => sv.app_names()
-  }
-}
-
-///|
-/// List output excludes intentionally stopped instances. Other statuses,
-/// especially restarting and errored, remain visible for operational diagnosis.
-fn infos_of(
-  sv : @core.Supervisor,
-  names : Array[String],
-) -> Array[@protocol.InstanceInfo] {
-  let now_mono = @proc.monotonic_ms()
-  let infos = []
-  for name in names {
-    try {
-      for inst in sv.app_instances(name) {
-        if !(inst.status is @core.Status::Stopped) {
-          infos.push(@core.instance_info_of(inst, now_mono))
-        }
-      }
-    } catch {
-      _ => ()
-    } noraise {
-      _ => ()
-    }
-  }
-  infos
 }

@@ -27,7 +27,7 @@ async fn apply_update(state_dir : String) -> Int32 {
 /// command and the automatic apply after `upgrade`. True once the fresh
 /// daemon answers; failure reasons go to stderr.
 async fn swap_daemon(state_dir : String) -> Bool {
-  // The old daemon removes its control-plane files just before exiting;
+  // The old daemon removes its control-plane file just before exiting;
   // wait for it, then start the fresh daemon which adopts the running apps.
   if !wait_daemon_exit(state_dir) {
     @proc.eprintln("bm2: bm2d did not exit; swap aborted")
@@ -152,9 +152,8 @@ fn settled(infos : Array[@protocol.InstanceInfo], app : String?) -> Bool {
 }
 
 ///|
-/// Wait for the reloaded daemon to detach (it removes its port/token files
-/// on the way out). Returns false when the daemon stays alive after five
-/// seconds.
+/// Wait for the reloaded daemon to detach (it removes its endpoint file on the
+/// way out). Returns false when the daemon stays alive after five seconds.
 async fn wait_daemon_exit(state_dir : String) -> Bool {
   for _ in 0..<100 {
     match connect_daemon(state_dir) {
@@ -171,7 +170,7 @@ async fn wait_daemon_exit(state_dir : String) -> Bool {
 ///|
 /// Send one request, recovering once from a stale daemon: when the request
 /// fails and nothing is listening on the recorded port anymore, remove the
-/// leftover control-plane files, start a fresh daemon and retry. A daemon
+/// leftover control-plane file, start a fresh daemon and retry. A daemon
 /// that is merely busy (still inside a long stop timeout) keeps answering
 /// connects, so it is reported instead of being split in two.
 async fn request_with_recovery(
@@ -204,8 +203,7 @@ async fn request_with_recovery(
     }
     None => ()
   }
-  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
-  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.ENDPOINT_FILE))
   @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
   let retry = match connect_or_start(state_dir) {
     Some(pair) => pair
@@ -260,20 +258,14 @@ async fn send_request(
 
 ///|
 /// Open an authenticated channel to the running daemon. None when there is
-/// nothing to talk to: no port file, no listener, or no token file.
+/// nothing to talk to: no endpoint file, no listener, or a malformed entry. Port
+/// and token are read together, so a daemon that has just been replaced can never
+/// hand out a token belonging to its predecessor.
 async fn connect_daemon(state_dir : String) -> (@socket.Tcp, String)? {
-  let token = match @ipc.read_token(state_dir) {
-    Some(token) => token
-    None => return None
-  }
-  let conn = try @ipc.dial(state_dir) catch {
+  try @ipc.dial_with_token(state_dir) catch {
     _ => None
   } noraise {
-    opened => Some(opened)
-  }
-  match conn {
-    Some(conn) => Some((conn, token))
-    None => None
+    pair => Some(pair)
   }
 }
 
