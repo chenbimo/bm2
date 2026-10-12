@@ -743,6 +743,52 @@ wait "$LOCKER" 2>/dev/null || true
 unset BM2_UPDATE_BASE
 kill "$STATION" 2>/dev/null
 
+echo "===== AK. two projects with dead endpoints are both attempted ====="
+# Retry state is per message and the next attempt prefers a different project,
+# so beta's alert must not wait out alpha's 5s backoff. The first backoff is 5s,
+# so seeing both projects' first attempt inside 3s is exactly what rotation buys.
+write_project alpha alpha 4391 crash.ts 1 1000
+write_project beta beta 4392 crash.ts 1 1000
+cat >> "$ACC/alpha/bm2.toml" <<EOF
+
+[notify]
+enabled = true
+dedupe_window_s = 3600
+events = ["crash"]
+
+[[notify.report]]
+name = "dead"
+events = ["crash"]
+
+[[notify.report.target]]
+platform = "webhook"
+url = "http://127.0.0.1:4391/hook"
+EOF
+cat >> "$ACC/beta/bm2.toml" <<EOF
+
+[notify]
+enabled = true
+dedupe_window_s = 3600
+events = ["crash"]
+
+[[notify.report]]
+name = "dead"
+events = ["crash"]
+
+[[notify.report.target]]
+platform = "webhook"
+url = "http://127.0.0.1:4392/hook"
+EOF
+(cd "$ACC/alpha" && bm2 start >/dev/null)
+(cd "$ACC/beta" && bm2 start >/dev/null)
+sleep 3
+check "alpha was attempted once, on its first try" 1 \
+  "$(grep '"event":"notify_failed"' "$state_dir/bm2d.events.jsonl" | grep -c '"app":"alpha"' || true)"
+check "beta was attempted without waiting out alpha's backoff" 1 \
+  "$(grep '"event":"notify_failed"' "$state_dir/bm2d.events.jsonl" | grep -c '"app":"beta"' || true)"
+bm2 kill alpha >/dev/null 2>&1 || true
+bm2 kill beta >/dev/null 2>&1 || true
+
 echo "===== AI. one instance crashes, its neighbour keeps running ====="
 # The same script behaves differently per instance: id 0 exits at once, id 1 serves
 # HTTP. Only the crashing instance may spend the project's restart budget.
