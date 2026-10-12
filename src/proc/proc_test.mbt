@@ -54,6 +54,42 @@ test "spawn runs script with env, cwd and log redirection" {
 }
 
 ///|
+/// A spawned app must start with only its own stdio: it used to inherit every
+/// descriptor the daemon happened to hold, pidfds included.
+test "spawn gives the app only its stdio" {
+  let dir = "/tmp/bm2-process-test-fds-\{@proc.get_pid()}"
+  @fsx.mkdir_p(dir)
+  // Something the daemon holds while the app is spawned: the app must not end
+  // up with a copy of it.
+  let pidfd = @proc.pidfd_open(@proc.get_pid())
+  let out_log = dir + "/fds.out.log"
+  let pid = @proc.spawn({
+    bun_path: "/bin/sh",
+    script: "-c\u{0}ls -l /proc/self/fd",
+    cwd: dir,
+    out_log,
+    err_log: dir + "/fds.err.log",
+    env_blob: @proc.instance_env_blob("t", 0, 1),
+  })
+  assert_eq(@proc.wait_child(pid), Some((pid, @proc.ChildExit::Exited(0))))
+  let out = @utf8.decode_lossy(@fsx.read_small(out_log))
+  // Sanity: the app really did run with the stdio it was given.
+  assert_true(out.contains("0 -> /dev/null"))
+  assert_false(out.contains("pidfd"))
+  // stdio (0/1/2) plus the directory descriptor `ls` opens for /proc/self/fd.
+  let mut entries = 0
+  for line in out.split("\n") {
+    if line.contains("->") {
+      entries += 1
+    }
+  }
+  assert_true(entries <= 5)
+  @proc.close(pidfd)
+  @fsx.unlink(out_log)
+  @fsx.unlink(dir + "/fds.err.log")
+}
+
+///|
 test "wait_child reports exit code" {
   let dir = "/tmp/bm2-process-test-exit-\{@proc.get_pid()}"
   @fsx.mkdir_p(dir)

@@ -32,6 +32,27 @@ static int redirect_fd(const char *path, int target_fd) {
   return 0;
 }
 
+/* Close every descriptor above stderr in the child. An app must start with only
+ * its own stdio: everything else in the daemon's table is none of its business
+ * (pidfds, sockets, the terminal the daemon was started from), and inheriting
+ * them bloats every app's fd table and hands the app handles into the daemon's
+ * world. close_range is one syscall on Linux >= 5.9; older kernels get a
+ * bounded loop. */
+static void close_extra_fds(void) {
+#ifdef __NR_close_range
+  if (syscall(__NR_close_range, 3, ~0U, 0) == 0) {
+    return;
+  }
+#endif
+  long limit = sysconf(_SC_OPEN_MAX);
+  if (limit < 0 || limit > 65536) {
+    limit = 65536;
+  }
+  for (int fd = 3; fd < (int)limit; fd++) {
+    close(fd);
+  }
+}
+
 /*
  * env_blob is a sequence of NUL-terminated "KEY=VALUE" entries,
  * with an extra NUL marking the end (double NUL terminator).
@@ -110,6 +131,8 @@ int32_t proc_spawn(moonbit_bytes_t bun_path, moonbit_bytes_t script,
     } else {
       argv[1] = NULL;
     }
+    /* Only stdio survives the exec. */
+    close_extra_fds();
     /* execvpe: resolve a bare "bun" via PATH from envp (_GNU_SOURCE). */
     execvpe((char *)bun_path, argv, envp);
     _exit(127);
@@ -318,7 +341,13 @@ int32_t proc_probe_reuseport(int32_t port) {
 MOONBIT_FFI_EXPORT
 int32_t proc_pidfd_open(int32_t pid) {
   int fd = (int)syscall(SYS_pidfd_open, (pid_t)pid, 0);
-  return fd < 0 ? -errno : fd;
+  if (fd < 0) {
+    return -errno;
+  }
+  /* pidfd_open accepts no O_CLOEXEC, so say it here: without it every process
+   * the daemon starts inherits the daemon's pidfds. */
+  fcntl(fd, F_SETFD, FD_CLOEXEC);
+  return fd;
 }
 
 /* Like proc_waitpid but through a pidfd (waitid P_PIDFD); same output
