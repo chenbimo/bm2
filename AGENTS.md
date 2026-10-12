@@ -36,11 +36,13 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 验证分三档,由内向外升级,**禁止拿全量当快检**(每改一步跑一次全量是错误用法):
 
-1. **快检**(改完即跑,秒级):`moon check <改动的包路径> --deny-warn --warn-list +implicit_impl_as_method --target-dir _build-wsl`
+1. **快检**(改完即跑,秒级):`moon check --deny-warn --warn-list +implicit_impl_as_method --target-dir _build-wsl`(单模块下无需指定包路径)
 2. **模块测试**(功能完成时,十秒级):`moon test --target native`
 3. **全量**(批次收尾一次):`bash scripts/verify.sh`(fmt / check / 单测 / 构建);交付或发布前加 `--with-e2e` 跑端到端
 
 e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了多少还添脆弱);测试内的 sleep 是真实时序语义,不为速度压缩。
+
+测试文件命名:`*_wbtest.mbt` 是白盒(测包内部实现,可直接调私有成员),`*_test.mbt` 是黑盒(测包的公开 API,用 `@包名.` 前缀调用);两者都放各包目录内,e2e 用例单独在 `scripts/e2e/`。
 
 ## 发布
 
