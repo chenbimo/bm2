@@ -17,32 +17,12 @@ const EXIT_SIGNAL_CAPACITY : Int32 = 4
 /// connections must not be able to grow the daemon without bound. The control
 /// plane is loopback-only behind a shared token, so this is a guardrail against
 /// a runaway caller, not a security boundary.
+///
+/// The gate itself is a library semaphore: one permit per connection, taken on
+/// accept and released when the connection is done. Refusing a caller is the
+/// deliberate answer — a queue would only move the pressure into memory — but if
+/// that ever changes, a blocking `acquire` is one call away.
 const MAX_CONTROL_CONNECTIONS : Int32 = 64
-
-///|
-/// Live control connections, counted by the accept loop and released by the
-/// connection's own task.
-struct Connections {
-  mut live : Int32
-}
-
-///|
-/// Claim a slot. False when the control plane is already at
-/// `MAX_CONTROL_CONNECTIONS`: the caller is refused right away rather than
-/// queued, because a queue would only move the pressure to memory.
-fn Connections::take(self : Connections) -> Bool {
-  if self.live >= MAX_CONTROL_CONNECTIONS {
-    false
-  } else {
-    self.live += 1
-    true
-  }
-}
-
-///|
-fn Connections::release(self : Connections) -> Unit {
-  self.live -= 1
-}
 
 ///|
 async fn main {
@@ -172,13 +152,15 @@ async fn run() -> Int32 {
       let exits : @aqueue.Queue[@core.ExitMode] = @aqueue.Queue::Queue(
         kind=Blocking(EXIT_SIGNAL_CAPACITY),
       )
-      let live : Connections = { live: 0, }
+      let gate : @semaphore.Semaphore = @semaphore.Semaphore(
+        MAX_CONTROL_CONNECTIONS,
+      )
       ignore(tg.spawn(async fn() { tick_loop(sv) }, allow_failure=true))
       ignore(tg.spawn(async fn() { runner.run() }, allow_failure=true))
       ignore(
         tg.spawn(async fn() {
           accept_loop(
-            server, commands, outbound, state_dir, token, exits, live, tg,
+            server, commands, outbound, state_dir, token, exits, gate, tg,
           )
         }),
       )
@@ -250,7 +232,7 @@ async fn accept_loop(
   state_dir : String,
   token : String,
   exits : @aqueue.Queue[@core.ExitMode],
-  live : Connections,
+  gate : @semaphore.Semaphore,
   tg : @async.TaskGroup[@core.ExitMode],
 ) -> Unit {
   while true {
@@ -262,7 +244,7 @@ async fn accept_loop(
     match accepted {
       None => continue
       Some((conn, _peer)) =>
-        if live.take() {
+        if gate.try_acquire() {
           // One task per connection: a slow request (a stop timeout, a runtime
           // probe) no longer holds up the next caller. Supervision mutations
           // stay serialized regardless — every one of them happens on the
@@ -271,7 +253,7 @@ async fn accept_loop(
             tg.spawn(
               async fn() {
                 serve_conn(
-                  conn, commands, outbound, state_dir, token, exits, live,
+                  conn, commands, outbound, state_dir, token, exits, gate,
                 )
               },
               allow_failure=true,
@@ -296,13 +278,13 @@ async fn serve_conn(
   state_dir : String,
   token : String,
   exits : @aqueue.Queue[@core.ExitMode],
-  live : Connections,
+  gate : @semaphore.Semaphore,
 ) -> Unit {
   if !@ipc.authenticate(conn, token) {
     // A rejected handshake is a wrong token or a probe: worth a line in the
     // event log either way.
     @core.log_event(state_dir, "bm2d.events.jsonl", "auth_failed")
-    live.release()
+    gate.release()
     return
   }
   let (response, exit) = match @ipc.read_request(conn) {
@@ -345,7 +327,7 @@ async fn serve_conn(
   if sent && !(exit is @core.ExitMode::Stay) {
     @utils.discard(() => ignore(exits.try_put(exit)))
   }
-  live.release()
+  gate.release()
 }
 
 ///|
