@@ -7,16 +7,16 @@ import {
   "chensuiyi/bm2/config",
   "chensuiyi/bm2/core",
   "chensuiyi/bm2/ipc",
-  "chensuiyi/bm2/vendor/dcipc",
+  "chensuiyi/bm2/dcipc",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/argparse",
-  "chensuiyi/bm2/vendor/dateku",
-  "chensuiyi/bm2/vendor/semver",
-  "chensuiyi/bm2/vendor/subproc",
-  "chensuiyi/bm2/vendor/fsx",
-  "chensuiyi/bm2/vendor/fndash",
+  "chensuiyi/bm2/dateku",
+  "chensuiyi/bm2/semver",
+  "chensuiyi/bm2/subproc",
+  "chensuiyi/bm2/fsx",
+  "chensuiyi/bm2/fndash",
 }
 
 pkgtype(kind: "executable")

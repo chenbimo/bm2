@@ -1,5 +1,5 @@
 import {
   "moonbitlang/async/socket",
   "chensuiyi/bm2/core",
-  "chensuiyi/bm2/vendor/dcipc",
+  "chensuiyi/bm2/dcipc",
 }

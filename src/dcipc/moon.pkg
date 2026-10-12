@@ -3,5 +3,5 @@ import {
   "moonbitlang/async/socket",
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
-  "chensuiyi/bm2/vendor/fsx",
+  "chensuiyi/bm2/fsx",
 }

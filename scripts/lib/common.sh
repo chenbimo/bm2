@@ -5,11 +5,10 @@
 # member registry is gone. What remains is the package list that every gate
 # feeds to `moon fmt` / `moon check`.
 
-# Every package of the module, including the vendored libraries under
-# src/vendor/. Printed space-separated on a single line.
+# Every package of the module. Printed space-separated on a single line.
 module_pkgs() {
   local root="$1"
-  printf '%s' "$root/src $root/src/config $root/src/core $root/src/ipc $root/src/cmd/bm2 $root/src/cmd/bm2d $root/src/vendor/dateku $root/src/vendor/dcipc $root/src/vendor/fndash $root/src/vendor/fsx $root/src/vendor/logfly $root/src/vendor/notify $root/src/vendor/semver $root/src/vendor/subproc"
+  printf '%s' "$root/src $root/src/config $root/src/core $root/src/ipc $root/src/cmd/bm2 $root/src/cmd/bm2d $root/src/dateku $root/src/dcipc $root/src/fndash $root/src/fsx $root/src/logfly $root/src/notify $root/src/semver $root/src/subproc"
 }
 
 # The strict type/warning gate that must pass before a commit.
