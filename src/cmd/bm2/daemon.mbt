@@ -1,6 +1,28 @@
 ///|
-/// Apply a freshly installed binary without touching running apps: wait
-/// out the old daemon, start the replacement, adopt the survivors.
+/// Ask the running daemon to detach (the same request `bm2 reload` sends). False
+/// when the daemon cannot be told: the caller then falls back to the manual hint
+/// instead of waiting out a swap that cannot happen.
+async fn request_detach(state_dir : String) -> Bool {
+  let req : @protocol.Request = {
+    protocol: Some(@protocol.PROTOCOL_VERSION),
+    command: "reload",
+    app: None,
+    config_path: None,
+    notify_target: None,
+  }
+  match connect_daemon(state_dir) {
+    Some(pair) =>
+      match send_attempt(pair, req, 5000) {
+        Replied(_) => true
+        Errored(_) => false
+      }
+    None => false
+  }
+}
+
+///|
+/// Apply a freshly installed binary without touching running apps: tell the old
+/// daemon to detach, wait it out, start the replacement, adopt the survivors.
 async fn apply_update(state_dir : String) -> Int32 {
   let running = match connect_daemon(state_dir) {
     Some((conn, _)) => {
@@ -9,14 +31,22 @@ async fn apply_update(state_dir : String) -> Int32 {
     }
     None => false
   }
-  if running && swap_daemon(state_dir) {
+  if !running {
+    println("updated")
+    return 0
+  }
+  // Ask first, then swap: `swap_daemon` waits for the old daemon to exit, and
+  // nothing else ever asks it to — without this request every upgrade stalled
+  // for the full wait and then told the operator to run `bm2 reload` by hand.
+  if !request_detach(state_dir) {
+    println("updated; run 'bm2 reload' to apply")
+    return 0
+  }
+  if swap_daemon(state_dir) {
     println("updated and applied")
     0
-  } else if running {
-    println("updated; run 'bm2 reload' to apply")
-    0
   } else {
-    println("updated")
+    println("updated; run 'bm2 reload' to apply")
     0
   }
 }
