@@ -44,14 +44,6 @@ test "compare/prelease_suffix_ignored" {
 }
 
 ///|
-test "bump/each_segment" {
-  let v = Semver::{ major: 2, minor: 5, patch: 1, }
-  assert_eq(bump(v, Major).to_string(), "3.0.0")
-  assert_eq(bump(v, Minor).to_string(), "2.6.0")
-  assert_eq(bump(v, Patch).to_string(), "2.5.2")
-}
-
-///|
 test "to_string/roundtrip" {
   assert_eq(parse("0.22.4").to_string(), "0.22.4")
 }

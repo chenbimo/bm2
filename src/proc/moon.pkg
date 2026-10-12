@@ -1,7 +1,7 @@
 import {
   "moonbitlang/core/env",
   "moonbitlang/core/encoding/utf8",
-  "chensuiyi/bm2/util",
+  "chensuiyi/bm2/utils",
 }
 
 import {

@@ -88,22 +88,6 @@ pub fn compare(a : Semver, b : Semver) -> Int32 {
 }
 
 ///|
-/// Increment one segment, zeroing the ones below it.
-pub fn bump(version : Semver, kind : Bump) -> Semver {
-  match kind {
-    Major => Semver::{ major: version.major + 1, minor: 0, patch: 0, }
-    Minor =>
-      Semver::{ major: version.major, minor: version.minor + 1, patch: 0, }
-    Patch =>
-      Semver::{
-        major: version.major,
-        minor: version.minor,
-        patch: version.patch + 1,
-      }
-  }
-}
-
-///|
 /// Render back to `major.minor.patch`.
 pub fn Semver::to_string(self : Semver) -> String {
   "\{self.major}.\{self.minor}.\{self.patch}"

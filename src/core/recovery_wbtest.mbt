@@ -184,6 +184,6 @@ test "recover adopts a live instance that carries the reserved variables" {
   )
   // And the adopted process is left running.
   assert_true(@proc.pid_alive(pid))
-  @util.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
+  @utils.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
   @proc.drain_child(pid)
 }

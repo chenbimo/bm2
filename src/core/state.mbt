@@ -18,7 +18,7 @@ pub fn log_event(
 ) -> Unit {
   let fields : Array[(String, String)] = []
   match app {
-    Some(name) => fields.push(("app", @util.jstr(name)))
+    Some(name) => fields.push(("app", @utils.jstr(name)))
     None => ()
   }
   match instance {
@@ -30,10 +30,10 @@ pub fn log_event(
     None => ()
   }
   match detail {
-    Some(text) => fields.push(("detail", @util.jstr(text)))
+    Some(text) => fields.push(("detail", @utils.jstr(text)))
     None => ()
   }
-  @util.discard(() => @log.event(state_dir + "/" + file, event, fields))
+  @utils.discard(() => @log.event(state_dir + "/" + file, event, fields))
 }
 
 ///|
@@ -77,7 +77,7 @@ fn InstanceState::of(inst : Instance) -> InstanceState {
     pgid: inst.pid,
     port: inst.port,
     status: inst.status.as_string(),
-    started_at: @util.iso8601(inst.started_at_ms),
+    started_at: @utils.iso8601(inst.started_at_ms),
     times: Some(inst.times),
     restart_count: inst.restart_count,
     last_exit_code: inst.last_exit_code,

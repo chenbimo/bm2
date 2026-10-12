@@ -64,7 +64,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
         e => {
           // Corrupt state can never be reconciled; remove it so it stops
           // blocking future recoveries with repeated noise.
-          @util.discard(() => @fsx.unlink(path))
+          @utils.discard(() => @fsx.unlink(path))
           log_event(
             self.state_dir,
             "bm2d.events.jsonl",
@@ -79,7 +79,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
         loaded => loaded
       }
       if state.pid <= 0 || !@proc.pid_alive(state.pid) {
-        @util.discard(() => @fsx.unlink(path))
+        @utils.discard(() => @fsx.unlink(path))
         log_event(
           self.state_dir,
           "bm2d.events.jsonl",
@@ -95,7 +95,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
       // a pid that was reused by an unrelated process must never be managed.
       let pidfd = try @proc.pidfd_open(state.pid) catch {
         _ => {
-          @util.discard(() => @fsx.unlink(path))
+          @utils.discard(() => @fsx.unlink(path))
           log_event(
             self.state_dir,
             "bm2d.events.jsonl",
@@ -130,7 +130,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
       }
       if env_matches(environ, inst) {
         inst.status = Online
-        inst.started_at_ms = @util.now_ms()
+        inst.started_at_ms = @utils.now_ms()
         inst.times = state.times.unwrap_or(0)
         inst.restart_count = state.restart_count
         self.try_save_state(inst)

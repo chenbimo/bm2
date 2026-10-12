@@ -29,7 +29,7 @@ async fn run() -> Int32 {
     return 2
   }
   let state_dir = @core.resolve_state_dir()
-  @util.discard(() => @fsx.mkdir_p(state_dir, mode=0o700))
+  @utils.discard(() => @fsx.mkdir_p(state_dir, mode=0o700))
   // One daemon per state directory: the flock is released automatically
   // when the holder exits, even on SIGKILL, so a crash never leaves a
   // permanent lock behind.
@@ -42,7 +42,7 @@ async fn run() -> Int32 {
     fd => fd
   }
   // A control socket from a previous generation is stale by definition.
-  @util.discard(() => @fsx.unlink(state_dir + "/bm2.sock"))
+  @utils.discard(() => @fsx.unlink(state_dir + "/bm2.sock"))
   @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_starting")
   let sv = try @core.Supervisor::new(state_dir~, bun_path="bun") catch {
     e => {
@@ -112,7 +112,7 @@ async fn run() -> Int32 {
   }
   // Only claim the pid file once the control endpoint is up: a daemon that
   // fails to bind must not overwrite the pid of a live daemon.
-  @util.discard(() => {
+  @utils.discard(() => {
     @fsx.write_atomic(
       state_dir + "/bm2d.pid",
       @utf8.encode(@proc.get_pid().to_string() + "\n"),
@@ -134,9 +134,9 @@ async fn run() -> Int32 {
     Some(Exit::Detach) => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
       server.close()
-      @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
-      @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
-      @util.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
+      @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
+      @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+      @utils.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detached")
     }
     Some(Exit::Shutdown) => {
@@ -284,9 +284,9 @@ async fn shutdown(
   let names = sv.app_names()
   for name in names {
     if graceful {
-      @util.discard(() => sv.stop_app(name))
+      @utils.discard(() => sv.stop_app(name))
     } else {
-      @util.discard(() => sv.kill_app(name))
+      @utils.discard(() => sv.kill_app(name))
     }
   }
   if graceful {
@@ -296,15 +296,15 @@ async fn shutdown(
   }
   for inst in sv.snapshot() {
     if inst.alive() {
-      @util.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
+      @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
     }
   }
   for name in names {
-    @util.discard(() => @core.remove_project(state_dir, name))
+    @utils.discard(() => @core.remove_project(state_dir, name))
   }
-  @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
-  @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
-  @util.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
+  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
+  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+  @utils.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
 }
 
 ///|
@@ -363,7 +363,7 @@ async fn cmd_notify(
       endpoints,
       policy,
       policy.timeout_ms,
-      @core.test_message(@util.now_ms(), lang=policy.lang),
+      @core.test_message(@utils.now_ms(), lang=policy.lang),
     )
   if results.length() == 0 {
     return @core.Response::error(
@@ -487,7 +487,7 @@ fn infos_of(
   sv : @core.Supervisor,
   names : Array[String],
 ) -> Array[@core.InstanceInfo] {
-  let now = @util.now_ms()
+  let now = @utils.now_ms()
   let infos = []
   for name in names {
     try {

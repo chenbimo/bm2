@@ -60,21 +60,21 @@ fn render_feishu(
 ) -> Delivery {
   let fields : Array[(String, String)] = []
   if format == "markdown" || format == "card" {
-    fields.push(("msg_type", @util.jstr("interactive")))
+    fields.push(("msg_type", @utils.jstr("interactive")))
     fields.push(
       (
         "card",
-        @util.jobj([
+        @utils.jobj([
           (
             "elements",
-            @util.jarr([
-              @util.jobj([
-                ("tag", @util.jstr("div")),
+            @utils.jarr([
+              @utils.jobj([
+                ("tag", @utils.jstr("div")),
                 (
                   "text",
-                  @util.jobj([
-                    ("tag", @util.jstr("lark_md")),
-                    ("content", @util.jstr(markdown_body(msg, ctx))),
+                  @utils.jobj([
+                    ("tag", @utils.jstr("lark_md")),
+                    ("content", @utils.jstr(markdown_body(msg, ctx))),
                   ]),
                 ),
               ]),
@@ -84,21 +84,21 @@ fn render_feishu(
       ),
     )
   } else {
-    fields.push(("msg_type", @util.jstr("text")))
+    fields.push(("msg_type", @utils.jstr("text")))
     fields.push(
-      ("content", @util.jobj([("text", @util.jstr(plain_body(msg, ctx)))])),
+      ("content", @utils.jobj([("text", @utils.jstr(plain_body(msg, ctx)))])),
     )
   }
   match target.secret {
     Some(secret) =>
       if !secret.is_empty() {
         let seconds = msg.ts_ms / 1000UL
-        fields.push(("timestamp", @util.jstr(seconds.to_string())))
-        fields.push(("sign", @util.jstr(feishu_signature(secret, seconds))))
+        fields.push(("timestamp", @utils.jstr(seconds.to_string())))
+        fields.push(("sign", @utils.jstr(feishu_signature(secret, seconds))))
       }
     None => ()
   }
-  json_delivery(target.url, @util.jobj(fields), [])
+  json_delivery(target.url, @utils.jobj(fields), [])
 }
 
 ///|
@@ -109,20 +109,20 @@ fn render_dingtalk(
   format : String,
 ) -> Delivery {
   let body = if format == "markdown" || format == "card" {
-    @util.jobj([
-      ("msgtype", @util.jstr("markdown")),
+    @utils.jobj([
+      ("msgtype", @utils.jstr("markdown")),
       (
         "markdown",
-        @util.jobj([
-          ("title", @util.jstr(msg.title)),
-          ("text", @util.jstr(markdown_body(msg, ctx))),
+        @utils.jobj([
+          ("title", @utils.jstr(msg.title)),
+          ("text", @utils.jstr(markdown_body(msg, ctx))),
         ]),
       ),
     ])
   } else {
-    @util.jobj([
-      ("msgtype", @util.jstr("text")),
-      ("text", @util.jobj([("content", @util.jstr(plain_body(msg, ctx)))])),
+    @utils.jobj([
+      ("msgtype", @utils.jstr("text")),
+      ("text", @utils.jobj([("content", @utils.jstr(plain_body(msg, ctx)))])),
     ])
   }
   let mut url = target.url
@@ -149,17 +149,17 @@ fn render_wecom(
   format : String,
 ) -> Delivery {
   let body = if format == "markdown" || format == "card" {
-    @util.jobj([
-      ("msgtype", @util.jstr("markdown")),
+    @utils.jobj([
+      ("msgtype", @utils.jstr("markdown")),
       (
         "markdown",
-        @util.jobj([("content", @util.jstr(markdown_body(msg, ctx)))]),
+        @utils.jobj([("content", @utils.jstr(markdown_body(msg, ctx)))]),
       ),
     ])
   } else {
-    @util.jobj([
-      ("msgtype", @util.jstr("text")),
-      ("text", @util.jobj([("content", @util.jstr(plain_body(msg, ctx)))])),
+    @utils.jobj([
+      ("msgtype", @utils.jstr("text")),
+      ("text", @utils.jobj([("content", @utils.jstr(plain_body(msg, ctx)))])),
     ])
   }
   json_delivery(target.url, body, [])
@@ -173,18 +173,18 @@ fn render_slack(
   format : String,
 ) -> Delivery {
   let body = if format == "card" || format == "markdown" {
-    @util.jobj([
-      ("text", @util.jstr(msg.title)),
+    @utils.jobj([
+      ("text", @utils.jstr(msg.title)),
       (
         "blocks",
-        @util.jarr([
-          @util.jobj([
-            ("type", @util.jstr("section")),
+        @utils.jarr([
+          @utils.jobj([
+            ("type", @utils.jstr("section")),
             (
               "text",
-              @util.jobj([
-                ("type", @util.jstr("mrkdwn")),
-                ("text", @util.jstr(markdown_body(msg, ctx))),
+              @utils.jobj([
+                ("type", @utils.jstr("mrkdwn")),
+                ("text", @utils.jstr(markdown_body(msg, ctx))),
               ]),
             ),
           ]),
@@ -192,7 +192,7 @@ fn render_slack(
       ),
     ])
   } else {
-    @util.jobj([("text", @util.jstr(markdown_body(msg, ctx)))])
+    @utils.jobj([("text", @utils.jstr(markdown_body(msg, ctx)))])
   }
   json_delivery(target.url, body, [])
 }
@@ -205,20 +205,20 @@ fn render_discord(
   format : String,
 ) -> Delivery {
   let body = if format == "card" || format == "markdown" {
-    @util.jobj([
-      ("content", @util.jstr(msg.title)),
+    @utils.jobj([
+      ("content", @utils.jstr(msg.title)),
       (
         "embeds",
-        @util.jarr([
-          @util.jobj([
-            ("title", @util.jstr(msg.title)),
-            ("description", @util.jstr(markdown_body(msg, ctx))),
+        @utils.jarr([
+          @utils.jobj([
+            ("title", @utils.jstr(msg.title)),
+            ("description", @utils.jstr(markdown_body(msg, ctx))),
           ]),
         ]),
       ),
     ])
   } else {
-    @util.jobj([("content", @util.jstr(markdown_body(msg, ctx)))])
+    @utils.jobj([("content", @utils.jstr(markdown_body(msg, ctx)))])
   }
   json_delivery(target.url, body, [])
 }
@@ -233,14 +233,14 @@ fn render_generic(
   format : String,
 ) -> Delivery {
   ignore(format)
-  let body = @util.jobj([
-    ("event", @util.jstr(msg.event)),
-    ("level", @util.jstr(msg.level)),
-    ("title", @util.jstr(msg.title)),
-    ("body", @util.jstr(msg.body)),
-    ("host", @util.jstr(ctx.host)),
-    ("timestamp", @util.jstr(msg.ts_ms.to_string())),
-    ("fields", @util.jobj(json_pairs(msg.fields))),
+  let body = @utils.jobj([
+    ("event", @utils.jstr(msg.event)),
+    ("level", @utils.jstr(msg.level)),
+    ("title", @utils.jstr(msg.title)),
+    ("body", @utils.jstr(msg.body)),
+    ("host", @utils.jstr(ctx.host)),
+    ("timestamp", @utils.jstr(msg.ts_ms.to_string())),
+    ("fields", @utils.jobj(json_pairs(msg.fields))),
   ])
   let headers = []
   match target.secret {
@@ -257,7 +257,7 @@ fn render_generic(
 fn json_pairs(fields : Array[(String, String)]) -> Array[(String, String)] {
   fields.map(fn(pair) {
     let (key, value) = pair
-    (key, @util.jstr(value))
+    (key, @utils.jstr(value))
   })
 }
 
@@ -277,7 +277,7 @@ fn render_email(
   buf.write_string(
     "Subject: =?UTF-8?B?" + @base64.encode(@utf8.encode(msg.title)[:]) + "?=\n",
   )
-  buf.write_string("Date: " + @util.rfc5322(msg.ts_ms) + "\n")
+  buf.write_string("Date: " + @utils.rfc5322(msg.ts_ms) + "\n")
   buf.write_string("MIME-Version: 1.0\n")
   buf.write_string("Content-Type: text/plain; charset=UTF-8\n")
   buf.write_string("Content-Transfer-Encoding: 8bit\n")

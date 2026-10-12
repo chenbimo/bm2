@@ -12,7 +12,7 @@ test "plain prefixes the iso timestamp" {
 ///|
 test "event writes jsonl with ts, event and caller fields" {
   let path = "/tmp/logfly-test/events.jsonl"
-  event(path, "spawn_failed", [("app", @util.jstr("api")), ("pid", "42")])
+  event(path, "spawn_failed", [("app", @utils.jstr("api")), ("pid", "42")])
   let line = @utf8.decode_lossy(@fsx.read_small(path))
   assert_true(line.has_prefix("{\"ts\":\"20"))
   assert_true(line.contains("\"event\":\"spawn_failed\""))

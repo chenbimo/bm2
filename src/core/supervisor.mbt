@@ -139,7 +139,7 @@ pub fn Supervisor::new(
   @fsx.mkdir_p(state_dir, mode=0o700)
   // mkdir only applies its mode to directories it creates; tighten a state
   // dir left behind by an older version, since it holds app logs.
-  @util.discard(() => @fsx.chmod(state_dir, 0o700))
+  @utils.discard(() => @fsx.chmod(state_dir, 0o700))
   {
     apps: Map([]),
     instances: Map([]),
@@ -190,7 +190,7 @@ pub fn Supervisor::register(
   }
   self.pending_restart.remove(name)
   self.pending_remove.remove(name)
-  @util.discard(() => save_project(self.state_dir, name, { config_path, }))
+  @utils.discard(() => save_project(self.state_dir, name, { config_path, }))
 }
 
 ///|
@@ -310,7 +310,7 @@ pub async fn Supervisor::wait_settled(
       None => ()
     }
   }
-  let deadline = @util.now_ms() + (timeout + 2000).to_uint64()
+  let deadline = @utils.now_ms() + (timeout + 2000).to_uint64()
   while true {
     self.tick()
     let mut ok = true
@@ -323,7 +323,7 @@ pub async fn Supervisor::wait_settled(
     if ok {
       return true
     }
-    if @util.now_ms() > deadline {
+    if @utils.now_ms() > deadline {
       return false
     }
     @async.sleep(50)
@@ -389,7 +389,7 @@ fn Supervisor::mark_online(
   inst.pid = pid
   inst.pidfd = pidfd
   inst.status = Online
-  inst.started_at_ms = @util.now_ms()
+  inst.started_at_ms = @utils.now_ms()
   inst.times += 1
   inst.exit_intent = Idle
   inst.kill_deadline_ms = 0UL
@@ -521,7 +521,7 @@ pub fn Supervisor::kill_app(self : Supervisor, app_name : String) -> Unit raise 
     if inst.alive() {
       inst.mark_stopping(Stop, "manual_kill")
       inst.kill_deadline_ms = 0UL
-      @util.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
+      @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
     } else if !(inst.status is Errored) {
       inst.exit_intent = Stop
       self.mark_stopped(inst)
@@ -538,7 +538,7 @@ pub fn Supervisor::kill_app(self : Supervisor, app_name : String) -> Unit raise 
 /// promise to rescan every instance that often.
 pub async fn Supervisor::tick(self : Supervisor) -> Unit {
   self.reap()
-  let now = @util.now_ms()
+  let now = @utils.now_ms()
   if now - self.last_memory_check_ms >= self.memory_interval_ms.to_uint64() {
     self.last_memory_check_ms = now
     self.check_memory()
@@ -607,7 +607,7 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
     self.pending_remove.remove(name)
     self.apps.remove(name)
     self.instances.remove(name)
-    @util.discard(() => remove_project(self.state_dir, name))
+    @utils.discard(() => remove_project(self.state_dir, name))
     log_event(
       self.state_dir,
       "bm2d.events.jsonl",
@@ -679,7 +679,7 @@ fn Supervisor::handle_exit(
   pid : Int32,
   exit : @proc.ChildExit?,
 ) -> Unit {
-  let now = @util.now_ms()
+  let now = @utils.now_ms()
   match exit {
     None => {
       inst.last_exit_code = None
@@ -1057,7 +1057,7 @@ fn Supervisor::check_deadlines(self : Supervisor, now : UInt64) -> Unit {
       if inst.kill_deadline_ms != 0UL && now >= inst.kill_deadline_ms {
         inst.kill_deadline_ms = 0UL
         if inst.alive() {
-          @util.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
+          @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
         }
       }
     }
@@ -1168,7 +1168,7 @@ fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
     // One instance's spawn failure must not abort the loop: the failure
     // is already marked and retried with backoff by mark_spawn_failed,
     // and the remaining instances still deserve their spawn.
-    @util.discard(() => self.spawn_instance(app, inst))
+    @utils.discard(() => self.spawn_instance(app, inst))
   }
   let (title, body) = render_msg(
     app.notify.lang,
@@ -1225,7 +1225,7 @@ fn Supervisor::spawn_instance(
   // is treated as a spawn failure: an unmanaged process is unacceptable.
   let pidfd = try @proc.pidfd_open(pid) catch {
     e => {
-      @util.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
+      @utils.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
       // Reap the killed child so a failed spawn leaves no zombie.
       @proc.drain_child(pid)
       raise IoError(e.to_string())
@@ -1255,7 +1255,7 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
   inst.restart_count += 1
   inst.last_reason = Some("spawn_failed")
   self.write_crash(inst, "spawn_failed")
-  self.record_storm_hit(inst.app_name, @util.now_ms())
+  self.record_storm_hit(inst.app_name, @utils.now_ms())
   self.record_stats_restart(inst.app_name)
   let app = match self.apps.get(inst.app_name) {
     Some(app) => app
@@ -1292,7 +1292,7 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
     )
     self.mark_restarting(
       inst,
-      @util.now_ms() + (app.restart_delay_ms * inst.restart_count).to_uint64(),
+      @utils.now_ms() + (app.restart_delay_ms * inst.restart_count).to_uint64(),
     )
   }
 }
@@ -1307,8 +1307,8 @@ fn terminate(
   reason : String,
 ) -> Unit {
   inst.mark_stopping(intent, reason)
-  @util.discard(() => @proc.kill_group(inst.pid, @proc.SIGTERM))
-  inst.kill_deadline_ms = @util.now_ms() + app.stop_timeout_ms.to_uint64()
+  @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGTERM))
+  inst.kill_deadline_ms = @utils.now_ms() + app.stop_timeout_ms.to_uint64()
 }
 
 ///|

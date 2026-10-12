@@ -57,8 +57,8 @@ fn make_sv(root : String, config : @config.Config) -> @core.Supervisor raise {
 
 ///|
 async fn drive(sv : @core.Supervisor, ms : Int32) -> Unit {
-  let end = @util.now_ms() + ms.to_uint64()
-  while @util.now_ms() < end {
+  let end = @utils.now_ms() + ms.to_uint64()
+  while @utils.now_ms() < end {
     sv.tick()
     @proc.sleep_ms(20)
   }
@@ -81,8 +81,8 @@ async test "crash loop restarts then reaches errored" {
   let sv = make_sv(root, app_config("api", dir, 4100))
   sv.start_app("api")
   let inst = sv.instance("api", 0)
-  let deadline = @util.now_ms() + 5000UL
-  while @util.now_ms() < deadline && !(inst.status is @core.Status::Errored) {
+  let deadline = @utils.now_ms() + 5000UL
+  while @utils.now_ms() < deadline && !(inst.status is @core.Status::Errored) {
     sv.tick()
     @proc.sleep_ms(20)
   }

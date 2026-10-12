@@ -82,5 +82,5 @@ fn Supervisor::write_crash(
   }
   buf.write_string(" restartCount=" + inst.restart_count.to_string())
   let path = "\{self.state_dir}/\{inst.app_name}/logs/\{inst.app_name}-\{inst.instance_id}.crash.log"
-  @util.discard(() => @log.plain(path, buf.to_string()))
+  @utils.discard(() => @log.plain(path, buf.to_string()))
 }

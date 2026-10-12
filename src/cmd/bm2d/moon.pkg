@@ -7,7 +7,7 @@ import {
   "chensuiyi/bm2/ipc",
   "chensuiyi/bm2/fsx",
   "chensuiyi/bm2/proc",
-  "chensuiyi/bm2/util",
+  "chensuiyi/bm2/utils",
   "moonbitlang/core/env",
   "moonbitlang/core/encoding/utf8",
 }

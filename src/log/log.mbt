@@ -5,7 +5,7 @@
 pub fn plain(path : String, text : String) -> Unit raise @fsx.FileError {
   @fsx.append_file(
     path,
-    @utf8.encode(@util.iso8601(@util.now_ms()) + " " + text + "\n"),
+    @utf8.encode(@utils.iso8601(@utils.now_ms()) + " " + text + "\n"),
   )
 }
 
@@ -13,7 +13,7 @@ pub fn plain(path : String, text : String) -> Unit raise @fsx.FileError {
 /// Append one JSONL management event:
 /// `{"ts":"...","event":"...","<key>":<value>...}`. Keys are quoted by the
 /// library; values must arrive as already-encoded JSON fragments — pass
-/// `@util.jstr(text)` for strings and raw digits for numbers, so a field
+/// `@utils.jstr(text)` for strings and raw digits for numbers, so a field
 /// the caller omits simply does not appear on the wire.
 pub fn event(
   path : String,
@@ -21,14 +21,14 @@ pub fn event(
   fields : Array[(String, String)],
 ) -> Unit raise @fsx.FileError {
   let all : Array[(String, String)] = [
-    ("ts", @util.jstr(@util.iso8601(@util.now_ms()))),
-    ("event", @util.jstr(event)),
+    ("ts", @utils.jstr(@utils.iso8601(@utils.now_ms()))),
+    ("event", @utils.jstr(event)),
   ]
   for pair in fields {
     let (key, value) = pair
     all.push((key, value))
   }
-  @fsx.append_file(path, @utf8.encode(@util.jobj(all) + "\n"))
+  @fsx.append_file(path, @utf8.encode(@utils.jobj(all) + "\n"))
 }
 
 ///|

@@ -30,12 +30,12 @@ test "spawn failures back off and exhaust the budget into errored" {
   sv.mark_spawn_failed(inst)
   assert_true(inst.status is Restarting)
   assert_eq(inst.restart_count, 1)
-  let first_wait = inst.restart_at_ms - @util.now_ms()
+  let first_wait = inst.restart_at_ms - @utils.now_ms()
   assert_true(first_wait > 0UL)
   sv.mark_spawn_failed(inst)
   assert_eq(inst.restart_count, 2)
   // The backoff grows with the retry count: delay * restart_count.
-  assert_true(inst.restart_at_ms - @util.now_ms() >= first_wait)
+  assert_true(inst.restart_at_ms - @utils.now_ms() >= first_wait)
   sv.mark_spawn_failed(inst)
   assert_true(inst.status is Errored)
   assert_eq(inst.restart_at_ms, 0UL)
@@ -70,7 +70,7 @@ async test "wait_settled gives up after the deadline" {
   let inst = sv.instance("wbapp", 0)
   inst.status = Restarting
   inst.pid = 0
-  inst.restart_at_ms = @util.now_ms() + 60000UL
+  inst.restart_at_ms = @utils.now_ms() + 60000UL
   assert_false(sv.wait_settled(["wbapp"]))
 }
 

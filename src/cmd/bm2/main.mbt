@@ -299,7 +299,7 @@ async fn cmd_upgrade(state_dir : String) -> Int32 {
   let base = update_base()
   let manifest_url = base +
     "/products/bm2/latest.json?t=" +
-    @util.now_ms().to_string()
+    @utils.now_ms().to_string()
   let text = try fetch_text(manifest_url) catch {
     _ => {
       @proc.eprintln("bm2: cannot reach the release station " + base)
@@ -315,7 +315,7 @@ async fn cmd_upgrade(state_dir : String) -> Int32 {
       return 1
     }
   }
-  if @util.compare(@util.parse(version), @util.parse(VERSION)) <= 0 {
+  if @utils.compare(@utils.parse(version), @utils.parse(VERSION)) <= 0 {
     println("bm2 is up to date (" + VERSION + ")")
     return 0
   }
@@ -436,7 +436,7 @@ async fn poll_settled(
   app : String?,
   timeout_ms : Int32,
 ) -> Array[@core.InstanceInfo] {
-  let deadline = @util.now_ms() + timeout_ms.to_uint64()
+  let deadline = @utils.now_ms() + timeout_ms.to_uint64()
   let mut last : Array[@core.InstanceInfo] = []
   let poll_req : @core.Request = {
     protocol: Some(@core.PROTOCOL_VERSION),
@@ -470,7 +470,7 @@ async fn poll_settled(
       Some(r) if !r.ok && command == "kill" => break
       _ => ()
     }
-    if @util.now_ms() > deadline {
+    if @utils.now_ms() > deadline {
       break
     }
   }
@@ -563,8 +563,8 @@ async fn request_with_recovery(
     }
     None => ()
   }
-  @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
-  @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
+  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
   @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
   let retry = match connect_or_start(state_dir) {
     Some(pair) => pair

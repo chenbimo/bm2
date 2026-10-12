@@ -251,7 +251,7 @@ test "cpu percent needs a baseline before it reports anything" {
     Some(percent) => assert_true(percent >= 0.0)
     None => fail("expected a cpu percentage once a baseline exists")
   }
-  @util.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
+  @utils.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
   @proc.drain_child(pid)
 }
 

@@ -25,7 +25,7 @@ pub fn Supervisor::check_runtime(
   runtime : String,
 ) -> Unit raise SupervisorError {
   let min_text = if runtime == "node" { MIN_NODE } else { MIN_BUN }
-  let min = @util.parse(min_text)
+  let min = @utils.parse(min_text)
   let out = "\{self.state_dir}/runtime-version.tmp"
   let problem = try
     @proc.spawn({
@@ -48,10 +48,10 @@ pub fn Supervisor::check_runtime(
           } noraise {
             data => @utf8.decode_lossy(data)
           }
-          let version = @util.parse(text)
+          let version = @utils.parse(text)
           if version == { major: 0, minor: 0, patch: 0, } {
             Some("cannot parse \{runtime} --version output")
-          } else if @util.compare(version, min) >= 0 {
+          } else if @utils.compare(version, min) >= 0 {
             None
           } else {
             Some(
@@ -74,7 +74,7 @@ pub fn Supervisor::check_runtime(
       }
     }
   }
-  @util.discard(() => @fsx.unlink(out))
+  @utils.discard(() => @fsx.unlink(out))
   match problem {
     Some(msg) => raise RuntimeRejected(msg)
     None => ()
