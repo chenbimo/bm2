@@ -743,6 +743,99 @@ wait "$LOCKER" 2>/dev/null || true
 unset BM2_UPDATE_BASE
 kill "$STATION" 2>/dev/null
 
+echo "===== AI. one instance crashes, its neighbour keeps running ====="
+# The same script behaves differently per instance: id 0 exits at once, id 1 serves
+# HTTP. Only the crashing instance may spend the project's restart budget.
+mkdir -p "$ACC/pair"
+cat > "$ACC/pair/half-crash.ts" <<'EOF'
+if (Bun.env.BM2_INSTANCE_ID === "0") process.exit(1);
+Bun.serve({
+  port: Number(Bun.env.BM2_APP_PORT),
+  fetch: () => new Response("ok"),
+});
+EOF
+cat > "$ACC/pair/bm2.toml" <<EOF
+name = "pair"
+script = "half-crash.ts"
+instances = 2
+port = 4371
+exec_mode = "fork"
+max_memory_mb = 512
+max_restarts = 1
+restart_delay_ms = 100
+min_uptime_ms = 60000
+stop_timeout_ms = 1000
+EOF
+(cd "$ACC/pair" && bm2 start >/dev/null)
+sleep 3
+PAIR_LIST=$(bm2 list pair)
+check "the crashing instance errored out" "errored" \
+  "$(printf '%s\n' "$PAIR_LIST" | sed -n '2p' | awk '{print $6}')"
+check "its neighbour is still online" "online" \
+  "$(printf '%s\n' "$PAIR_LIST" | sed -n '3p' | awk '{print $6}')"
+check "the neighbour never restarted" "1" \
+  "$(printf '%s\n' "$PAIR_LIST" | sed -n '3p' | awk '{print $7}')"
+check "the neighbour still serves" "ok" "$(curl -s --max-time 2 localhost:4372)"
+bm2 kill pair >/dev/null 2>&1 || true
+
+echo "===== AJ. a dead target fails alone; the live one still gets the message ====="
+# Two targets, one with nothing listening: the delivery is partial, the live
+# target must still receive it, and the CLI must report both outcomes.
+cat > "$ACC/live-hook.ts" <<'EOF'
+import { appendFileSync } from "node:fs";
+Bun.serve({
+  port: 4323,
+  fetch: async (req) => {
+    appendFileSync(process.argv[2], (await req.text()) + "\n");
+    return new Response("ok");
+  },
+});
+EOF
+: > "$ACC/live-hook.log"
+bun "$ACC/live-hook.ts" "$ACC/live-hook.log" >/dev/null 2>&1 &
+HOOK=$!
+for _ in $(seq 1 30); do
+  if curl -s --max-time 1 localhost:4323 >/dev/null; then break; fi
+  sleep 0.2
+done
+mkdir -p "$ACC/mixed"
+cp "$fixtures/crash.ts" "$ACC/mixed/"
+cat > "$ACC/mixed/bm2.toml" <<EOF
+name = "mixed"
+script = "crash.ts"
+instances = 1
+port = 4381
+exec_mode = "fork"
+max_memory_mb = 512
+max_restarts = 2
+restart_delay_ms = 100
+min_uptime_ms = 60000
+stop_timeout_ms = 1000
+
+[notify]
+enabled = true
+timeout_ms = 2000
+
+[[notify.report]]
+name = "mixed"
+events = ["crash"]
+
+[[notify.report.target]]
+platform = "webhook"
+url = "http://127.0.0.1:4323/hook"
+
+[[notify.report.target]]
+platform = "webhook"
+url = "http://127.0.0.1:4324/hook"
+EOF
+(cd "$ACC/mixed" && bm2 notify) >"$ACC/mixed-out.txt" 2>&1
+check "a partial delivery exits non-zero" 1 "$?"
+contains "the live target reports success" "$ACC/mixed-out.txt" "sent"
+contains "the dead target reports failure" "$ACC/mixed-out.txt" "failed"
+check "the live target received the message" 1 \
+  "$(grep -c '"event":"lifecycle"' "$ACC/live-hook.log" || true)"
+kill "$HOOK" 2>/dev/null
+
 echo "===== AG. notification retry: fail twice, deliver once ====="
 # The engine retries a failed instant alert with a 5s then a 15s backoff. This
 # receiver rejects the first two attempts, so passing means the retry path ran and
