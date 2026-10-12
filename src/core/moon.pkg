@@ -1,4 +1,5 @@
 import {
+  "chensuiyi/bm2/protocol",
   "moonbitlang/async",
   "chensuiyi/bm2/config",
   "chensuiyi/bm2/notify",

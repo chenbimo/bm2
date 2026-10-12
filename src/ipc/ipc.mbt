@@ -4,8 +4,11 @@
 
 ///|
 /// Write one framed response to an authenticated connection.
-pub async fn write_response(conn : @socket.Tcp, resp : @core.Response) -> Unit {
-  write_frame(conn, @core.encode_response(resp))
+pub async fn write_response(
+  conn : @socket.Tcp,
+  resp : @protocol.Response,
+) -> Unit {
+  write_frame(conn, @protocol.encode_response(resp))
 }
 
 ///|
@@ -16,11 +19,11 @@ pub async fn write_response(conn : @socket.Tcp, resp : @core.Response) -> Unit {
 pub async fn round_trip(
   conn : @socket.Tcp,
   token : String,
-  req : @core.Request,
+  req : @protocol.Request,
   timeout_ms : Int32,
-) -> @core.Response {
-  @core.decode_response(
-    round_trip_bytes(conn, token, @core.encode_request(req), timeout_ms),
+) -> @protocol.Response {
+  @protocol.decode_response(
+    round_trip_bytes(conn, token, @protocol.encode_request(req), timeout_ms),
   )
 }
 
@@ -28,9 +31,9 @@ pub async fn round_trip(
 /// Read one request frame from an authenticated connection, tolerating a
 /// client that connects and goes silent. None means the connection yielded
 /// nothing usable and has been closed.
-pub async fn read_request(conn : @socket.Tcp) -> @core.Request? {
+pub async fn read_request(conn : @socket.Tcp) -> @protocol.Request? {
   match read_frame_timeout(conn, AUTH_TIMEOUT_MS) {
-    Some(payload) => Some(@core.decode_request(payload))
+    Some(payload) => Some(@protocol.decode_request(payload))
     None => None
   }
 }

@@ -1,8 +1,8 @@
 import {
+  "chensuiyi/bm2/protocol",
   "moonbitlang/async",
   "moonbitlang/async/socket",
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
-  "chensuiyi/bm2/core",
   "chensuiyi/bm2/fsx",
 }

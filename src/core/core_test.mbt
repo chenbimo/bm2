@@ -454,26 +454,26 @@ test "load_projects skips a project whose config is gone" {
 
 ///|
 test "protocol request and response round-trip" {
-  let req : @core.Request = {
-    protocol: Some(@core.PROTOCOL_VERSION),
+  let req : @protocol.Request = {
+    protocol: Some(@protocol.PROTOCOL_VERSION),
     command: "start",
     app: Some("api"),
     config_path: Some("/srv/blog/bm2.toml"),
     notify_target: None,
   }
-  assert_eq(@core.decode_request(@core.encode_request(req)), req)
-  let bare : @core.Request = {
-    protocol: Some(@core.PROTOCOL_VERSION),
+  assert_eq(@protocol.decode_request(@protocol.encode_request(req)), req)
+  let bare : @protocol.Request = {
+    protocol: Some(@protocol.PROTOCOL_VERSION),
     command: "kill",
     app: None,
     config_path: None,
     notify_target: None,
   }
-  assert_eq(@core.decode_request(@core.encode_request(bare)), bare)
-  let resp = @core.Response::ok("started", [])
-  assert_eq(@core.decode_response(@core.encode_response(resp)), resp)
-  let err = @core.Response::error("boom")
-  assert_eq(@core.decode_response(@core.encode_response(err)), err)
+  assert_eq(@protocol.decode_request(@protocol.encode_request(bare)), bare)
+  let resp = @protocol.Response::ok("started", [])
+  assert_eq(@protocol.decode_response(@protocol.encode_response(resp)), resp)
+  let err = @protocol.Response::error("boom")
+  assert_eq(@protocol.decode_response(@protocol.encode_response(err)), err)
 }
 
 ///|
@@ -481,26 +481,26 @@ test "protocol request and response round-trip" {
 /// is optional so a peer that predates versioning still decodes, and every
 /// answer carries this binary's revision.
 test "protocol version is carried and skew is reported" {
-  assert_eq(@core.Response::ok("ok", []).protocol, Some(1))
-  assert_eq(@core.Response::error("boom").protocol, Some(1))
-  assert_eq(@core.protocol_problem(Some(1)), None)
-  assert_true(@core.protocol_problem(Some(2)) is Some(_))
-  assert_true(@core.protocol_problem(None) is Some(_))
+  assert_eq(@protocol.Response::ok("ok", []).protocol, Some(1))
+  assert_eq(@protocol.Response::error("boom").protocol, Some(1))
+  assert_eq(@protocol.protocol_problem(Some(1)), None)
+  assert_true(@protocol.protocol_problem(Some(2)) is Some(_))
+  assert_true(@protocol.protocol_problem(None) is Some(_))
   // A request without the field (an older CLI) still decodes.
-  let legacy = @core.decode_request(@utf8.encode("{\"command\":\"list\"}"))
+  let legacy = @protocol.decode_request(@utf8.encode("{\"command\":\"list\"}"))
   assert_eq(legacy.protocol, None)
   assert_eq(legacy.command, "list")
 }
 
 ///|
 test "protocol rejects garbage payloads" {
-  let req_ok = try @core.decode_request(@utf8.encode("not json")) catch {
+  let req_ok = try @protocol.decode_request(@utf8.encode("not json")) catch {
     _ => false
   } noraise {
     _ => true
   }
   assert_false(req_ok)
-  let resp_ok = try @core.decode_response(@utf8.encode("{}")) catch {
+  let resp_ok = try @protocol.decode_response(@utf8.encode("{}")) catch {
     _ => false
   } noraise {
     _ => true

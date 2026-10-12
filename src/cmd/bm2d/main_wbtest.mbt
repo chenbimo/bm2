@@ -5,8 +5,8 @@
 async fn round_trip(
   sv : @core.Supervisor,
   _state_dir : String,
-  req : @core.Request,
-) -> @core.Response {
+  req : @protocol.Request,
+) -> @protocol.Response {
   let server = @socket.TcpServer::TcpServer(@socket.Addr::new(2130706433U, 0))
   @async.with_task_group(async fn(tg) {
     ignore(
@@ -18,8 +18,9 @@ async fn round_trip(
             match @ipc.read_request(conn) {
               Some(received) => {
                 let (response, _) = match
-                  @core.protocol_problem(received.protocol) {
-                  Some(problem) => (@core.Response::error(problem), Exit::Stay)
+                  @protocol.protocol_problem(received.protocol) {
+                  Some(problem) =>
+                    (@protocol.Response::error(problem), Exit::Stay)
                   None => dispatch(sv, received)
                 }
                 let _ = @ipc.write_response(conn, response)
@@ -28,7 +29,7 @@ async fn round_trip(
               None => {
                 let _ = @ipc.write_response(
                   conn,
-                  @core.Response::error("invalid request"),
+                  @protocol.Response::error("invalid request"),
                 )
                 conn.close()
               }
@@ -57,7 +58,7 @@ fn probe_sv(name : String) -> (@core.Supervisor, String) raise {
 }
 
 ///|
-fn request(protocol : Int32?, command : String) -> @core.Request {
+fn request(protocol : Int32?, command : String) -> @protocol.Request {
   { protocol, command, app: None, config_path: None, notify_target: None, }
 }
 
@@ -69,7 +70,7 @@ async test "daemon rejects a mismatched protocol and says so" {
   let (sv, state_dir) = probe_sv("mismatch")
   let old = round_trip(sv, state_dir, request(None, "list"))
   assert_false(old.ok)
-  assert_eq(old.protocol, Some(@core.PROTOCOL_VERSION))
+  assert_eq(old.protocol, Some(@protocol.PROTOCOL_VERSION))
   assert_true(old.message.contains("protocol mismatch"))
   assert_true(old.message.contains("reload"))
 
@@ -80,10 +81,10 @@ async test "daemon rejects a mismatched protocol and says so" {
   let current = round_trip(
     sv,
     state_dir,
-    request(Some(@core.PROTOCOL_VERSION), "list"),
+    request(Some(@protocol.PROTOCOL_VERSION), "list"),
   )
   assert_true(current.ok)
-  assert_eq(current.protocol, Some(@core.PROTOCOL_VERSION))
+  assert_eq(current.protocol, Some(@protocol.PROTOCOL_VERSION))
 }
 
 ///|
@@ -92,7 +93,7 @@ async test "daemon answers list and rejects unknown commands" {
   let listed = round_trip(
     sv,
     state_dir,
-    request(Some(@core.PROTOCOL_VERSION), "list"),
+    request(Some(@protocol.PROTOCOL_VERSION), "list"),
   )
   assert_true(listed.ok)
   assert_eq(listed.message, "ok")
@@ -101,7 +102,7 @@ async test "daemon answers list and rejects unknown commands" {
   let unknown = round_trip(
     sv,
     state_dir,
-    request(Some(@core.PROTOCOL_VERSION), "explode"),
+    request(Some(@protocol.PROTOCOL_VERSION), "explode"),
   )
   assert_false(unknown.ok)
   assert_true(unknown.message.contains("unknown command"))

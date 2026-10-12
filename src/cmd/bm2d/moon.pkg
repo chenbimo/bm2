@@ -1,4 +1,5 @@
 import {
+  "chensuiyi/bm2/protocol",
   "moonbitlang/async",
   "moonbitlang/async/signal",
   "moonbitlang/async/socket",

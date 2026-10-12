@@ -298,3 +298,56 @@ fn restore(dir : String, backed : Array[String]) -> Unit {
     ignore(move_file(destination + ".bak", destination))
   }
 }
+
+///|
+/// Upgrade bm2 from the release station: fetch the manifest, compare the
+/// published version with the running one, download this platform's binaries,
+/// verify their SHA256, swap them in place, then swap the daemon so the new
+/// binary takes over without touching the running apps.
+/// The manifest and the online layout are defined in yicode-tech
+/// `specs/update-spec.md`.
+async fn cmd_upgrade(state_dir : String) -> Int32 {
+  let base = update_base()
+  let manifest_url = base +
+    "/products/bm2/latest.json?t=" +
+    @utils.now_ms().to_string()
+  let text = try fetch_text(manifest_url) catch {
+    _ => {
+      @proc.eprintln("bm2: cannot reach the release station " + base)
+      return 1
+    }
+  } noraise {
+    body => body
+  }
+  let (version, artifacts) = match parse_manifest(text) {
+    Some(parsed) => parsed
+    None => {
+      @proc.eprintln("bm2: cannot read the release manifest")
+      return 1
+    }
+  }
+  if @utils.compare(@utils.parse(version), @utils.parse(VERSION)) <= 0 {
+    println("bm2 is up to date (" + VERSION + ")")
+    return 0
+  }
+  println("new version " + version + " available (current " + VERSION + ")")
+  let target = self_target()
+  // bm2 与 bm2d 必须同批取到,缺一不可,否则会出现半更新。
+  let picked = match pick_artifacts(artifacts, target, ["bm2", "bm2d"]) {
+    Some(items) => items
+    None => {
+      @proc.eprintln("bm2: no release for " + target + " yet")
+      return 1
+    }
+  }
+  match install_artifacts(picked, self_dir()) {
+    Some(reason) => {
+      @proc.eprintln("bm2: " + reason)
+      return 1
+    }
+    None => ()
+  }
+  // Apply immediately when a daemon is running; a failed swap still
+  // leaves the update installed, so only the message differs.
+  apply_update(state_dir)
+}

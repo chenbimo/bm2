@@ -216,8 +216,8 @@ async fn serve_conn(
 ) -> Exit? {
   let (response, exit) = match @ipc.read_request(conn) {
     Some(req) =>
-      match @core.protocol_problem(req.protocol) {
-        Some(problem) => (@core.Response::error(problem), Exit::Stay)
+      match @protocol.protocol_problem(req.protocol) {
+        Some(problem) => (@protocol.Response::error(problem), Exit::Stay)
         None => {
           @core.log_event(
             state_dir,
@@ -229,7 +229,7 @@ async fn serve_conn(
           dispatch(sv, req)
         }
       }
-    None => (@core.Response::error("invalid request"), Exit::Stay)
+    None => (@protocol.Response::error("invalid request"), Exit::Stay)
   }
   let sent = try {
     @ipc.write_response(conn, response)
@@ -259,15 +259,16 @@ async fn serve_conn(
 ///|
 async fn dispatch(
   sv : @core.Supervisor,
-  req : @core.Request,
-) -> (@core.Response, Exit) {
+  req : @protocol.Request,
+) -> (@protocol.Response, Exit) {
   match req.command {
     "list" => (cmd_list(sv, req.app), Exit::Stay)
     "start" => (cmd_start(sv, req), Exit::Stay)
     "kill" => cmd_kill(sv, req.app)
     "reload" => cmd_reload()
     "notify" => (cmd_notify(sv, req), Exit::Stay)
-    _ => (@core.Response::error("unknown command: " + req.command), Exit::Stay)
+    _ =>
+      (@protocol.Response::error("unknown command: " + req.command), Exit::Stay)
   }
 }
 
@@ -315,14 +316,14 @@ async fn shutdown(
 /// supervision.
 async fn cmd_notify(
   sv : @core.Supervisor,
-  req : @core.Request,
-) -> @core.Response {
+  req : @protocol.Request,
+) -> @protocol.Response {
   let config_path = match req.config_path {
     Some(path) => path
-    None => return @core.Response::error("notify requires a config path")
+    None => return @protocol.Response::error("notify requires a config path")
   }
   let config = try @config.load(config_path) catch {
-    e => return @core.Response::error(e.to_string())
+    e => return @protocol.Response::error(e.to_string())
   } noraise {
     loaded => loaded
   }
@@ -334,7 +335,7 @@ async fn cmd_notify(
     }
   }
   if !policy.enabled || !has_endpoint {
-    return @core.Response::error(
+    return @protocol.Response::error(
       "project " +
       config.name +
       " has no notifications enabled: set [notify].enabled = true and add at least one [[notify.report.target]] in bm2.toml",
@@ -350,7 +351,7 @@ async fn cmd_notify(
     }
   }
   if endpoints.is_empty() {
-    return @core.Response::error(
+    return @protocol.Response::error(
       match req.notify_target {
         Some(name) => "unknown notification target: " + name
         None => "no notification targets configured"
@@ -366,7 +367,7 @@ async fn cmd_notify(
       @core.test_message(@utils.now_ms(), lang=policy.lang),
     )
   if results.length() == 0 {
-    return @core.Response::error(
+    return @protocol.Response::error(
       match req.notify_target {
         Some(name) => "unknown notification target: " + name
         None => "no notification targets configured"
@@ -387,20 +388,20 @@ async fn cmd_notify(
   }
   let message = lines.join("\n")
   if failed == 0 {
-    @core.Response::ok(message, [])
+    @protocol.Response::ok(message, [])
   } else {
-    @core.Response::error(message)
+    @protocol.Response::error(message)
   }
 }
 
 ///|
-fn cmd_list(sv : @core.Supervisor, app : String?) -> @core.Response {
+fn cmd_list(sv : @core.Supervisor, app : String?) -> @protocol.Response {
   let names = try targets(sv, app) catch {
-    e => return @core.Response::error(e.to_string())
+    e => return @protocol.Response::error(e.to_string())
   } noraise {
     found => found
   }
-  @core.Response::ok("ok", infos_of(sv, names))
+  @protocol.Response::ok("ok", infos_of(sv, names))
 }
 
 ///|
@@ -411,33 +412,36 @@ fn cmd_list(sv : @core.Supervisor, app : String?) -> @core.Response {
 /// Async: the request returns immediately with the in-flight state; the
 /// CLI polls `list` for the terminal state so the accept loop never
 /// blocks on stop timeouts.
-fn cmd_start(sv : @core.Supervisor, req : @core.Request) -> @core.Response {
+fn cmd_start(
+  sv : @core.Supervisor,
+  req : @protocol.Request,
+) -> @protocol.Response {
   let config_path = match req.config_path {
     Some(path) => path
-    None => return @core.Response::error("start requires a config path")
+    None => return @protocol.Response::error("start requires a config path")
   }
   let config = try @config.load(config_path) catch {
-    e => return @core.Response::error(e.to_string())
+    e => return @protocol.Response::error(e.to_string())
   } noraise {
     loaded => loaded
   }
   try sv.check_runtime(config.runtime) catch {
-    e => return @core.Response::error(e.to_string())
+    e => return @protocol.Response::error(e.to_string())
   } noraise {
     _ => ()
   }
   try sv.register(config, config_path) catch {
-    e => return @core.Response::error(e.to_string())
+    e => return @protocol.Response::error(e.to_string())
   } noraise {
     _ => ()
   }
   let name = config.name
   try sv.start_app(name) catch {
-    e => return @core.Response::error(e.to_string())
+    e => return @protocol.Response::error(e.to_string())
   } noraise {
     _ => ()
   }
-  @core.Response::ok("started", infos_of(sv, [name]))
+  @protocol.Response::ok("started", infos_of(sv, [name]))
 }
 
 ///|
@@ -446,16 +450,16 @@ fn cmd_start(sv : @core.Supervisor, req : @core.Request) -> @core.Response {
 /// Async: an app kill returns right away; the CLI polls for the terminal
 /// state instead of blocking the loop. A killed project is unregistered
 /// once its instances have stopped.
-fn cmd_kill(sv : @core.Supervisor, app : String?) -> (@core.Response, Exit) {
+fn cmd_kill(sv : @core.Supervisor, app : String?) -> (@protocol.Response, Exit) {
   match app {
-    None => (@core.Response::ok("bm2d stopping", []), Exit::Shutdown)
+    None => (@protocol.Response::ok("bm2d stopping", []), Exit::Shutdown)
     Some(name) => {
       try sv.kill_app(name) catch {
-        e => return (@core.Response::error(e.to_string()), Exit::Stay)
+        e => return (@protocol.Response::error(e.to_string()), Exit::Stay)
       } noraise {
         _ => ()
       }
-      (@core.Response::ok("killed", infos_of(sv, [name])), Exit::Stay)
+      (@protocol.Response::ok("killed", infos_of(sv, [name])), Exit::Stay)
     }
   }
 }
@@ -463,8 +467,8 @@ fn cmd_kill(sv : @core.Supervisor, app : String?) -> (@core.Response, Exit) {
 ///|
 /// Reload detaches bm2d without stopping apps; the CLI then starts a fresh
 /// daemon which adopts the surviving instances (and the new binary).
-fn cmd_reload() -> (@core.Response, Exit) {
-  (@core.Response::ok("reloading", []), Exit::Detach)
+fn cmd_reload() -> (@protocol.Response, Exit) {
+  (@protocol.Response::ok("reloading", []), Exit::Detach)
 }
 
 ///|
@@ -486,14 +490,14 @@ fn targets(sv : @core.Supervisor, app : String?) -> Array[String] raise {
 fn infos_of(
   sv : @core.Supervisor,
   names : Array[String],
-) -> Array[@core.InstanceInfo] {
+) -> Array[@protocol.InstanceInfo] {
   let now = @utils.now_ms()
   let infos = []
   for name in names {
     try {
       for inst in sv.app_instances(name) {
         if !(inst.status is @core.Status::Stopped) {
-          infos.push(@core.InstanceInfo::of(inst, now))
+          infos.push(@core.instance_info_of(inst, now))
         }
       }
     } catch {

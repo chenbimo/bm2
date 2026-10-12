@@ -1,5 +1,5 @@
 ///|
-fn info(app : String, status : String) -> @core.InstanceInfo {
+fn info(app : String, status : String) -> @protocol.InstanceInfo {
   {
     app_name: app,
     cwd: "/srv/" + app,
@@ -61,8 +61,8 @@ async test "a busy daemon is reported instead of being replaced" {
     server.addr.port().to_string() + "\n",
   )
   @fs.write_string_to_file(state_dir + "/" + @ipc.TOKEN_FILE, "wbtest-token")
-  let req : @core.Request = {
-    protocol: Some(@core.PROTOCOL_VERSION),
+  let req : @protocol.Request = {
+    protocol: Some(@protocol.PROTOCOL_VERSION),
     command: "list",
     app: None,
     config_path: None,

@@ -3,7 +3,10 @@
 /// protocol layer as plain data. Reading /proc lives here rather than in
 /// protocol.mbt so the wire format stays free of side effects.
 /// rss_kb is -1 when unavailable, uptime_ms is 0 when not running.
-pub fn InstanceInfo::of(inst : Instance, now : UInt64) -> InstanceInfo {
+pub fn instance_info_of(
+  inst : Instance,
+  now : UInt64,
+) -> @protocol.InstanceInfo {
   let rss_kb = if inst.status is Online {
     match @proc.read_rss_kb(inst.pid) {
       Some(kb) => kb
