@@ -675,12 +675,73 @@ check "no backup file left behind" 0 "$([ -f "$bin_dir/bm2.bak" ] && echo 1 || e
 check "the CLI still runs after replacing itself" "bm2 $MV" "$(bm2 version)"
 check "the daemon still answers after the swap" 1 \
   "$([ -n "$(bm2 list)" ] && echo 1 || echo 0)"
-unset BM2_UPDATE_BASE
-kill "$STATION" 2>/dev/null
-
 # Whatever the paths above did, the shipped version stays the shipped version:
 # the artifacts were copies of the running binaries.
 check "the installed version is unchanged" "bm2 $MV" "$(bm2 version)"
+
+echo "===== AE. the control plane has a connection ceiling ====="
+# Silent connections hold one slot each (until AUTH_TIMEOUT_MS), so a runaway
+# local client must be refused instead of growing the daemon without bound — and
+# the daemon must stay alive and answer again once the pressure is gone.
+bm2 list >/dev/null 2>&1
+DPID_BEFORE=$(cat "$state_dir/bm2d.pid")
+PORT=$(head -1 "$state_dir/daemon.endpoint")
+: > "$ACC/held-fds.txt"
+for _ in $(seq 1 70); do
+  exec {HELD}<>/dev/tcp/127.0.0.1/$PORT 2>/dev/null || true
+  echo "$HELD" >> "$ACC/held-fds.txt"
+done
+# The daemon logs each refusal from its own task, so wait for the line rather
+# than assuming it is already on disk.
+REFUSED=0
+for _ in $(seq 1 20); do
+  if grep -q connection_refused "$state_dir/bm2d.events.jsonl" 2>/dev/null; then
+    REFUSED=1
+    break
+  fi
+  sleep 0.2
+done
+check "the ceiling is reported" 1 "$REFUSED"
+check "the daemon survived the flood" "$DPID_BEFORE" "$(cat "$state_dir/bm2d.pid")"
+while read -r fd; do eval "exec $fd<&-" 2>/dev/null || true; done < "$ACC/held-fds.txt"
+ANSWERED=0
+for _ in $(seq 1 20); do
+  if bm2 list >/dev/null 2>&1; then ANSWERED=1; break; fi
+  sleep 0.5
+done
+check "the control plane answers again once the slots free up" 1 "$ANSWERED"
+
+echo "===== AF. upgrade with a running app, and upgrade mutual exclusion ====="
+export BM2_UPDATE_BASE="http://127.0.0.1:4399"
+# An app that ignores SIGTERM: the swap must adopt it, never restart it.
+write_project stubborn stubborn 4341 ignore-term.ts 1 1000
+(cd "$ACC/stubborn" && bm2 start >/dev/null)
+sleep 1
+STUBBORN_PID=$(bm2 list stubborn | tail -1 | awk '{print $3}')
+check "stubborn app is up before the upgrade" 1 \
+  "$([ -n "$STUBBORN_PID" ] && [ "$STUBBORN_PID" != 0 ] && echo 1 || echo 0)"
+write_manifest "9.9.9" "$BM2_SHA" "$BM2D_SHA"
+bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1
+contains "upgrade applies while an app runs" "$ACC/upgrade-out.txt" "updated and applied"
+check "the running app keeps its pid across the swap" "$STUBBORN_PID" \
+  "$(bm2 list stubborn | tail -1 | awk '{print $3}')"
+check "the running app is still online" "online" \
+  "$(bm2 list stubborn | tail -1 | awk '{print $6}')"
+bm2 kill stubborn >/dev/null 2>&1 || true
+
+# Two upgrades at once would stage and swap the same files: the lock is what
+# makes the second one stop instead of interleaving.
+flock -n "$state_dir/upgrade.lock" -c 'sleep 2' &
+LOCKER=$!
+sleep 0.3
+bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1
+check "a concurrent upgrade is refused" 1 "$?"
+contains "the refusal names the lock" "$ACC/upgrade-out.txt" \
+  "another upgrade is already running"
+wait "$LOCKER" 2>/dev/null || true
+
+unset BM2_UPDATE_BASE
+kill "$STATION" 2>/dev/null
 
 echo ""
 echo "e2e results: PASS=$PASS FAIL=$FAIL"
