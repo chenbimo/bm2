@@ -520,6 +520,18 @@ fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
     }
     arr.push(inst)
   }
+  // Instances that no longer exist must not leave their state file behind: a
+  // later recovery reads them, and a surviving orphan carrying the right
+  // environment could be adopted back into a config that had dropped it.
+  match old {
+    Some(prev) =>
+      for id in app.instances..<prev.length() {
+        @utils.discard(() => {
+          @fsx.unlink(state_path(self.state_dir, app_name, id))
+        })
+      }
+    None => ()
+  }
   self.instances[app_name] = arr
   for inst in arr {
     // One instance's spawn failure must not abort the loop: the failure

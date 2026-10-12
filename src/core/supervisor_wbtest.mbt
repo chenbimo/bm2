@@ -50,6 +50,28 @@ test "unregistering a project drops its in-memory state" {
 }
 
 ///|
+/// A config that drops instances must not leave the dropped ones' state files
+/// behind: a later recovery would read them.
+test "a shrunk instance set loses its stale state files" {
+  let root = "/tmp/bm2-wbtest-shrink-\{@proc.get_pid()}"
+  @fsx.mkdir_p(root)
+  let two = { ..wb_config("wbapp", root, 4455), instances: 2, }
+  let sv = wb_sv(root, two)
+  // A state file as if instance 1 had been running under a previous daemon.
+  save_state(sv.state_dir, sv.instance("wbapp", 1))
+  let path = state_path(sv.state_dir, "wbapp", 1)
+  assert_true(@fs.path_exists(path))
+  // The config shrinks to one instance and the restart rebuilds the set.
+  sv.register({ ..two, instances: 1, }, root + "/bm2.toml")
+  try sv.spawn_fresh("wbapp") catch {
+    _ => ()
+  } noraise {
+    _ => ()
+  }
+  assert_false(@fs.path_exists(path))
+}
+
+///|
 test "spawn failures back off and exhaust the budget into errored" {
   let root = "/tmp/bm2-wbtest-spawn-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4451)
