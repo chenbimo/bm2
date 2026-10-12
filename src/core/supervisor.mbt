@@ -381,6 +381,7 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
     self.pending_remove.remove(name)
     self.apps.remove(name)
     self.instances.remove(name)
+    self.forget_app(name)
     @utils.discard(() => remove_project(self.state_dir, name))
     log_event(
       self.state_dir,
@@ -389,6 +390,21 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
       app=Some(name),
     )
   }
+}
+
+///|
+/// Drop every in-memory trace of a project that has just been unregistered. Its
+/// config, instances and registration file are gone by then; what is left is the
+/// per-project bookkeeping (stats window, restart-storm history, start probes)
+/// plus the notifier's own maps. Without this, a project re-registered under the
+/// same name inherits the previous generation's numbers, and every removed
+/// project leaves entries behind for good.
+pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
+  self.stats_window.remove(app_name)
+  self.storm_hits.remove(app_name)
+  drop_app_keys(self.start_probe_done, app_name)
+  self.notify.forget_app(app_name)
+  self.notify.publish_forget(app_name)
 }
 
 ///|

@@ -8,6 +8,9 @@
 struct DedupeEntry {
   first_ms : UInt64
   count : Int32
+  /// Owner that produced the signature, so `forget_owner` can drop a removed
+  /// project's entries instead of leaving them in the map for good.
+  owner : String
 }
 
 ///|
@@ -110,10 +113,7 @@ pub fn Engine::emit(
       Some(entry) =>
         if now >= entry.first_ms && now - entry.first_ms < window {
           // Same condition inside the window: count it, stay silent.
-          self.dedupe[key] = {
-            first_ms: entry.first_ms,
-            count: entry.count + 1,
-          }
+          self.dedupe[key] = { ..entry, count: entry.count + 1, }
           return Deduped(count=entry.count + 1)
         } else {
           // The window expired: send again and say how quiet it has been.
@@ -124,9 +124,9 @@ pub fn Engine::emit(
               "\n(上一个窗口内同样的事件共 \{entry.count} 次)",
             }
           }
-          self.dedupe[key] = { first_ms: now, count: 1, }
+          self.dedupe[key] = { first_ms: now, count: 1, owner, }
         }
-      None => self.dedupe[key] = { first_ms: now, count: 1, }
+      None => self.dedupe[key] = { first_ms: now, count: 1, owner, }
     }
   }
   if rate_per_minute > 0 {
@@ -290,6 +290,31 @@ fn Engine::drop_at(self : Engine, index : Int32) -> Unit {
     }
   }
   self.queue = kept
+}
+
+///|
+/// Drop everything held for one project: a project that has been unregistered
+/// must not leave its queue, rate window or dedupe entries behind — they would
+/// outlive it, and a project re-registered under the same name would inherit
+/// them.
+pub fn Engine::forget_owner(self : Engine, owner : String) -> Unit {
+  self.rate_window.remove(owner)
+  let doomed = []
+  for pair in self.dedupe.iter() {
+    let (key, entry) = pair
+    if entry.owner == owner {
+      doomed.push(key)
+    }
+  }
+  for key in doomed {
+    self.dedupe.remove(key)
+  }
+  // Its queued alerts are no longer worth delivering: the project is gone.
+  self.queue = self.queue.filter(fn(notice) { notice.owner != owner })
+  match self.last_owner {
+    Some(last) => if last == owner { self.last_owner = None }
+    None => ()
+  }
 }
 
 ///|

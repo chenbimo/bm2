@@ -360,13 +360,51 @@ pub fn Notifier::publish_test(
 }
 
 ///|
-/// The alert inside one outbound message; every variant carries one.
-fn alert_of(outbound : Outbound) -> Alert {
+/// The alert inside one outbound message, when it has one: `Forget` is pure
+/// bookkeeping and carries no message to report.
+fn alert_of(outbound : Outbound) -> Alert? {
   match outbound {
-    Instant(alert) => alert
-    Schedule(alert) => alert
-    Test(alert, _) => alert
+    Instant(alert) => Some(alert)
+    Schedule(alert) => Some(alert)
+    Test(alert, _) => Some(alert)
+    Forget(_) => None
   }
+}
+
+///|
+/// Drop every entry whose key belongs to one project (keys are
+/// `app/<instance>`). Used when a project is unregistered: entries left behind
+/// hand the next generation of the same name the previous one's history.
+fn[V] drop_app_keys(map : Map[String, V], app_name : String) -> Unit {
+  let prefix = app_name + "/"
+  let doomed = []
+  for pair in map.iter() {
+    let (key, _) = pair
+    if key.has_prefix(prefix) {
+      doomed.push(key)
+    }
+  }
+  for key in doomed {
+    map.remove(key)
+  }
+}
+
+///|
+/// Forget one project's notification bookkeeping: offline timers, CPU samples
+/// and RSS peaks are all keyed by `app/<instance>`.
+pub fn Notifier::forget_app(self : Notifier, app_name : String) -> Unit {
+  drop_app_keys(self.offline_since, app_name)
+  drop_app_keys(self.cpu_samples, app_name)
+  drop_app_keys(self.rss_peak, app_name)
+  drop_app_keys(self.rss_peak_daily, app_name)
+}
+
+///|
+/// Ask the notify task to drop what it holds for a removed project: its queued
+/// alerts, its rate window and its dedupe entries. They live in the notify
+/// task, so a message is the only way to reach them.
+pub fn Notifier::publish_forget(self : Notifier, app_name : String) -> Unit {
+  self.publish(Forget(app_name))
 }
 
 ///|
@@ -381,13 +419,17 @@ fn Notifier::publish(self : Notifier, outbound : Outbound) -> Unit {
     ok => ok
   }
   if !accepted {
-    let alert = alert_of(outbound)
-    log_event(
-      self.state_dir,
-      "bm2d.events.jsonl",
-      "notify_backlog_dropped",
-      app=Some(alert.owner),
-      detail=alert.message.event,
-    )
+    match alert_of(outbound) {
+      Some(alert) =>
+        log_event(
+          self.state_dir,
+          "bm2d.events.jsonl",
+          "notify_backlog_dropped",
+          app=Some(alert.owner),
+          detail=alert.message.event,
+        )
+      None =>
+        log_event(self.state_dir, "bm2d.events.jsonl", "notify_forget_dropped")
+    }
   }
 }

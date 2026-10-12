@@ -30,6 +30,9 @@ pub(all) enum Outbound {
   /// `bm2 notify`: deliver now and report the per-target results through the
   /// reply queue, so the CLI can print them.
   Test(Alert, @aqueue.Queue[Array[(String, String?)]])
+  /// A project was unregistered: drop everything the delivery side still holds
+  /// for it (queued alerts, rate window, dedupe entries).
+  Forget(String)
 }
 
 ///|
@@ -101,6 +104,7 @@ pub fn NotifyRunner::drain(self : NotifyRunner, now : UInt64) -> Unit {
       Some(outbound) =>
         match outbound {
           Instant(alert) => self.enqueue(alert, now)
+          Forget(owner) => self.engine.forget_owner(owner)
           _ => self.deferred.push(outbound)
         }
     }
@@ -192,7 +196,7 @@ async fn NotifyRunner::deliver_deferred(self : NotifyRunner) -> Unit {
         // on the reply, in which case the result is dropped, not lost.
         @utils.discard(() => ignore(reply.try_put(results)))
       }
-      Instant(_) => ()
+      Instant(_) | Forget(_) => ()
     }
     handled += 1
     if @proc.monotonic_ms() >= deadline {

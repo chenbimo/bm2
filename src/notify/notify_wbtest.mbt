@@ -357,6 +357,51 @@ async test "a failing endpoint backs off on its own" {
 }
 
 ///|
+/// Unregistering a project drops what the delivery side held for it, so a
+/// project that comes back under the same name starts clean.
+async test "forget_owner drops a project's queue, rate window and dedupe" {
+  let dead = [n_target("webhook", "http://127.0.0.1:9/hook")]
+  let engine = Engine::new(n_ctx())
+  assert_eq(
+    engine.emit(
+      1000UL,
+      "k",
+      "a",
+      n_message("warn", 1000UL),
+      dead,
+      300,
+      dedupe_window_s=3600,
+      rate_per_minute=1,
+    ),
+    Queued,
+  )
+  assert_eq(
+    engine.emit(1000UL, "k", "b", n_message("warn", 1000UL), dead, 300),
+    Queued,
+  )
+  assert_eq(engine.queued(), 2)
+  engine.forget_owner("a")
+  // The removed project's queued alert is gone; the other project's stays.
+  assert_eq(engine.queued(), 1)
+  // Its rate window and dedupe entry went with it: the very same key is queued
+  // again instead of being throttled or treated as a repeat.
+  assert_eq(
+    engine.emit(
+      1000UL,
+      "k",
+      "a",
+      n_message("warn", 1000UL),
+      dead,
+      300,
+      dedupe_window_s=3600,
+      rate_per_minute=1,
+    ),
+    Queued,
+  )
+  assert_eq(engine.queued(), 2)
+}
+
+///|
 async test "pump retries with backoff, then exhausts" {
   let dead = [n_target("webhook", "http://127.0.0.1:9/hook?token=SECRET")]
   let engine = Engine::new(n_ctx())

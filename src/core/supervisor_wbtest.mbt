@@ -23,6 +23,33 @@ fn wb_setup(root : String, port : Int32) -> Supervisor raise {
 }
 
 ///|
+/// A project that is unregistered leaves nothing behind: its stats window,
+/// restart-storm history and start probes go with it, and the notify task is
+/// told to drop its own copy.
+test "unregistering a project drops its in-memory state" {
+  let root = "/tmp/bm2-wbtest-forget-\{@proc.get_pid()}"
+  let sv = wb_setup(root, 4453)
+  sv.stats_window["wbapp"] = { peak_kb: 1024, restarts: 2, }
+  sv.storm_hits["wbapp"] = [1UL, 2UL]
+  sv.start_probe_done["wbapp/0"] = 42UL
+  sv.forget_app("wbapp")
+  assert_true(sv.stats_window.get("wbapp") is None)
+  assert_true(sv.storm_hits.get("wbapp") is None)
+  assert_true(sv.start_probe_done.get("wbapp/0") is None)
+  // The delivery side is reached by message, never by sharing state: the queue
+  // must carry the Forget for this project.
+  let notice = try sv.outbound().try_get() catch {
+    _ => None
+  } noraise {
+    item => item
+  }
+  match notice {
+    Some(Forget(owner)) => assert_eq(owner, "wbapp")
+    _ => fail("expected a Forget message for the removed project")
+  }
+}
+
+///|
 test "spawn failures back off and exhaust the budget into errored" {
   let root = "/tmp/bm2-wbtest-spawn-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4451)
