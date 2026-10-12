@@ -53,7 +53,7 @@ pub fn validate_notify(config : NotifyConfig) -> Unit raise ConfigError {
     config.threshold_offline_min,
     0,
     1440,
-    "threshold_offline_min",
+    "notify.threshold_offline_min",
   )
   check_int_range(
     config.threshold_restarts,
