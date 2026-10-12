@@ -1,14 +1,14 @@
 ///|
 async fn main {
-  @util.exit(run())
+  @proc.exit(run())
 }
 
 ///|
 async fn run() -> Int32 {
-  match @util.platform_error() {
+  match @proc.platform_error() {
     None => ()
     Some(msg) => {
-      @util.eprintln("bm2: " + msg)
+      @proc.eprintln("bm2: " + msg)
       return 1
     }
   }
@@ -108,7 +108,7 @@ async fn run() -> Int32 {
   // Bare `kill` stops bm2d and all apps, so it requires the -y flag.
   match (command, app_arg) {
     ("kill", None) if !confirmed => {
-      @util.eprintln(
+      @proc.eprintln(
         "bm2: refusing to stop bm2d and all apps; use 'bm2 kill -y' to confirm",
       )
       return 1
@@ -118,7 +118,7 @@ async fn run() -> Int32 {
   let cwd = match @env.current_dir() {
     Some(dir) => dir
     None => {
-      @util.eprintln("bm2: cannot determine current directory")
+      @proc.eprintln("bm2: cannot determine current directory")
       return 1
     }
   }
@@ -128,7 +128,7 @@ async fn run() -> Int32 {
   let config = try @config.load(config_path) catch {
     e => {
       if command == "start" {
-        @util.eprintln("bm2: " + e.to_string())
+        @proc.eprintln("bm2: " + e.to_string())
         return 1
       }
       None
@@ -145,7 +145,7 @@ async fn run() -> Int32 {
       Some(cfg) =>
         match check_project(cfg, @fs.path_exists) {
           Some(problem) => {
-            @util.eprintln("bm2: " + problem)
+            @proc.eprintln("bm2: " + problem)
             return 1
           }
           None => ()
@@ -223,11 +223,11 @@ async fn run() -> Int32 {
         }
         return 0
       }
-      @util.eprintln("bm2: bm2d did not start, see " + state_dir + "/bm2d.log")
+      @proc.eprintln("bm2: bm2d did not start, see " + state_dir + "/bm2d.log")
       return 1
     }
     Unresponsive(message) => {
-      @util.eprintln("bm2: " + message)
+      @proc.eprintln("bm2: " + message)
       return 1
     }
     other => raise other
@@ -236,7 +236,7 @@ async fn run() -> Int32 {
   }
   match @core.protocol_problem(resp.protocol) {
     Some(problem) => {
-      @util.eprintln("bm2: " + problem)
+      @proc.eprintln("bm2: " + problem)
       return 1
     }
     None => ()
@@ -283,7 +283,7 @@ async fn run() -> Int32 {
       0
     }
   } else {
-    @util.eprintln(resp.message)
+    @proc.eprintln(resp.message)
     1
   }
 }
@@ -302,7 +302,7 @@ async fn cmd_upgrade(state_dir : String) -> Int32 {
     @util.now_ms().to_string()
   let text = try fetch_text(manifest_url) catch {
     _ => {
-      @util.eprintln("bm2: cannot reach the release station " + base)
+      @proc.eprintln("bm2: cannot reach the release station " + base)
       return 1
     }
   } noraise {
@@ -311,7 +311,7 @@ async fn cmd_upgrade(state_dir : String) -> Int32 {
   let (version, artifacts) = match parse_manifest(text) {
     Some(parsed) => parsed
     None => {
-      @util.eprintln("bm2: cannot read the release manifest")
+      @proc.eprintln("bm2: cannot read the release manifest")
       return 1
     }
   }
@@ -325,13 +325,13 @@ async fn cmd_upgrade(state_dir : String) -> Int32 {
   let picked = match pick_artifacts(artifacts, target, ["bm2", "bm2d"]) {
     Some(items) => items
     None => {
-      @util.eprintln("bm2: no release for " + target + " yet")
+      @proc.eprintln("bm2: no release for " + target + " yet")
       return 1
     }
   }
   match install_artifacts(picked, self_dir()) {
     Some(reason) => {
-      @util.eprintln("bm2: " + reason)
+      @proc.eprintln("bm2: " + reason)
       return 1
     }
     None => ()
@@ -373,7 +373,7 @@ async fn swap_daemon(state_dir : String) -> Bool {
   // The old daemon removes its control-plane files just before exiting;
   // wait for it, then start the fresh daemon which adopts the running apps.
   if !wait_daemon_exit(state_dir) {
-    @util.eprintln("bm2: bm2d did not exit; swap aborted")
+    @proc.eprintln("bm2: bm2d did not exit; swap aborted")
     return false
   }
   @async.sleep(50)
@@ -397,7 +397,7 @@ async fn swap_daemon(state_dir : String) -> Bool {
       true
     }
     None => {
-      @util.eprintln("bm2: bm2d did not start, see " + state_dir + "/bm2d.log")
+      @proc.eprintln("bm2: bm2d did not start, see " + state_dir + "/bm2d.log")
       false
     }
   }
@@ -407,7 +407,7 @@ async fn swap_daemon(state_dir : String) -> Bool {
 /// Directory containing the running bm2 binary; upgrades replace it and
 /// bm2d in place.
 fn self_dir() -> String {
-  let exe = try @util.self_exe() catch {
+  let exe = try @proc.self_exe() catch {
     _ => return "."
   } noraise {
     found => found
@@ -563,8 +563,8 @@ async fn request_with_recovery(
     }
     None => ()
   }
-  @util.discard(() => @util.unlink(state_dir + "/" + @ipc.PORT_FILE))
-  @util.discard(() => @util.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+  @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
+  @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
   @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
   let retry = match connect_or_start(state_dir) {
     Some(pair) => pair
@@ -648,15 +648,15 @@ async fn ensure_daemon(state_dir : String) -> (@socket.Tcp, String) {
     }
     None => {
       @core.log_event(state_dir, "bm2.events.jsonl", "daemon_spawn_requested")
-      @util.mkdir_p(state_dir, mode=0o700)
+      @fsx.mkdir_p(state_dir, mode=0o700)
       ignore(
-        @util.spawn({
+        @proc.spawn({
           bun_path: "bm2d",
           script: "",
           cwd: "/",
           out_log: state_dir + "/bm2d.log",
           err_log: state_dir + "/bm2d.log",
-          env_blob: @util.base_env_blob(),
+          env_blob: @proc.base_env_blob(),
         }),
       )
       for _ in 0..<60 {
@@ -666,7 +666,7 @@ async fn ensure_daemon(state_dir : String) -> (@socket.Tcp, String) {
           None => ()
         }
       }
-      raise @util.ProcessError::Failed(op="ensure_daemon", errno=2)
+      raise @proc.ProcessError::Failed(op="ensure_daemon", errno=2)
     }
   }
 }

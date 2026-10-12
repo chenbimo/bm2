@@ -31,7 +31,7 @@ fn Supervisor::rotate_log(
   copytruncate~ : Bool,
 ) -> Unit {
   let rotated = try
-    @util.maybe_rotate(path, LOG_ROTATE_BYTES, copytruncate~)
+    @log.maybe_rotate(path, LOG_ROTATE_BYTES, copytruncate~)
   catch {
     e => {
       log_event(
@@ -82,5 +82,5 @@ fn Supervisor::write_crash(
   }
   buf.write_string(" restartCount=" + inst.restart_count.to_string())
   let path = "\{self.state_dir}/\{inst.app_name}/logs/\{inst.app_name}-\{inst.instance_id}.crash.log"
-  @util.discard(() => @util.plain(path, buf.to_string()))
+  @util.discard(() => @log.plain(path, buf.to_string()))
 }

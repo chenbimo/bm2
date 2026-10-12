@@ -90,7 +90,7 @@ pub fn wait_child_timeout(
     result = wait_pidfd_nohang(pidfd)
     if result is None {
       if @env.now() >= deadline {
-        discard(() => kill_group(pid, SIGKILL))
+        @util.discard(() => kill_group(pid, SIGKILL))
         // Bounded post-kill reap: a process stuck in uninterruptible sleep
         // is reported as a timeout rather than blocking the caller.
         for _ in 0..<100 {

@@ -99,7 +99,7 @@ pub fn Notifier::cpu_percent(
   pid : Int32,
   now : UInt64,
 ) -> Double? {
-  match @util.read_cpu_ticks(pid) {
+  match @proc.read_cpu_ticks(pid) {
     None => None
     Some(ticks) =>
       match self.cpu_samples.get(key) {
@@ -114,7 +114,7 @@ pub fn Notifier::cpu_percent(
               None
             } else {
               let busy_s = (ticks - last_ticks).to_double() /
-                @util.clk_tck().to_double()
+                @proc.clk_tck().to_double()
               Some(busy_s / elapsed_s * 100.0)
             }
           }

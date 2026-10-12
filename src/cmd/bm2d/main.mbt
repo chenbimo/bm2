@@ -10,43 +10,43 @@ enum Exit {
 
 ///|
 async fn main {
-  @util.exit(run())
+  @proc.exit(run())
 }
 
 ///|
 async fn run() -> Int32 {
-  match @util.platform_error() {
+  match @proc.platform_error() {
     None => ()
     Some(msg) => {
-      @util.eprintln("bm2d: " + msg)
+      @proc.eprintln("bm2d: " + msg)
       return 1
     }
   }
   // The daemon takes no arguments: registered projects live under the
   // state dir and are loaded on startup (see load_projects).
   if @env.args().length() != 1 {
-    @util.eprintln("usage: bm2d")
+    @proc.eprintln("usage: bm2d")
     return 2
   }
   let state_dir = @core.resolve_state_dir()
-  @util.discard(() => @util.mkdir_p(state_dir, mode=0o700))
+  @util.discard(() => @fsx.mkdir_p(state_dir, mode=0o700))
   // One daemon per state directory: the flock is released automatically
   // when the holder exits, even on SIGKILL, so a crash never leaves a
   // permanent lock behind.
-  let _lock_fd = try @util.lock_exclusive(state_dir + "/bm2d.lock") catch {
+  let _lock_fd = try @fsx.lock_exclusive(state_dir + "/bm2d.lock") catch {
     _ => {
-      @util.eprintln("bm2d: another daemon is already running")
+      @proc.eprintln("bm2d: another daemon is already running")
       return 1
     }
   } noraise {
     fd => fd
   }
   // A control socket from a previous generation is stale by definition.
-  @util.discard(() => @util.unlink(state_dir + "/bm2.sock"))
+  @util.discard(() => @fsx.unlink(state_dir + "/bm2.sock"))
   @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_starting")
   let sv = try @core.Supervisor::new(state_dir~, bun_path="bun") catch {
     e => {
-      @util.eprintln("bm2d: " + e.to_string())
+      @proc.eprintln("bm2d: " + e.to_string())
       return 2
     }
   } noraise {
@@ -77,7 +77,7 @@ async fn run() -> Int32 {
     @socket.TcpServer::TcpServer(@socket.Addr::new(2130706433U, 0))
   catch {
     e => {
-      @util.eprintln("bm2d: " + e.to_string())
+      @proc.eprintln("bm2d: " + e.to_string())
       return 2
     }
   } noraise {
@@ -86,7 +86,7 @@ async fn run() -> Int32 {
   let port = server.addr.port()
   let token = try @ipc.generate_token() catch {
     _ => {
-      @util.eprintln("bm2d: cannot generate the access token")
+      @proc.eprintln("bm2d: cannot generate the access token")
       server.close()
       return 2
     }
@@ -94,11 +94,11 @@ async fn run() -> Int32 {
     generated => generated
   }
   let ok = try {
-    @util.write_atomic(
+    @fsx.write_atomic(
       state_dir + "/" + @ipc.PORT_FILE,
       @utf8.encode(port.to_string() + "\n"),
     )
-    @util.write_atomic(state_dir + "/" + @ipc.TOKEN_FILE, @utf8.encode(token))
+    @fsx.write_atomic(state_dir + "/" + @ipc.TOKEN_FILE, @utf8.encode(token))
     true
   } catch {
     _ => false
@@ -106,16 +106,16 @@ async fn run() -> Int32 {
     written => written
   }
   if !ok {
-    @util.eprintln("bm2d: cannot write the control-plane files")
+    @proc.eprintln("bm2d: cannot write the control-plane files")
     server.close()
     return 2
   }
   // Only claim the pid file once the control endpoint is up: a daemon that
   // fails to bind must not overwrite the pid of a live daemon.
   @util.discard(() => {
-    @util.write_atomic(
+    @fsx.write_atomic(
       state_dir + "/bm2d.pid",
-      @utf8.encode(@util.get_pid().to_string() + "\n"),
+      @utf8.encode(@proc.get_pid().to_string() + "\n"),
     )
   })
   @core.log_event(state_dir, "bm2d.events.jsonl", "socket_listening")
@@ -134,9 +134,9 @@ async fn run() -> Int32 {
     Some(Exit::Detach) => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
       server.close()
-      @util.discard(() => @util.unlink(state_dir + "/" + @ipc.PORT_FILE))
-      @util.discard(() => @util.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
-      @util.discard(() => @util.unlink(state_dir + "/bm2d.pid"))
+      @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
+      @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+      @util.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detached")
     }
     Some(Exit::Shutdown) => {
@@ -296,15 +296,15 @@ async fn shutdown(
   }
   for inst in sv.snapshot() {
     if inst.alive() {
-      @util.discard(() => @util.kill_group(inst.pid, @util.SIGKILL))
+      @util.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
     }
   }
   for name in names {
     @util.discard(() => @core.remove_project(state_dir, name))
   }
-  @util.discard(() => @util.unlink(state_dir + "/" + @ipc.PORT_FILE))
-  @util.discard(() => @util.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
-  @util.discard(() => @util.unlink(state_dir + "/bm2d.pid"))
+  @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.PORT_FILE))
+  @util.discard(() => @fsx.unlink(state_dir + "/" + @ipc.TOKEN_FILE))
+  @util.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
 }
 
 ///|

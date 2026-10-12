@@ -192,7 +192,7 @@ fn Supervisor::report_line(
     inst.status.as_string()
   line = line + " · " + lb_port + " " + inst.port.to_string()
   if inst.status is Online {
-    match @util.read_rss_kb(inst.pid) {
+    match @proc.read_rss_kb(inst.pid) {
       Some(kb) =>
         line = line + " · " + lb_rss + " " + (kb / 1024).to_string() + "MB"
       None => ()
@@ -282,11 +282,11 @@ fn Supervisor::build_report(
     }
     None => ()
   }
-  match @util.load_1m() {
+  match @proc.load_1m() {
     Some(value) => fields.push(("load1", format_percent(value)))
     None => ()
   }
-  match @util.disk_free_kb(self.state_dir) {
+  match @proc.disk_free_kb(self.state_dir) {
     Some(kb) => fields.push(("disk_free", (kb / 1048576).to_string() + "GB"))
     None => ()
   }
@@ -367,7 +367,7 @@ pub fn Supervisor::check_notify(self : Supervisor, now : UInt64) -> Unit {
             }
             if probed != inst.started_at_ms &&
               now >= inst.started_at_ms + policy.start_timeout_ms.to_uint64() {
-              let rc = @util.probe_reuseport(inst.port)
+              let rc = @proc.probe_reuseport(inst.port)
               if rc == 0 {
                 self.start_probe_done[probe_key] = inst.started_at_ms
                 let (title, body) = render_msg(
@@ -402,7 +402,7 @@ pub fn Supervisor::check_notify(self : Supervisor, now : UInt64) -> Unit {
       None => ()
     }
     if policy.enabled && policy.threshold_disk_mb > 0 {
-      match @util.disk_free_kb(self.state_dir) {
+      match @proc.disk_free_kb(self.state_dir) {
         Some(kb) =>
           if kb < (policy.threshold_disk_mb * 1024).to_int64() {
             let (title, body) = render_msg(
@@ -470,7 +470,7 @@ pub async fn Supervisor::check_schedules(
         Some(cron) => cron
         None => continue
       }
-      let parts = match @util.local_parts(now) {
+      let parts = match @proc.local_parts(now) {
         Some(parts) => parts
         None => continue
       }

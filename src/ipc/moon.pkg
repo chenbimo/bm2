@@ -4,5 +4,5 @@ import {
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
   "chensuiyi/bm2/core",
-  "chensuiyi/bm2/util",
+  "chensuiyi/bm2/fsx",
 }

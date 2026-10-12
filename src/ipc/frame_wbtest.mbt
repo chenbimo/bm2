@@ -14,13 +14,13 @@ test "read_token and read_daemon_port tolerate missing files" {
 ///|
 test "read_token trims and read_daemon_port validates the range" {
   let dir = "/tmp/dcipc-test-files"
-  @util.mkdir_p(dir)
-  @util.write_atomic(dir + "/" + TOKEN_FILE, @utf8.encode("  tok-123 \n"))
-  @util.write_atomic(dir + "/" + PORT_FILE, @utf8.encode("41007"))
+  @fsx.mkdir_p(dir)
+  @fsx.write_atomic(dir + "/" + TOKEN_FILE, @utf8.encode("  tok-123 \n"))
+  @fsx.write_atomic(dir + "/" + PORT_FILE, @utf8.encode("41007"))
   assert_eq(read_token(dir), Some("tok-123"))
   assert_eq(read_daemon_port(dir), Some(41007))
-  @util.write_atomic(dir + "/" + PORT_FILE, @utf8.encode("99999"))
+  @fsx.write_atomic(dir + "/" + PORT_FILE, @utf8.encode("99999"))
   assert_eq(read_daemon_port(dir), None)
-  @util.write_atomic(dir + "/" + PORT_FILE, @utf8.encode("0"))
+  @fsx.write_atomic(dir + "/" + PORT_FILE, @utf8.encode("0"))
   assert_eq(read_daemon_port(dir), None)
 }

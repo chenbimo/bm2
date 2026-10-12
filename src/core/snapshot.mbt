@@ -5,7 +5,7 @@
 /// rss_kb is -1 when unavailable, uptime_ms is 0 when not running.
 pub fn InstanceInfo::of(inst : Instance, now : UInt64) -> InstanceInfo {
   let rss_kb = if inst.status is Online {
-    match @util.read_rss_kb(inst.pid) {
+    match @proc.read_rss_kb(inst.pid) {
       Some(kb) => kb
       None => -1
     }

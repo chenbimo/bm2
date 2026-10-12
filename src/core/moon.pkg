@@ -2,9 +2,12 @@ import {
   "moonbitlang/async",
   "chensuiyi/bm2/config",
   "chensuiyi/bm2/notify",
+  "chensuiyi/bm2/fsx",
+  "chensuiyi/bm2/log",
+  "chensuiyi/bm2/proc",
+  "chensuiyi/bm2/util",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/x/fs",
-  "chensuiyi/bm2/util",
 }

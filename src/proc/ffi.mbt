@@ -18,6 +18,12 @@ pub impl Show for ProcessError with fn output(self, logger) {
 pub extend ProcessError with Show::{to_string, output}
 
 ///|
+/// 把命令参数转成 C 字符串。proc 包自用,与 fsx 的同名辅助各自独立。
+fn cstr(s : String) -> Bytes {
+  @utf8.encode(s + "\u{0}")
+}
+
+///|
 #borrow(bun_path, script, cwd, out_path, err_path, env_blob)
 extern "C" fn c_spawn(
   bun_path : Bytes,

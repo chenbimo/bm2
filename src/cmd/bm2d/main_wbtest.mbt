@@ -51,7 +51,7 @@ async fn round_trip(
 
 ///|
 fn probe_sv(name : String) -> (@core.Supervisor, String) raise {
-  let state_dir = "/tmp/bm2-daemon-probe-\{name}-\{@util.get_pid()}"
+  let state_dir = "/tmp/bm2-daemon-probe-\{name}-\{@proc.get_pid()}"
   let sv = @core.Supervisor::new(state_dir~, bun_path="bun")
   (sv, state_dir)
 }

@@ -28,22 +28,22 @@ pub fn Supervisor::check_runtime(
   let min = @util.parse(min_text)
   let out = "\{self.state_dir}/runtime-version.tmp"
   let problem = try
-    @util.spawn({
+    @proc.spawn({
       bun_path: runtime,
       script: "--version",
       cwd: "/",
       out_log: out,
       err_log: "",
-      env_blob: @util.base_env_blob(),
+      env_blob: @proc.base_env_blob(),
     })
   catch {
     e => Some(e.to_string())
   } noraise {
     pid => {
-      let reaped = @util.wait_child_timeout(pid, RUNTIME_PROBE_TIMEOUT_MS)
+      let reaped = @proc.wait_child_timeout(pid, RUNTIME_PROBE_TIMEOUT_MS)
       match reaped {
-        Some((_, @util.ChildExit::Exited(0))) => {
-          let text = try @util.read_small(out, cap=256) catch {
+        Some((_, @proc.ChildExit::Exited(0))) => {
+          let text = try @fsx.read_small(out, cap=256) catch {
             _ => ""
           } noraise {
             data => @utf8.decode_lossy(data)
@@ -59,11 +59,11 @@ pub fn Supervisor::check_runtime(
             )
           }
         }
-        Some((_, @util.ChildExit::Exited(127))) =>
+        Some((_, @proc.ChildExit::Exited(127))) =>
           Some("\{runtime} not found on PATH (or failed to execute)")
-        Some((_, @util.ChildExit::Exited(code))) =>
+        Some((_, @proc.ChildExit::Exited(code))) =>
           Some("\{runtime} --version exited with code \{code}")
-        Some((_, @util.ChildExit::Signaled(sig))) =>
+        Some((_, @proc.ChildExit::Signaled(sig))) =>
           Some(
             "\{runtime} --version was killed by signal \{sig} after \{RUNTIME_PROBE_TIMEOUT_MS}ms",
           )
@@ -74,7 +74,7 @@ pub fn Supervisor::check_runtime(
       }
     }
   }
-  @util.discard(() => @util.unlink(out))
+  @util.discard(() => @fsx.unlink(out))
   match problem {
     Some(msg) => raise RuntimeRejected(msg)
     None => ()

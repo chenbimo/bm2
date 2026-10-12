@@ -15,12 +15,12 @@ pub fn update_base() -> String {
 /// 本机平台架构标识(与清单 artifacts[].target 对齐)。
 /// 读自身 ELF 头的 e_machine,不需要子进程:0xB7 是 aarch64,其余按 x86-64 处理。
 pub fn self_target() -> String {
-  let exe = try @util.self_exe() catch {
+  let exe = try @proc.self_exe() catch {
     _ => return "linux-x64"
   } noraise {
     path => path
   }
-  let head = try @util.read_small(exe, cap=64) catch {
+  let head = try @fsx.read_small(exe, cap=64) catch {
     _ => return "linux-x64"
   } noraise {
     data => data
@@ -172,26 +172,26 @@ fn hex_pair(value : Int32) -> String {
 /// 执行一个外部程序(NUL 分隔参数),输出直连终端,退出码 0 视为成功。
 fn run_program(program : String, args_blob : String) -> Bool {
   let pid = try
-    @util.spawn({
+    @proc.spawn({
       bun_path: program,
       script: args_blob,
       cwd: "/",
       out_log: "",
       err_log: "",
-      env_blob: @util.base_env_blob(),
+      env_blob: @proc.base_env_blob(),
     })
   catch {
     _ => return false
   } noraise {
     spawned => spawned
   }
-  let reaped = try @util.wait_child(pid) catch {
+  let reaped = try @proc.wait_child(pid) catch {
     _ => None
   } noraise {
     result => result
   }
   match reaped {
-    Some((_, @util.ChildExit::Exited(0))) => true
+    Some((_, @proc.ChildExit::Exited(0))) => true
     _ => false
   }
 }
@@ -265,7 +265,7 @@ async fn download_ok(url : String, path : String) -> Bool {
 ///|
 fn make_executable(path : String) -> Bool {
   let failed = try {
-    @util.chmod(path, 0o755)
+    @fsx.chmod(path, 0o755)
     false
   } catch {
     _ => true
@@ -282,7 +282,7 @@ fn move_file(source : String, destination : String) -> Bool {
 
 ///|
 fn remove_file(path : String) -> Unit {
-  try @util.unlink(path) catch {
+  try @fsx.unlink(path) catch {
     _ => ()
   } noraise {
     _ => ()

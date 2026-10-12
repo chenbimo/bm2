@@ -134,8 +134,8 @@ pub fn Instance::alive(self : Instance) -> Bool {
     return false
   }
   if self.pidfd > 0 {
-    @util.pidfd_alive(self.pidfd)
+    @proc.pidfd_alive(self.pidfd)
   } else {
-    @util.pid_alive(self.pid)
+    @proc.pid_alive(self.pid)
   }
 }

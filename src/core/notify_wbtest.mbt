@@ -51,7 +51,7 @@ fn wb_policy(notify_section : String) -> @config.NotifyConfig raise {
 
 ///|
 fn wb_notifier(tag : String) -> Notifier {
-  Notifier::new("/tmp/bm2-notify-\{tag}-\{@util.get_pid()}", "host1")
+  Notifier::new("/tmp/bm2-notify-\{tag}-\{@proc.get_pid()}", "host1")
 }
 
 ///|
@@ -234,25 +234,25 @@ async test "a failed delivery reports a reason without the credential" {
 ///|
 test "cpu percent needs a baseline before it reports anything" {
   let notifier = wb_notifier("cpu")
-  let dir = "/tmp/bm2-notify-cpu-\{@util.get_pid()}"
-  @util.mkdir_p(dir)
-  let pid = @util.spawn({
+  let dir = "/tmp/bm2-notify-cpu-\{@proc.get_pid()}"
+  @fsx.mkdir_p(dir)
+  let pid = @proc.spawn({
     bun_path: "/bin/sh",
     script: "-c\u{0}i=0; while true; do i=$((i+1)); done",
     cwd: dir,
     out_log: "",
     err_log: "",
-    env_blob: @util.base_env_blob(),
+    env_blob: @proc.base_env_blob(),
   })
   // First sample only sets the baseline: no percentage can be derived yet.
   assert_true(notifier.cpu_percent("k", pid, 1000UL) is None)
-  @util.sleep_ms(300)
+  @proc.sleep_ms(300)
   match notifier.cpu_percent("k", pid, 1400UL) {
     Some(percent) => assert_true(percent >= 0.0)
     None => fail("expected a cpu percentage once a baseline exists")
   }
-  @util.discard(() => @util.kill_group(pid, @util.SIGKILL))
-  @util.drain_child(pid)
+  @util.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
+  @proc.drain_child(pid)
 }
 
 ///|

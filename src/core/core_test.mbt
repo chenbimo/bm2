@@ -1,7 +1,7 @@
 ///|
 fn make_app_dir(root : String, name : String, script : String) -> String raise {
   let dir = root + "/" + name
-  @util.mkdir_p(dir)
+  @fsx.mkdir_p(dir)
   @fs.write_string_to_file(dir + "/fixture.sh", script)
   dir
 }
@@ -46,7 +46,7 @@ fn make_sv(root : String, config : @config.Config) -> @core.Supervisor raise {
     memory_interval_ms=100,
   )
   // Persist a real config file so load_projects can reload the project.
-  @util.mkdir_p(root)
+  @fsx.mkdir_p(root)
   @fs.write_string_to_file(
     root + "/bm2.toml",
     "name = \"\{config.name}\"\ncwd = \"\{config.cwd}\"\nscript = \"\{config.script}\"\ninstances = \{config.instances}\nport = \{config.port}\n",
@@ -60,7 +60,7 @@ async fn drive(sv : @core.Supervisor, ms : Int32) -> Unit {
   let end = @util.now_ms() + ms.to_uint64()
   while @util.now_ms() < end {
     sv.tick()
-    @util.sleep_ms(20)
+    @proc.sleep_ms(20)
   }
 }
 
@@ -84,7 +84,7 @@ async test "crash loop restarts then reaches errored" {
   let deadline = @util.now_ms() + 5000UL
   while @util.now_ms() < deadline && !(inst.status is @core.Status::Errored) {
     sv.tick()
-    @util.sleep_ms(20)
+    @proc.sleep_ms(20)
   }
   assert_eq(inst.status, @core.Status::Errored)
   assert_eq(inst.restart_count, 3)
@@ -268,7 +268,7 @@ async test "kill clears a stale pid so removal never blocks" {
   let inst = sv.instance("api", 0)
   // Kill the process behind the instance without letting the supervisor
   // reap it first: the pidfd still exists, so alive() reads dead.
-  @util.kill_group(inst.pid, @util.SIGKILL)
+  @proc.kill_group(inst.pid, @proc.SIGKILL)
   sv.kill_app("api")
   drive(sv, 600)
   assert_eq(sv.app_names().length(), 0)
@@ -426,7 +426,7 @@ test "resolve_state_dir uses fixed home directory" {
     _ =>
       assert_eq(
         @core.resolve_state_dir(),
-        "/tmp/bm2-" + @util.get_uid().to_string(),
+        "/tmp/bm2-" + @proc.get_uid().to_string(),
       )
   }
 }
@@ -437,8 +437,8 @@ test "resolve_state_dir uses fixed home directory" {
 test "load_projects skips a project whose config is gone" {
   let root = "/tmp/bm2-core-test-lost-config"
   let state_dir = root + "/state"
-  @util.mkdir_p(state_dir + "/api")
-  @util.write_atomic(
+  @fsx.mkdir_p(state_dir + "/api")
+  @fsx.write_atomic(
     state_dir + "/api/project.json",
     @utf8.encode("{\"config_path\":\"/nonexistent/bm2.toml\"}"),
   )
