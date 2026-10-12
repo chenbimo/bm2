@@ -36,19 +36,19 @@ let rootKeys : Array[String] = [
 ]
 
 ///|
-const DEFAULT_MAX_MEMORY_MB : Int = 512
+const DEFAULT_MAX_MEMORY_MB : Int32 = 512
 
 ///|
-const DEFAULT_MAX_RESTARTS : Int = 10
+const DEFAULT_MAX_RESTARTS : Int32 = 10
 
 ///|
-const DEFAULT_RESTART_DELAY_MS : Int = 1000
+const DEFAULT_RESTART_DELAY_MS : Int32 = 1000
 
 ///|
-const DEFAULT_MIN_UPTIME_MS : Int = 10000
+const DEFAULT_MIN_UPTIME_MS : Int32 = 10000
 
 ///|
-const DEFAULT_STOP_TIMEOUT_MS : Int = 10000
+const DEFAULT_STOP_TIMEOUT_MS : Int32 = 10000
 
 ///|
 /// Parse a bm2.toml document. `base_dir` is the config file's directory:
@@ -147,8 +147,8 @@ fn opt_int(
   table : Map[String, @toml.TomlValue],
   key : String,
   ctx : String,
-  default : Int,
-) -> Int raise ConfigError {
+  default : Int32,
+) -> Int32 raise ConfigError {
   match table.get(key) {
     None => default
     Some(_) => req_int(table, key, ctx)
@@ -160,7 +160,7 @@ fn req_int(
   table : Map[String, @toml.TomlValue],
   key : String,
   ctx : String,
-) -> Int raise ConfigError {
+) -> Int32 raise ConfigError {
   match table.get(key) {
     Some(@toml.TomlInteger(value)) => {
       guard value >= 0L && value <= 2147483647L else {

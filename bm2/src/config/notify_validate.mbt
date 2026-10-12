@@ -4,9 +4,9 @@
 
 ///|
 fn check_int_range(
-  value : Int,
-  low : Int,
-  high : Int,
+  value : Int32,
+  low : Int32,
+  high : Int32,
   ctx : String,
 ) -> Unit raise ConfigError {
   if value < low || value > high {

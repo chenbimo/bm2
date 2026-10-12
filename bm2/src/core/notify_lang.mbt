@@ -8,26 +8,26 @@
 ///|
 /// All notification messages bm2 can render.
 pub enum Bm2Msg {
-  ProjectStarted(Int, String, Int)
+  ProjectStarted(Int32, String, Int32)
   ProjectStopped(String)
   ProjectKilled(String)
   CleanExitRestarting
-  CrashRestarting(String, Int, Int)
-  SpawnFailedRetrying(Int, Int)
-  ErroredStopped(String, Int, Int)
-  ErroredSpawnStopped(Int, Int)
-  MemoryLimit(Int, Int)
-  ReuseportMissing(String, Int)
-  ThresholdRestarts(Int, Int)
-  ThresholdOffline(String, Int)
-  ThresholdMemory(Int, Int, Int)
-  RestartStorm(Int, Int)
-  OomKill(String, Int, Int, Int)
-  DiskPressure(Int, Int)
-  StartTimeout(Int, Int)
+  CrashRestarting(String, Int32, Int32)
+  SpawnFailedRetrying(Int32, Int32)
+  ErroredStopped(String, Int32, Int32)
+  ErroredSpawnStopped(Int32, Int32)
+  MemoryLimit(Int32, Int32)
+  ReuseportMissing(String, Int32)
+  ThresholdRestarts(Int32, Int32)
+  ThresholdOffline(String, Int32)
+  ThresholdMemory(Int32, Int32, Int32)
+  RestartStorm(Int32, Int32)
+  OomKill(String, Int32, Int32, Int32)
+  DiskPressure(Int32, Int32)
+  StartTimeout(Int32, Int32)
   HealthReport(String, Bool)
   StatsReport(String)
-  DaemonAdopted(Int)
+  DaemonAdopted(Int32)
 }
 
 ///|

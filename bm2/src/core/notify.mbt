@@ -15,8 +15,8 @@ pub struct Notifier {
   cpu_samples : Map[String, (UInt64, UInt64)]
   /// Per-instance RSS peaks in kB: one window since the last health report,
   /// one since the last daily report. Sampled wherever RSS is already read.
-  rss_peak : Map[String, Int]
-  rss_peak_daily : Map[String, Int]
+  rss_peak : Map[String, Int32]
+  rss_peak_daily : Map[String, Int32]
 }
 
 ///|
@@ -61,7 +61,7 @@ pub fn Notifier::forget_offline(self : Notifier, key : String) -> Unit {
 ///|
 /// Record a sampled RSS value into both peak windows. Windows are cleared by
 /// their reports, so a peak always means "since you last heard from us".
-pub fn Notifier::record_rss(self : Notifier, key : String, kb : Int) -> Unit {
+pub fn Notifier::record_rss(self : Notifier, key : String, kb : Int32) -> Unit {
   match self.rss_peak.get(key) {
     Some(peak) => if kb > peak { self.rss_peak[key] = kb }
     None => self.rss_peak[key] = kb
@@ -75,7 +75,7 @@ pub fn Notifier::record_rss(self : Notifier, key : String, kb : Int) -> Unit {
 ///|
 /// Take the since-last-report peak in kB, clearing the window. None when
 /// nothing was sampled since the previous report.
-pub fn Notifier::take_report_peak(self : Notifier, key : String) -> Int? {
+pub fn Notifier::take_report_peak(self : Notifier, key : String) -> Int32? {
   let peak = self.rss_peak.get(key)
   self.rss_peak.remove(key)
   peak
@@ -83,7 +83,7 @@ pub fn Notifier::take_report_peak(self : Notifier, key : String) -> Int? {
 
 ///|
 /// Take the since-last-daily-report peak in kB, clearing the window.
-pub fn Notifier::take_daily_peak(self : Notifier, key : String) -> Int? {
+pub fn Notifier::take_daily_peak(self : Notifier, key : String) -> Int32? {
   let peak = self.rss_peak_daily.get(key)
   self.rss_peak_daily.remove(key)
   peak
@@ -96,7 +96,7 @@ pub fn Notifier::take_daily_peak(self : Notifier, key : String) -> Int? {
 pub fn Notifier::cpu_percent(
   self : Notifier,
   key : String,
-  pid : Int,
+  pid : Int32,
   now : UInt64,
 ) -> Double? {
   match @subproc.read_cpu_ticks(pid) {
@@ -130,20 +130,20 @@ pub fn Notifier::cpu_percent(
 ///|
 /// Messages dropped since the daemon started: queue overflow plus rate
 /// limiting.
-pub fn Notifier::dropped(self : Notifier) -> Int {
+pub fn Notifier::dropped(self : Notifier) -> Int32 {
   self.engine.dropped()
 }
 
 ///|
 /// Messages currently queued.
-pub fn Notifier::queued(self : Notifier) -> Int {
+pub fn Notifier::queued(self : Notifier) -> Int32 {
   self.engine.queued()
 }
 
 ///|
 /// A message for `bm2 notify`: proves a project's endpoints and credentials work
 /// without waiting for a real incident.
-pub fn test_message(now : UInt64, lang? : String = "en") -> @notify.Message {
+pub fn test_message(now : UInt64, lang~ : String = "en") -> @notify.Message {
   let (title, body) = if lang == "zh" {
     ("bm2 通知测试", "收到此消息说明通知目标配置正确。")
   } else {
@@ -155,7 +155,7 @@ pub fn test_message(now : UInt64, lang? : String = "en") -> @notify.Message {
 }
 
 ///|
-fn level_rank(level : String) -> Int {
+fn level_rank(level : String) -> Int32 {
   match level {
     "error" => 2
     "warn" => 1
@@ -306,7 +306,7 @@ pub fn Notifier::emit(
 ///|
 /// One pass of the engine: deliver at most one queued message. Returns the
 /// number of messages still queued; the outcome lands in the event log.
-pub async fn Notifier::pump(self : Notifier, now : UInt64) -> Int {
+pub async fn Notifier::pump(self : Notifier, now : UInt64) -> Int32 {
   let report = self.engine.pump(now)
   match report.outcome {
     Partial =>
@@ -345,7 +345,7 @@ pub async fn Notifier::deliver_now(
   self : Notifier,
   endpoints : Array[@config.NotifyEndpoint],
   policy : @config.NotifyConfig,
-  timeout_ms : Int,
+  timeout_ms : Int32,
   msg : @notify.Message,
 ) -> Array[(String, String?)] {
   let results = @notify.deliver_all(

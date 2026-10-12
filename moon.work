@@ -1,13 +1,3 @@
 members = [
   "bm2",
-  "notify",
-  "release",
-  "fndash",
-  "dateku",
-  "semver",
-  "subproc",
-  "fsx",
-  "logfly",
-  "mwork",
-  "dcipc",
 ]

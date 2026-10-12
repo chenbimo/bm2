@@ -12,7 +12,7 @@ const MIN_NODE : String = "24.0.0"
 /// threaded, so this probe is the one place where a stuck helper binary
 /// could stall supervision; the wait is hard-bounded and the probe killed
 /// on expiry rather than trusting the runtime to answer.
-const RUNTIME_PROBE_TIMEOUT_MS : Int = 5000
+const RUNTIME_PROBE_TIMEOUT_MS : Int32 = 5000
 
 ///|
 /// Verify the project's runtime meets the minimum version before any

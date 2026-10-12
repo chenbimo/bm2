@@ -7,10 +7,15 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
   // It doubles as the directory name under the state dir, so no other
   // characters are allowed.
   for i, c in config.name {
-    guard (i == 0 && (c is ('A'..='Z') || c is ('a'..='z'))) ||
+    guard (i == 0 && (c is ('A'..<='Z') || c is ('a'..<='z'))) ||
       (
         i > 0 &&
-        (c is ('A'..='Z') || c is ('a'..='z') || c is ('0'..='9') || c == '_')
+        (
+          c is ('A'..<='Z') ||
+          c is ('a'..<='z') ||
+          c is ('0'..<='9') ||
+          c == '_'
+        )
       ) else {
       raise ConfigError::InvalidField(
         "project \{config.name} has invalid name: letter first, then letters, digits and underscores only",

@@ -3,13 +3,13 @@
 /// a way an older peer cannot read, so version skew between a freshly
 /// installed CLI and a still-running daemon is reported as such instead of
 /// surfacing as an unexplained decode failure.
-pub const PROTOCOL_VERSION : Int = 1
+pub const PROTOCOL_VERSION : Int32 = 1
 
 ///|
 /// One CLI request. The field is optional so a peer predating versioning
 /// still decodes, and the mismatch is then reported by name.
 pub(all) struct Request {
-  protocol : Int?
+  protocol : Int32?
   command : String
   app : String?
   /// Config path of the caller's project; used by `start` to register it.
@@ -35,14 +35,14 @@ pub extend Request with Eq::{not_equal, equal}
 pub(all) struct InstanceInfo {
   app_name : String
   cwd : String
-  instance_id : Int
-  pid : Int
-  port : Int
+  instance_id : Int32
+  pid : Int32
+  port : Int32
   exec_mode : String
   status : String
-  times : Int
-  restart_count : Int
-  rss_kb : Int
+  times : Int32
+  restart_count : Int32
+  rss_kb : Int32
   uptime_ms : UInt64
   last_reason : String?
 } derive(ToJson, FromJson, Debug, Eq)
@@ -61,7 +61,7 @@ pub extend InstanceInfo with Eq::{not_equal, equal}
 
 ///|
 pub(all) struct Response {
-  protocol : Int?
+  protocol : Int32?
   ok : Bool
   message : String
   instances : Array[InstanceInfo]
@@ -95,7 +95,7 @@ pub fn Response::error(message : String) -> Response {
 ///|
 /// Human-readable protocol mismatch, or None when both sides agree. Kept
 /// here so the CLI and the daemon describe the same condition the same way.
-pub fn protocol_problem(peer : Int?) -> String? {
+pub fn protocol_problem(peer : Int32?) -> String? {
   match peer {
     Some(version) =>
       if version == PROTOCOL_VERSION {

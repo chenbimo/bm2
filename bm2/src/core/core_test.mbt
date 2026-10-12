@@ -10,15 +10,15 @@ fn make_app_dir(root : String, name : String, script : String) -> String raise {
 fn app_config(
   name : String,
   cwd : String,
-  port : Int,
-  max_memory_mb? : Int = 512,
-  max_restarts? : Int = 2,
-  restart_delay_ms? : Int = 150,
-  min_uptime_ms? : Int = 60000,
-  stop_timeout_ms? : Int = 500,
-  script? : String = "fixture.sh",
-  instances? : Int = 1,
-  exec_mode? : String = "fork",
+  port : Int32,
+  max_memory_mb~ : Int32 = 512,
+  max_restarts~ : Int32 = 2,
+  restart_delay_ms~ : Int32 = 150,
+  min_uptime_ms~ : Int32 = 60000,
+  stop_timeout_ms~ : Int32 = 500,
+  script~ : String = "fixture.sh",
+  instances~ : Int32 = 1,
+  exec_mode~ : String = "fork",
 ) -> @config.Config {
   {
     name,
@@ -56,7 +56,7 @@ fn make_sv(root : String, config : @config.Config) -> @core.Supervisor raise {
 }
 
 ///|
-async fn drive(sv : @core.Supervisor, ms : Int) -> Unit {
+async fn drive(sv : @core.Supervisor, ms : Int32) -> Unit {
   let end = @dateku.now_ms() + ms.to_uint64()
   while @dateku.now_ms() < end {
     sv.tick()

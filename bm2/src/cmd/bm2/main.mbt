@@ -8,7 +8,7 @@ async fn main {
 const VERSION : String = "0.6.0"
 
 ///|
-async fn run() -> Int {
+async fn run() -> Int32 {
   match @subproc.platform_error() {
     None => ()
     Some(msg) => {
@@ -300,7 +300,7 @@ async fn run() -> Int {
 /// own directory when a newer release exists, then swap the daemon so
 /// the new binary takes over without touching the running apps.
 /// Requires the moon toolchain (which is also how bm2 was installed).
-async fn cmd_upgrade(state_dir : String) -> Int {
+async fn cmd_upgrade(state_dir : String) -> Int32 {
   let home = match @env.get_env_var("HOME") {
     Some(h) if !h.is_empty() => h
     _ => {
@@ -356,7 +356,7 @@ async fn cmd_upgrade(state_dir : String) -> Int {
 ///|
 /// Apply a freshly installed binary without touching running apps: wait
 /// out the old daemon, start the replacement, adopt the survivors.
-async fn apply_update(state_dir : String) -> Int {
+async fn apply_update(state_dir : String) -> Int32 {
   let running = match connect_daemon(state_dir) {
     Some((conn, _)) => {
       conn.close()
@@ -501,7 +501,7 @@ async fn poll_settled(
   state_dir : String,
   command : String,
   app : String?,
-  timeout_ms : Int,
+  timeout_ms : Int32,
 ) -> Array[@core.InstanceInfo] {
   let deadline = @dateku.now_ms() + timeout_ms.to_uint64()
   let mut last : Array[@core.InstanceInfo] = []
@@ -603,7 +603,7 @@ enum Send {
 async fn request_with_recovery(
   state_dir : String,
   req : @core.Request,
-  timeout_ms : Int,
+  timeout_ms : Int32,
 ) -> @core.Response {
   let pair = match connect_or_start(state_dir) {
     Some(pair) => pair
@@ -660,7 +660,7 @@ async fn connect_or_start(state_dir : String) -> (@socket.Tcp, String)? {
 async fn send_attempt(
   pair : (@socket.Tcp, String),
   req : @core.Request,
-  timeout_ms : Int,
+  timeout_ms : Int32,
 ) -> Send {
   try send_request(pair, req, timeout_ms) catch {
     e => Errored(e.to_string())
@@ -676,7 +676,7 @@ async fn send_attempt(
 async fn send_request(
   pair : (@socket.Tcp, String),
   req : @core.Request,
-  timeout_ms : Int,
+  timeout_ms : Int32,
 ) -> @core.Response {
   let (conn, token) = pair
   let response = @ipc.round_trip(conn, token, req, timeout_ms)
@@ -787,7 +787,7 @@ fn print_list(instances : Array[@core.InstanceInfo]) -> Unit {
 }
 
 ///|
-fn print_row(cols : Array[String], widths : Array[Int]) -> Unit {
+fn print_row(cols : Array[String], widths : Array[Int32]) -> Unit {
   let buf = StringBuilder()
   for i in 0..<cols.length() {
     if i > 0 {
@@ -819,7 +819,7 @@ fn format_uptime(ms : UInt64) -> String {
 }
 
 ///|
-fn pad2(n : Int) -> String {
+fn pad2(n : Int32) -> String {
   if n < 10 {
     "0" + n.to_string()
   } else {

@@ -1,5 +1,5 @@
 ///|
-fn wb_setup(root : String, port : Int) -> Supervisor raise {
+fn wb_setup(root : String, port : Int32) -> Supervisor raise {
   @fsx.mkdir_p(root)
   let config : @config.Config = {
     name: "wbapp",

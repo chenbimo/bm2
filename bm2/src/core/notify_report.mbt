@@ -159,7 +159,7 @@ pub fn Supervisor::notify_daemon_started(
 
 ///|
 /// Online instance count of one project, for the daemon start notice.
-pub fn Supervisor::online_count(self : Supervisor, app_name : String) -> Int {
+pub fn Supervisor::online_count(self : Supervisor, app_name : String) -> Int32 {
   match self.instances.get(app_name) {
     Some(arr) => arr.filter(fn(inst) { inst.status is Online }).length()
     None => 0
@@ -175,8 +175,8 @@ fn Supervisor::report_line(
   self : Supervisor,
   inst : Instance,
   now : UInt64,
-  lang? : String = "en",
-  peak? : Int? = None,
+  lang~ : String = "en",
+  peak~ : Int32? = None,
 ) -> String {
   let zh = lang == "zh"
   // Per-language field labels; the machine keys inside events stay neutral.
@@ -252,7 +252,7 @@ fn Supervisor::build_report(
   app_name : String,
   policy : @config.NotifyConfig,
   now : UInt64,
-  stats? : Bool = false,
+  stats~ : Bool = false,
 ) -> @notify.Message {
   let lines = []
   let mut online = 0
@@ -511,7 +511,7 @@ pub async fn Supervisor::check_schedules(
 /// parser guarantees day-of-month and day-of-week are not both restricted.
 fn cron_matches(
   spec : @config.CronSpec,
-  parts : (Int, Int, Int, Int, Int, Int),
+  parts : (Int32, Int32, Int32, Int32, Int32, Int32),
 ) -> Bool {
   let (_, month, day, weekday, hour, minute) = parts
   spec.minutes.contains(minute) &&
@@ -527,7 +527,7 @@ fn cron_matches(
 pub fn Supervisor::notify_memory_pressure(
   self : Supervisor,
   inst : Instance,
-  rss_kb : Int,
+  rss_kb : Int32,
 ) -> Unit {
   let policy = self.project_policy(inst.app_name)
   if policy.threshold_rss_percent <= 0 {

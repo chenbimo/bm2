@@ -8,13 +8,13 @@ pub(all) struct Config {
   script : String
   runtime : String
   exec_mode : String
-  instances : Int
-  port : Int
-  max_memory_mb : Int
-  max_restarts : Int
-  restart_delay_ms : Int
-  min_uptime_ms : Int
-  stop_timeout_ms : Int
+  instances : Int32
+  port : Int32
+  max_memory_mb : Int32
+  max_restarts : Int32
+  restart_delay_ms : Int32
+  min_uptime_ms : Int32
+  stop_timeout_ms : Int32
   /// Notification policy for this project: which events leave the machine and
   /// where they go. Written as `[notify]` plus `[[notify.target]]` in bm2.toml,
   /// so a project's supervision and its reporting stay in one file.
@@ -41,11 +41,11 @@ pub extend Config with Debug::{to_repr}
 /// (`*` expands to the whole range). Day-of-month and day-of-week may not
 /// both be restricted — that combination is rejected at parse time.
 pub(all) struct CronSpec {
-  minutes : Array[Int]
-  hours : Array[Int]
-  days_of_month : Array[Int]
-  months : Array[Int]
-  days_of_week : Array[Int]
+  minutes : Array[Int32]
+  hours : Array[Int32]
+  days_of_month : Array[Int32]
+  months : Array[Int32]
+  days_of_week : Array[Int32]
 } derive(Debug, Eq)
 
 ///|
@@ -102,17 +102,17 @@ pub(all) struct NotifyConfig {
   /// Notification copy language: "en" (default) or "zh". Only what a human
   /// reads in a chat group is translated; CLI/log/JSON stay language-neutral.
   lang : String
-  timeout_ms : Int
-  dedupe_window_s : Int
-  max_per_minute : Int
-  queue_size : Int
+  timeout_ms : Int32
+  dedupe_window_s : Int32
+  max_per_minute : Int32
+  queue_size : Int32
   events : Array[String]
-  threshold_rss_percent : Int
-  threshold_offline_min : Int
-  threshold_restarts : Int
-  start_timeout_ms : Int
-  threshold_disk_mb : Int
-  threshold_storm : Int
+  threshold_rss_percent : Int32
+  threshold_offline_min : Int32
+  threshold_restarts : Int32
+  start_timeout_ms : Int32
+  threshold_disk_mb : Int32
+  threshold_storm : Int32
   reports : Array[NotifyReport]
 } derive(Debug)
 

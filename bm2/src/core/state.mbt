@@ -11,9 +11,9 @@ pub fn log_event(
   state_dir : String,
   file : String,
   event : String,
-  app? : String? = None,
-  instance? : Int,
-  pid? : Int,
+  app~ : String? = None,
+  instance? : Int32,
+  pid? : Int32,
   detail? : String,
 ) -> Unit {
   let fields : Array[(String, String)] = []
@@ -42,16 +42,16 @@ pub fn log_event(
 /// so state files written by older versions still load.
 pub(all) struct InstanceState {
   app_name : String
-  instance_id : Int
-  pid : Int
-  pgid : Int
-  port : Int
+  instance_id : Int32
+  pid : Int32
+  pgid : Int32
+  port : Int32
   status : String
   started_at : String
-  times : Int?
-  restart_count : Int
-  last_exit_code : Int?
-  last_signal : Int?
+  times : Int32?
+  restart_count : Int32
+  last_exit_code : Int32?
+  last_signal : Int32?
   last_reason : String?
 } derive(ToJson, FromJson, Debug, Eq)
 
@@ -90,7 +90,7 @@ fn InstanceState::of(inst : Instance) -> InstanceState {
 pub fn state_path(
   state_dir : String,
   app_name : String,
-  instance_id : Int,
+  instance_id : Int32,
 ) -> String {
   "\{state_dir}/\{app_name}/\{app_name}-\{instance_id}.json"
 }

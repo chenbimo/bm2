@@ -317,7 +317,7 @@ fn parse_endpoints(
 
 ///|
 /// Digits-only text to a non-negative Int; None on any other character.
-fn digits_to_int(text : StringView) -> Int? {
+fn digits_to_int(text : StringView) -> Int32? {
   let mut value = 0
   for c in text {
     let v = c.to_int()
@@ -334,12 +334,12 @@ fn digits_to_int(text : StringView) -> Int? {
 /// a comma list of numbers. `base` and `max` define the field's range.
 fn cron_field(
   text : StringView,
-  base : Int,
-  max : Int,
+  base : Int32,
+  max : Int32,
   ctx : String,
   what : String,
-) -> Array[Int] raise ConfigError {
-  let values : Array[Int] = []
+) -> Array[Int32] raise ConfigError {
+  let values : Array[Int32] = []
   for part in text.split(",") {
     if part == "*" {
       for v in base..<=max {

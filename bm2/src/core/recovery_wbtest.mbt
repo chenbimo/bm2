@@ -5,7 +5,7 @@
 /// liveness) and on /proc (the BM2_* fingerprint).
 
 ///|
-fn wb_config(name : String, cwd : String, port : Int) -> @config.Config {
+fn wb_config(name : String, cwd : String, port : Int32) -> @config.Config {
   {
     name,
     cwd,
@@ -44,7 +44,7 @@ fn environ_of(entries : Array[String]) -> Bytes {
 }
 
 ///|
-fn state_json(app : String, id : Int, pid : Int, port : Int) -> String {
+fn state_json(app : String, id : Int32, pid : Int32, port : Int32) -> String {
   "{\"app_name\":\"" +
   app +
   "\",\"instance_id\":" +
@@ -132,7 +132,7 @@ test "recover discards state whose pid is gone" {
 /// foreign process. Production never sees it (the state file comes from an
 /// earlier daemon, so the process has long since exec'd); a test that spawns
 /// and immediately recovers does, so it waits for the real environment.
-fn wait_for_fingerprint(pid : Int, app : String, timeout_ms : Int) -> Bool {
+fn wait_for_fingerprint(pid : Int32, app : String, timeout_ms : Int32) -> Bool {
   let deadline = @env.now() + timeout_ms.to_uint64()
   while @env.now() < deadline {
     let bytes = try @fsx.read_small("/proc/\{pid}/environ", cap=4096) catch {

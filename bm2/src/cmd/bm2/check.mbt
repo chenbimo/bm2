@@ -44,7 +44,7 @@ fn check_summary(config : @config.Config) -> String {
 /// touching the daemon, so a bad config is caught before a deploy. Purely
 /// local: parsing, field validation and ${VAR} expansion all run in-process
 /// via @config.load, then the filesystem gets the final word.
-fn cmd_check() -> Int {
+fn cmd_check() -> Int32 {
   let cwd = match @env.current_dir() {
     Some(dir) => dir
     None => {

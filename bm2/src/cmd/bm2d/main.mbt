@@ -14,7 +14,7 @@ async fn main {
 }
 
 ///|
-async fn run() -> Int {
+async fn run() -> Int32 {
   match @subproc.platform_error() {
     None => ()
     Some(msg) => {

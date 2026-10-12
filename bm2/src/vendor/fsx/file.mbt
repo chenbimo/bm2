@@ -1,0 +1,76 @@
+///|
+pub fn mkdir_p(path : String, mode~ : Int32 = 0o755) -> Unit raise FileError {
+  let rc = c_mkdir_p(cstr(path), mode)
+  if rc < 0 {
+    raise Failed(op="mkdir_p", errno=-rc)
+  }
+}
+
+///|
+/// Write "<path>.tmp", fsync, then atomically rename over path.
+pub fn write_atomic(path : String, data : Bytes) -> Unit raise FileError {
+  let rc = c_write_atomic(cstr(path), data)
+  if rc < 0 {
+    raise Failed(op="write_atomic", errno=-rc)
+  }
+}
+
+///|
+pub fn append_file(path : String, data : Bytes) -> Unit raise FileError {
+  let rc = c_append_file(cstr(path), data)
+  if rc < 0 {
+    raise Failed(op="append_file", errno=-rc)
+  }
+}
+
+///|
+pub fn unlink(path : String) -> Unit raise FileError {
+  let rc = c_unlink(cstr(path))
+  if rc < 0 {
+    raise Failed(op="unlink", errno=-rc)
+  }
+}
+
+///|
+/// Set the mode of an existing path. `mkdir_p` only applies its mode to
+/// directories it creates, so a state dir left behind by an older version
+/// (or created by hand) needs an explicit chmod to stop being group or
+/// world readable — it holds app logs.
+pub fn chmod(path : String, mode : Int32) -> Unit raise FileError {
+  let rc = c_chmod(cstr(path), mode)
+  if rc < 0 {
+    raise Failed(op="chmod", errno=-rc)
+  }
+}
+
+///|
+/// File size in bytes; None when the file does not exist or is unreadable.
+pub fn file_size(path : String) -> Int64? {
+  let size = c_file_size(cstr(path))
+  if size < 0L {
+    None
+  } else {
+    Some(size)
+  }
+}
+
+///|
+/// Shift the rotation chain and rename path to path.1 (drops path.10).
+/// For logs written by this daemon, where no fd survives the rename.
+pub fn rotate(path : String) -> Unit raise FileError {
+  let rc = c_rotate(cstr(path))
+  if rc < 0 {
+    raise Failed(op="rotate", errno=-rc)
+  }
+}
+
+///|
+/// Copy path into path.1 (shifting the chain) and truncate path to zero.
+/// For logs held open by app processes, which keep writing to the old
+/// inode; a few bytes written during the copy are lost.
+pub fn copytruncate(path : String) -> Unit raise FileError {
+  let rc = c_copytruncate(cstr(path))
+  if rc < 0 {
+    raise Failed(op="copytruncate", errno=-rc)
+  }
+}

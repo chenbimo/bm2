@@ -1,0 +1,13 @@
+import {
+  "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
+  "chensuiyi/bm2/vendor/fndash",
+}
+
+import {
+  "chensuiyi/bm2/vendor/fsx",
+} for "test"
+
+options(
+  "native-stub": [ "native.c" ],
+)

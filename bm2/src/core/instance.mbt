@@ -62,28 +62,28 @@ pub extend ReusePortState with Eq::{not_equal, equal}
 pub(all) struct Instance {
   app_name : String
   cwd : String
-  instance_id : Int
-  port : Int
+  instance_id : Int32
+  port : Int32
   exec_mode : String
-  mut pid : Int
+  mut pid : Int32
   /// pidfd pinned to `pid` (0 when not running); never pid-reused.
-  mut pidfd : Int
+  mut pidfd : Int32
   mut status : Status
   mut started_at_ms : UInt64
   /// Total launch count: every start (manual or automatic) increments
   /// it; resets only when the project is killed and started fresh.
-  mut times : Int
+  mut times : Int32
   /// Consecutive abnormal restarts; the crash budget only. Reset to zero
   /// once the instance has stayed up past min_uptime, which needs no
   /// extra flag: the counter itself is the guard.
-  mut restart_count : Int
+  mut restart_count : Int32
   mut exit_intent : ExitIntent
   mut kill_deadline_ms : UInt64
   mut restart_at_ms : UInt64
-  mut last_exit_code : Int?
-  mut last_signal : Int?
+  mut last_exit_code : Int32?
+  mut last_signal : Int32?
   mut last_reason : String?
-  mut last_rss_kb : Int
+  mut last_rss_kb : Int32
   mut reuseport : ReusePortState
   mut reuseport_deadline_ms : UInt64
 } derive(Debug)
@@ -92,7 +92,7 @@ pub(all) struct Instance {
 pub extend Instance with Debug::{to_repr}
 
 ///|
-pub fn Instance::new(config : @config.Config, instance_id : Int) -> Instance {
+pub fn Instance::new(config : @config.Config, instance_id : Int32) -> Instance {
   {
     app_name: config.name,
     cwd: config.cwd,

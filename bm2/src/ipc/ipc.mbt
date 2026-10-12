@@ -17,7 +17,7 @@ pub async fn round_trip(
   conn : @socket.Tcp,
   token : String,
   req : @core.Request,
-  timeout_ms : Int,
+  timeout_ms : Int32,
 ) -> @core.Response {
   @core.decode_response(
     @dcipc.round_trip_bytes(conn, token, @core.encode_request(req), timeout_ms),

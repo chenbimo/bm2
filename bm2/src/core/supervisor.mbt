@@ -51,7 +51,7 @@ pub struct Supervisor {
   /// override it (they drive the loop with /bin/sh); production keeps bun.
   bun_path : String
   /// Test seam: the production daemon uses the default.
-  memory_interval_ms : Int
+  memory_interval_ms : Int32
   mut last_memory_check_ms : UInt64
   mut last_log_check_ms : UInt64
   mut last_reuseport_probe_ms : UInt64
@@ -78,8 +78,8 @@ pub struct Supervisor {
 /// Rolling aggregation for one project's stats reports: the sampled RSS
 /// high-water mark and the automatic restart count since the last push.
 pub(all) struct StatsWindow {
-  peak_kb : Int
-  restarts : Int
+  peak_kb : Int32
+  restarts : Int32
 } derive(Debug)
 
 ///|
@@ -90,7 +90,7 @@ pub extend StatsWindow with Debug::{to_repr}
 fn Supervisor::record_stats_peak(
   self : Supervisor,
   app_name : String,
-  kb : Int,
+  kb : Int32,
 ) -> Unit {
   match self.stats_window.get(app_name) {
     Some(w) =>
@@ -134,7 +134,7 @@ fn Supervisor::take_stats_window(
 pub fn Supervisor::new(
   state_dir~ : String,
   bun_path~ : String,
-  memory_interval_ms? : Int = 5000,
+  memory_interval_ms~ : Int32 = 5000,
 ) -> Supervisor raise {
   @fsx.mkdir_p(state_dir, mode=0o700)
   // mkdir only applies its mode to directories it creates; tighten a state
@@ -225,7 +225,7 @@ fn Supervisor::reject_port_conflict(
 pub fn Supervisor::instance(
   self : Supervisor,
   app_name : String,
-  instance_id : Int,
+  instance_id : Int32,
 ) -> Instance raise SupervisorError {
   match self.instances.get(app_name) {
     Some(arr) => arr[instance_id]
@@ -383,8 +383,8 @@ fn Supervisor::mark_online(
   self : Supervisor,
   app : @config.Config,
   inst : Instance,
-  pid : Int,
-  pidfd : Int,
+  pid : Int32,
+  pidfd : Int32,
 ) -> Unit {
   inst.pid = pid
   inst.pidfd = pidfd
@@ -676,7 +676,7 @@ fn Supervisor::handle_exit(
   self : Supervisor,
   app : @config.Config,
   inst : Instance,
-  pid : Int,
+  pid : Int32,
   exit : @subproc.ChildExit?,
 ) -> Unit {
   let now = @dateku.now_ms()
@@ -838,7 +838,7 @@ fn Supervisor::counted_exit(
 /// practice, the kernel OOM killer: the supervisor only SIGKILLs through its
 /// own paths (which carry explicit reasons), and an app does not SIGKILL
 /// itself right after growing near its limit.
-pub fn is_oom_kill(sig : Int?, rss_kb : Int, max_memory_mb : Int) -> Bool {
+pub fn is_oom_kill(sig : Int32?, rss_kb : Int32, max_memory_mb : Int32) -> Bool {
   sig == Some(9) && rss_kb * 10 >= max_memory_mb * 1024 * 9
 }
 
@@ -861,7 +861,7 @@ fn storm_hit_count(
   hits : Array[UInt64],
   now : UInt64,
   window_ms : UInt64,
-) -> Int {
+) -> Int32 {
   let fresh : Array[UInt64] = []
   let mut count = 0
   for ts in hits {
@@ -1312,7 +1312,7 @@ fn terminate(
 }
 
 ///|
-fn signal_name(sig : Int) -> String {
+fn signal_name(sig : Int32) -> String {
   match sig {
     15 => "SIGTERM"
     9 => "SIGKILL"
