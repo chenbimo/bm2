@@ -200,6 +200,41 @@ async test "a failed delivery reports a reason without the credential" {
 }
 
 ///|
+/// The SMTP body writer: dot transparency, CRLF endings, and a byte-aware fold at
+/// the RFC 5321 line ceiling.
+test "smtp folding keeps every byte and never cuts a character" {
+  // Short lines pass through with CRLF endings; a leading dot is doubled.
+  assert_eq(dot_stuff("hello\n.world"), "hello\r\n..world")
+  // 1200 ASCII octets become 998 + 202, and nothing but line breaks was added.
+  let ascii = StringBuilder()
+  for _ in 0..<1200 {
+    ascii.write_string("a")
+  }
+  let long = ascii.to_string()
+  let folded = dot_stuff(long)
+  let ascii_parts = []
+  for part in folded.split("\r\n") {
+    ascii_parts.push(part.to_owned())
+  }
+  assert_eq(ascii_parts.length(), 2)
+  assert_eq(ascii_parts[0].length(), 998)
+  assert_eq(folded.length(), long.length() + 2)
+  // A CJK line is cut by octets, not characters: each character is three octets,
+  // so the first line holds 332 of them (996 octets) and never a broken one.
+  let cjk = StringBuilder()
+  for _ in 0..<400 {
+    cjk.write_string("汉")
+  }
+  let cjk_parts = []
+  for part in dot_stuff(cjk.to_string()).split("\r\n") {
+    cjk_parts.push(part.to_owned())
+  }
+  assert_eq(cjk_parts.length(), 2)
+  assert_eq(cjk_parts[0].length(), 332)
+  assert_eq(cjk_parts[1].length(), 68)
+}
+
+///|
 async test "the engine dedupes, rate limits and enforces the queue limit" {
   let dead = [n_target("webhook", "http://127.0.0.1:9/hook")]
   let engine = Engine::new(n_ctx())
