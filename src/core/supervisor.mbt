@@ -111,6 +111,20 @@ pub fn Supervisor::new(
   // mkdir only applies its mode to directories it creates; tighten a state
   // dir left behind by an older version, since it holds app logs.
   @utils.discard(() => @fsx.chmod(state_dir, 0o700))
+  // The state dir holds the control-plane token, so it must be a directory this
+  // uid owns. Without this check the HOME-less fallback (/tmp/bm2-<uid>) could
+  // be a directory another local user created first: the mkdir would report
+  // EEXIST, the chmod would fail quietly, and this daemon would write its token
+  // where that user can read it.
+  match @fsx.dir_owner(state_dir) {
+    Some(uid) =>
+      if uid != @proc.get_uid() {
+        raise IoError(
+          "state dir \{state_dir} is owned by uid \{uid}, but this process is uid \{@proc.get_uid()}",
+        )
+      }
+    None => raise IoError("state dir \{state_dir} is not a directory")
+  }
   let outbound : @aqueue.Queue[Outbound] = @aqueue.Queue::Queue(
     kind=Blocking(NOTIFY_INBOUND_CAPACITY),
   )

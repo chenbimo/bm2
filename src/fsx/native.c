@@ -268,3 +268,15 @@ int32_t fsx_read_small(moonbit_bytes_t path, moonbit_bytes_t buf,
   close(fd);
   return (int32_t)off;
 }
+
+/* Owner uid of a directory, -ENOTDIR when the path is not one, -errno on
+ * failure. The state dir holds the control-plane token, so the daemon verifies
+ * this before trusting it: the HOME-less fallback (/tmp/bm2-<uid>) must not be
+ * a directory that some other local user created first. */
+MOONBIT_FFI_EXPORT
+int32_t fsx_dir_owner(moonbit_bytes_t path) {
+  struct stat st;
+  if (stat((char *)path, &st) != 0) return -errno;
+  if (!S_ISDIR(st.st_mode)) return -ENOTDIR;
+  return (int32_t)st.st_uid;
+}

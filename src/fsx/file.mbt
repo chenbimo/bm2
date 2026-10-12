@@ -24,6 +24,19 @@ pub fn append_file(path : String, data : Bytes) -> Unit raise FileError {
 }
 
 ///|
+/// Owner uid of a directory, None when the path is not a directory or cannot be
+/// stat'ed. The state dir holds the control-plane token, so the daemon checks
+/// this before trusting it.
+pub fn dir_owner(path : String) -> Int32? {
+  let uid = c_dir_owner(cstr(path))
+  if uid < 0 {
+    None
+  } else {
+    Some(uid)
+  }
+}
+
+///|
 pub fn unlink(path : String) -> Unit raise FileError {
   let rc = c_unlink(cstr(path))
   if rc < 0 {

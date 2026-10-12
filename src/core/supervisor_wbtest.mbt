@@ -102,6 +102,25 @@ test "a cached runtime verdict is reused instead of probing" {
 }
 
 ///|
+/// The state dir holds the control-plane token: a path that is not a directory
+/// must be refused at startup instead of being written into.
+test "a state dir that is not a directory is refused" {
+  let root = "/tmp/bm2-wbtest-statedir-\{@proc.get_pid()}"
+  @fsx.mkdir_p(root)
+  let file = root + "/not-a-dir"
+  @fsx.write_atomic(file, @utf8.encode("x"))
+  let refused = try {
+    ignore(Supervisor::new(state_dir=file, bun_path="/bin/sh"))
+    false
+  } catch {
+    _ => true
+  } noraise {
+    value => value
+  }
+  assert_true(refused)
+}
+
+///|
 test "spawn failures back off and exhaust the budget into errored" {
   let root = "/tmp/bm2-wbtest-spawn-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4451)
