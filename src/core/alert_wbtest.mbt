@@ -1,7 +1,7 @@
 ///|
 /// Tests for bm2's notification adapter: subscription filtering, policy-driven
 /// dedupe/rate/queue behaviour and the CPU sampler. Rendering, signing and the
-/// engine itself are covered by the chensuiyi/notify suite.
+/// engine itself are covered by the notify package's own suite.
 
 ///|
 fn wb_report(

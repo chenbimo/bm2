@@ -1,6 +1,6 @@
 ///|
-/// bm2 的控制通道协议适配层:传输(帧协议/令牌/认证/拨号)在
-/// chensuiyi/dcipc,这里只做 Request/Response 与字节帧的编解码衔接。
+/// bm2 的控制通道协议适配层:传输层(帧协议/令牌/认证/拨号)在本包的
+/// `frame.mbt`,这里只做 Request/Response 与字节帧的编解码衔接。
 
 ///|
 /// Write one framed response to an authenticated connection.

@@ -1,7 +1,7 @@
 ///|
 /// Request signing and the two body layouts every message is rendered from.
-/// String/JSON/encoding helpers live in chensuiyi/fndash, time formatting
-/// in chensuiyi/dateku.
+/// String/JSON/encoding helpers and time formatting live in `src/utils`; this
+/// file only assembles payloads.
 
 ///|
 /// HMAC-SHA256, base64-encoded: the shared half of the two Chinese chat

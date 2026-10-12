@@ -1,5 +1,5 @@
 ///|
-/// chensuiyi/notify — 多平台通知库:消息模型、平台预设渲染、HTTP/SMTP 投递,
+/// src/notify — 多平台通知包:消息模型、平台预设渲染、HTTP/SMTP 投递,
 /// 以及一个可选的去重/限流/重试引擎。设计约定:
 ///
 /// - 所有失败原因(返回的 `String?` 中的 `Some`)永不包含凭据——url、secret、
