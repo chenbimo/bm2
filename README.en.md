@@ -37,7 +37,7 @@ It does not manage Nginx, domains, certificates, hot reload, boot startup, or re
 
 - Linux only, non-Linux builds refuse to run with a clear message.
 - Requires Linux kernel >= 5.3 (pidfd process tracking).
-- [MoonBit](https://www.moonbitlang.com/) (only needed to install/upgrade bm2)
+- [MoonBit](https://www.moonbitlang.com/) (only needed to install bm2)
 - [Bun](https://bun.sh/), version >= 1.4.0
 - [Node.js](https://nodejs.org/), version >= 24.0.0 (only for projects with `runtime = "node"`)
 
@@ -65,10 +65,10 @@ Both binaries (`bm2`, `bm2d`) are installed together.
 
 Both must stay on `PATH` because `bm2` launches `bm2d` by name.
 
-To update to the latest mooncakes release and apply it automatically:
+To update to the latest release from the download station and apply it automatically:
 
 ```bash
-bm2 upgrade          # compares versions, runs moon install, and swaps in the new daemon
+bm2 upgrade          # compares versions, downloads and verifies bm2/bm2d, then swaps in the new daemon
 ```
 
 ## Configuration parameters
@@ -194,7 +194,7 @@ bm2 kill <name>       # stop one project and unregister it; bm2d stays running
 bm2 kill -y           # stop all projects, unregister them and exit bm2d (bare `kill` refuses)
 bm2 list [name]       # display all registered project states; add --json for machine-readable output
 bm2 reload            # swap in a fresh bm2d; managed apps keep running
-bm2 upgrade           # update bm2 to the latest mooncakes release
+bm2 upgrade           # update bm2 to the latest release from the download station
 bm2 version           # print the bm2 version
 ```
 

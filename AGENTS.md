@@ -17,9 +17,9 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 - `src/core` — 实例状态机、监督循环、恢复/收养、协议、状态持久化、通知适配层
 - `src/ipc` — CLI↔守护进程控制通道(长度前缀帧 + 子命令,经 loopback TCP + 共享令牌)
 - `src/cmd/bm2`、`src/cmd/bm2d` — CLI 与守护进程入口(参数解析用 core/argparse)
-- `src/vendor/*` — 内联依赖库(notify / dateku / semver / subproc / fsx / fndash / logfly / dcipc),包路径为 `chensuiyi/bm2/vendor/<名>`
+- `src/<名>` — 内部库(notify / dateku / semver / subproc / fsx / fndash / logfly / dcipc),包路径为 `chensuiyi/bm2/<名>`
 
-命令 main 放 `src/cmd/<命令名>` 子包,二进制名与目录名一致;本地安装走 `scripts/install-local.sh`(构建 + 装入 `~/.local/bin`,安装态运行)。
+命令 main 放 `src/cmd/<命令名>` 子包,二进制名与目录名一致。
 
 ## bm2d 监督循环(严格遵守)
 
@@ -39,8 +39,9 @@ e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了�
 
 ## 发布
 
-- 发布由 yicode-tech 仓库的 `scripts/famoonbit` 承担:在 WSL 内 fmt / check / test → bump 版本 → 发 mooncakes → 构建产物 → 上传下载站
-- 版本两处同步:`moon.mod` 的 `version` 与 `src/cmd/bm2/main.mbt` 的 `VERSION` 常量(verify.sh 与 pre-commit 强制校验)
+发布(版本递增、构建产物、上传下载站、发 mooncakes)由 yicode-tech 仓库的 `scripts/famoonbit` 承担,本仓库不保留发布脚本。
+
+版本号在发布时由 famoonbit 同步写入 `moon.mod` 与 CLI 的 `VERSION` 常量,两者必须一致(verify.sh 与 pre-commit 校验)。
 
 ## 提交格式(严格遵守)
 
