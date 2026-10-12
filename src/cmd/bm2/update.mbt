@@ -3,6 +3,16 @@
 /// 清单与目录布局的条文见 yicode-tech 仓库 `specs/update-spec.md`。
 
 ///|
+/// How long the manifest may take: it is a small JSON document on a static host.
+const UPDATE_MANIFEST_TIMEOUT_MS : Int32 = 30000
+
+///|
+/// How long one artifact may take. Binaries are a few MB, so this is generous on
+/// purpose — a slow link must still finish — but a stalled connection has to fail
+/// the update instead of hanging the CLI.
+const UPDATE_DOWNLOAD_TIMEOUT_MS : Int32 = 300000
+
+///|
 /// 发布站地址(可用环境变量覆盖,便于内网镜像与测试)。
 pub fn update_base() -> String {
   match @env.get_env_var("BM2_UPDATE_BASE") {
@@ -250,10 +260,14 @@ pub async fn install_artifacts(
 }
 
 ///|
+/// Download one artifact inside a bounded wait.
 async fn download_ok(url : String, path : String) -> Bool {
   let failed = try {
-    download_to(url, path)
-    false
+    let attempt = async fn() { download_to(url, path) }
+    match @async.with_timeout_opt(UPDATE_DOWNLOAD_TIMEOUT_MS, attempt) {
+      Some(_) => false
+      None => true
+    }
   } catch {
     _ => true
   } noraise {
@@ -311,13 +325,20 @@ async fn cmd_upgrade(state_dir : String) -> Int32 {
   let manifest_url = base +
     "/products/bm2/latest.json?t=" +
     @utils.now_ms().to_string()
-  let text = try fetch_text(manifest_url) catch {
-    _ => {
+  let fetched = try {
+    let attempt = async fn() { fetch_text(manifest_url) }
+    @async.with_timeout_opt(UPDATE_MANIFEST_TIMEOUT_MS, attempt)
+  } catch {
+    _ => None
+  } noraise {
+    text => text
+  }
+  let text = match fetched {
+    Some(text) => text
+    None => {
       @proc.eprintln("bm2: cannot reach the release station " + base)
       return 1
     }
-  } noraise {
-    body => body
   }
   let (version, artifacts) = match parse_manifest(text) {
     Some(parsed) => parsed
