@@ -295,58 +295,52 @@ async fn run() -> Int32 {
 }
 
 ///|
-/// Upgrade bm2 itself: refresh the mooncakes index, compare the latest
-/// published version with the running one, run `moon install` into bm2's
-/// own directory when a newer release exists, then swap the daemon so
-/// the new binary takes over without touching the running apps.
-/// Requires the moon toolchain (which is also how bm2 was installed).
+/// Upgrade bm2 from the release station: fetch the manifest, compare the
+/// published version with the running one, download this platform's binaries,
+/// verify their SHA256, swap them in place, then swap the daemon so the new
+/// binary takes over without touching the running apps.
+/// The manifest and the online layout are defined in yicode-tech
+/// `specs/update-spec.md`.
 async fn cmd_upgrade(state_dir : String) -> Int32 {
-  let home = match @env.get_env_var("HOME") {
-    Some(h) if !h.is_empty() => h
+  let base = update_base()
+  let manifest_url = base +
+    "/products/bm2/latest.json?t=" +
+    @dateku.now_ms().to_string()
+  let text = try fetch_text(manifest_url) catch {
     _ => {
-      @subproc.eprintln("bm2: cannot determine HOME (moon toolchain required)")
-      return 1
-    }
-  }
-  if !run_moon("update" + "\u{0}") {
-    @subproc.eprintln("bm2: 'moon update' failed; run it manually and retry")
-    return 1
-  }
-  let index_path = home + "/.moon/registry/index/user/chensuiyi/bm2.index"
-  let text = try @fs.read_file_to_string(index_path) catch {
-    _ => {
-      @subproc.eprintln("bm2: no release on mooncakes yet")
+      @subproc.eprintln("bm2: cannot reach the release station " + base)
       return 1
     }
   } noraise {
-    loaded => loaded
+    body => body
   }
-  let latest = match latest_version(text) {
-    Some(v) => v
+  let (version, artifacts) = match parse_manifest(text) {
+    Some(parsed) => parsed
     None => {
-      @subproc.eprintln("bm2: cannot read the mooncakes index")
+      @subproc.eprintln("bm2: cannot read the release manifest")
       return 1
     }
   }
-  if @semver.compare(@semver.parse(latest), @semver.parse(VERSION)) <= 0 {
+  if @semver.compare(@semver.parse(version), @semver.parse(VERSION)) <= 0 {
     println("bm2 is up to date (" + VERSION + ")")
     return 0
   }
-  println("new version " + latest + " available (current " + VERSION + ")")
-  let args = "install" +
-    "\u{0}" +
-    "chensuiyi/bm2/..." +
-    "\u{0}" +
-    "--bin" +
-    "\u{0}" +
-    self_dir() +
-    "\u{0}"
-  if !run_moon(args) {
-    @subproc.eprintln(
-      "bm2: 'moon install' failed; run it manually:\n  moon install chensuiyi/bm2/... --bin " +
-      self_dir(),
-    )
-    return 1
+  println("new version " + version + " available (current " + VERSION + ")")
+  let target = self_target()
+  // bm2 与 bm2d 必须同批取到,缺一不可,否则会出现半更新。
+  let picked = match pick_artifacts(artifacts, target, ["bm2", "bm2d"]) {
+    Some(items) => items
+    None => {
+      @subproc.eprintln("bm2: no release for " + target + " yet")
+      return 1
+    }
+  }
+  match install_artifacts(picked, self_dir()) {
+    Some(reason) => {
+      @subproc.eprintln("bm2: " + reason)
+      return 1
+    }
+    None => ()
   }
   // Apply immediately when a daemon is running; a failed swap still
   // leaves the update installed, so only the message differs.
@@ -418,31 +412,8 @@ async fn swap_daemon(state_dir : String) -> Bool {
 }
 
 ///|
-struct IndexEntry {
-  version : String
-} derive(FromJson)
-
-///|
-/// Latest version from the mooncakes index JSONL (last line wins).
-fn latest_version(text : String) -> String? {
-  let mut latest : String? = None
-  for line in text.split("\n") {
-    if line.trim().is_empty() {
-      continue
-    }
-    let entry : IndexEntry = try @json.from_json(@json.parse(line)) catch {
-      _ => continue
-    } noraise {
-      loaded => loaded
-    }
-    latest = Some(entry.version)
-  }
-  latest
-}
-
-///|
-/// Directory containing the running bm2 binary, where moon install
-/// replaces it (and bm2d) in place.
+/// Directory containing the running bm2 binary; upgrades replace it and
+/// bm2d in place.
 fn self_dir() -> String {
   let exe = try @subproc.self_exe() catch {
     _ => return "."
@@ -459,36 +430,6 @@ fn self_dir() -> String {
     exe[:idx].to_owned()
   } else {
     "."
-  }
-}
-
-///|
-/// Run moon with NUL-separated arguments; its output goes straight to
-/// the terminal (the spawned process inherits our stdout/stderr), so the
-/// user sees the download/compile progress live. True on exit code 0.
-fn run_moon(args_blob : String) -> Bool {
-  let pid = try
-    @subproc.spawn({
-      bun_path: "moon",
-      script: args_blob,
-      cwd: "/",
-      out_log: "",
-      err_log: "",
-      env_blob: @subproc.base_env_blob(),
-    })
-  catch {
-    _ => return false
-  } noraise {
-    spawned => spawned
-  }
-  let reaped = try @subproc.wait_child(pid) catch {
-    _ => None
-  } noraise {
-    result => result
-  }
-  match reaped {
-    Some((_, @subproc.ChildExit::Exited(0))) => true
-    _ => false
   }
 }
 
