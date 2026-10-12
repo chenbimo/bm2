@@ -209,11 +209,19 @@ int32_t fsx_copytruncate(moonbit_bytes_t path) {
       break;
     }
     if (n == 0) break;
-    if (write_all(dst, chunk, (size_t)n) != 0) {
-      rc = -errno;
+    /* Take write_all's own verdict: it reports a failure as a negative value and
+     * does not set errno, so re-deriving the error here could turn a failed copy
+     * into a success — and the truncate below would then empty the source with
+     * nothing having been copied. */
+    int wrc = write_all(dst, chunk, (size_t)n);
+    if (wrc != 0) {
+      rc = wrc;
       break;
     }
   }
+  /* Only now is the copy known to be complete; make it durable before the
+   * source is emptied, or a crash in between loses both copies. */
+  if (rc == 0 && fsync(dst) != 0) rc = -errno;
   if (rc == 0 && ftruncate(src, 0) != 0) rc = -errno;
   close(src);
   close(dst);
