@@ -12,6 +12,39 @@ const COMMAND_REPLY_MS : UInt64 = 15000
 const EXIT_SIGNAL_CAPACITY : Int32 = 4
 
 ///|
+/// How many control connections may be in flight at once. Each one costs a task
+/// and a descriptor, and a local client that opens thousands of silent
+/// connections must not be able to grow the daemon without bound. The control
+/// plane is loopback-only behind a shared token, so this is a guardrail against
+/// a runaway caller, not a security boundary.
+const MAX_CONTROL_CONNECTIONS : Int32 = 64
+
+///|
+/// Live control connections, counted by the accept loop and released by the
+/// connection's own task.
+struct Connections {
+  mut live : Int32
+}
+
+///|
+/// Claim a slot. False when the control plane is already at
+/// `MAX_CONTROL_CONNECTIONS`: the caller is refused right away rather than
+/// queued, because a queue would only move the pressure to memory.
+fn Connections::take(self : Connections) -> Bool {
+  if self.live >= MAX_CONTROL_CONNECTIONS {
+    false
+  } else {
+    self.live += 1
+    true
+  }
+}
+
+///|
+fn Connections::release(self : Connections) -> Unit {
+  self.live -= 1
+}
+
+///|
 async fn main {
   @proc.exit(run())
 }
@@ -139,11 +172,14 @@ async fn run() -> Int32 {
       let exits : @aqueue.Queue[@core.ExitMode] = @aqueue.Queue::Queue(
         kind=Blocking(EXIT_SIGNAL_CAPACITY),
       )
+      let live : Connections = { live: 0, }
       ignore(tg.spawn(async fn() { tick_loop(sv) }, allow_failure=true))
       ignore(tg.spawn(async fn() { runner.run() }, allow_failure=true))
       ignore(
         tg.spawn(async fn() {
-          accept_loop(server, commands, outbound, state_dir, token, exits, tg)
+          accept_loop(
+            server, commands, outbound, state_dir, token, exits, live, tg,
+          )
         }),
       )
       // The group body waits for a served request to ask for an exit; when it
@@ -203,6 +239,10 @@ async fn tick_loop(sv : @core.Supervisor) -> Unit {
 /// the blocked accept; a failure here (this is the one task without
 /// `allow_failure`) ends the daemon, exactly as when the loop was the task group
 /// body itself.
+///
+/// Nothing but accepting happens here: authentication belongs to the connection's
+/// own task, or a client that connects and says nothing would hold the loop up
+/// for `AUTH_TIMEOUT_MS` per connection.
 async fn accept_loop(
   server : @socket.TcpServer,
   commands : @aqueue.Queue[@core.Command],
@@ -210,49 +250,61 @@ async fn accept_loop(
   state_dir : String,
   token : String,
   exits : @aqueue.Queue[@core.ExitMode],
+  live : Connections,
   tg : @async.TaskGroup[@core.ExitMode],
 ) -> Unit {
   while true {
-    let conn = try @ipc.accept_authed(server, token) catch {
+    let accepted = try server.accept() catch {
       _ => None
     } noraise {
-      accepted => accepted
+      pair => Some(pair)
     }
-    match conn {
-      None => {
-        // A rejected handshake is a wrong token or a probe: worth a line in
-        // the event log either way.
-        @core.log_event(state_dir, "bm2d.events.jsonl", "auth_failed")
-        continue
-      }
-      Some(conn) =>
-        // One task per connection: a slow request (a stop timeout, a runtime
-        // probe) no longer holds up the next caller. Supervision mutations stay
-        // serialized regardless — every one of them happens on the supervision
-        // task now.
-        ignore(
-          tg.spawn(
-            async fn() {
-              serve_conn(conn, commands, outbound, state_dir, exits)
-            },
-            allow_failure=true,
-          ),
-        )
+    match accepted {
+      None => continue
+      Some((conn, _peer)) =>
+        if live.take() {
+          // One task per connection: a slow request (a stop timeout, a runtime
+          // probe) no longer holds up the next caller. Supervision mutations
+          // stay serialized regardless — every one of them happens on the
+          // supervision task now.
+          ignore(
+            tg.spawn(
+              async fn() {
+                serve_conn(
+                  conn, commands, outbound, state_dir, token, exits, live,
+                )
+              },
+              allow_failure=true,
+            ),
+          )
+        } else {
+          @core.log_event(state_dir, "bm2d.events.jsonl", "connection_refused")
+          conn.close()
+        }
     }
   }
 }
 
 ///|
-/// Serve one connection to completion: read the request, apply it, answer, and
-/// signal an exit request to the task group body. Requests stay sequential per
-/// connection, and a failure here ends only this connection.
+/// Serve one connection to completion: authenticate, read the request, apply it,
+/// answer, and signal an exit request to the task group body. Requests stay
+/// sequential per connection, and a failure here ends only this connection.
 async fn serve_conn(
   conn : @socket.Tcp,
   commands : @aqueue.Queue[@core.Command],
   outbound : @aqueue.Queue[@core.Outbound],
   state_dir : String,
+  token : String,
   exits : @aqueue.Queue[@core.ExitMode],
+  live : Connections,
 ) -> Unit {
+  if !@ipc.authenticate(conn, token) {
+    // A rejected handshake is a wrong token or a probe: worth a line in the
+    // event log either way.
+    @core.log_event(state_dir, "bm2d.events.jsonl", "auth_failed")
+    live.release()
+    return
+  }
   let (response, exit) = match @ipc.read_request(conn) {
     Some(req) =>
       match @protocol.protocol_problem(req.protocol) {
@@ -293,6 +345,7 @@ async fn serve_conn(
   if sent && !(exit is @core.ExitMode::Stay) {
     @utils.discard(() => ignore(exits.try_put(exit)))
   }
+  live.release()
 }
 
 ///|

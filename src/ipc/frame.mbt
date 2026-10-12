@@ -240,16 +240,13 @@ pub async fn round_trip_bytes(
 }
 
 ///|
-/// Accept one connection and authenticate it. Returns the open connection
-/// when the peer presented the right token (the ack byte is already sent),
-/// None for wrong token / silence / garbage — those connections are closed
-/// here without ever reaching the dispatcher. Cancellation propagates so a
-/// shutting-down daemon stops accepting.
-pub async fn accept_authed(
-  server : @socket.TcpServer,
-  token : String,
-) -> @socket.Tcp? {
-  let (conn, _peer) = server.accept()
+/// Authenticate an accepted connection: read the token frame and answer with
+/// the ack byte. False for a wrong token, silence or garbage — the connection is
+/// closed either way, so the caller only has to stop. Split out of
+/// `accept_authed` so a daemon can accept in one task and authenticate in the
+/// connection's own task: a silent client must not hold up the accept loop for
+/// `AUTH_TIMEOUT_MS`.
+pub async fn authenticate(conn : @socket.Tcp, token : String) -> Bool {
   let ok = try {
     let exchange = async fn() {
       let presented = @utf8.decode(read_frame(conn))
@@ -266,9 +263,27 @@ pub async fn accept_authed(
   }
   if !ok {
     conn.close()
-    return None
   }
-  Some(conn)
+  ok
+}
+
+///|
+/// Accept one connection and authenticate it, for callers that serve one
+/// connection at a time. Returns the open connection when the peer presented
+/// the right token (the ack byte is already sent), None for wrong token /
+/// silence / garbage — those connections are closed here without ever reaching
+/// the dispatcher. Cancellation propagates so a shutting-down daemon stops
+/// accepting.
+pub async fn accept_authed(
+  server : @socket.TcpServer,
+  token : String,
+) -> @socket.Tcp? {
+  let (conn, _peer) = server.accept()
+  if authenticate(conn, token) {
+    Some(conn)
+  } else {
+    None
+  }
 }
 
 ///|
