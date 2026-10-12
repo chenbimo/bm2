@@ -743,6 +743,129 @@ wait "$LOCKER" 2>/dev/null || true
 unset BM2_UPDATE_BASE
 kill "$STATION" 2>/dev/null
 
+echo "===== AG. notification retry: fail twice, deliver once ====="
+# The engine retries a failed instant alert with a 5s then a 15s backoff. This
+# receiver rejects the first two attempts, so passing means the retry path ran and
+# a delivery that finally succeeds is not duplicated.
+cat > "$ACC/flaky.ts" <<'EOF'
+import { appendFileSync } from "node:fs";
+const log = process.argv[2];
+let attempts = 0;
+Bun.serve({
+  port: 4322,
+  fetch: async (req) => {
+    attempts += 1;
+    appendFileSync(log, `attempt ${attempts}\n`);
+    if (attempts <= 2) return new Response("nope", { status: 500 });
+    appendFileSync(log, (await req.text()) + "\n");
+    return new Response("ok");
+  },
+});
+EOF
+: > "$ACC/flaky.log"
+bun "$ACC/flaky.ts" "$ACC/flaky.log" >/dev/null 2>&1 &
+FLAKY=$!
+for _ in $(seq 1 30); do
+  if curl -s --max-time 1 localhost:4322 >/dev/null; then break; fi
+  sleep 0.2
+done
+write_project flaky flaky 4351 crash.ts 1 1000
+cat >> "$ACC/flaky/bm2.toml" <<EOF
+
+[notify]
+enabled = true
+# One alert for the whole crash loop, so the retry counters stay readable.
+dedupe_window_s = 3600
+events = ["crash"]
+
+[[notify.report]]
+name = "flaky"
+events = ["crash"]
+
+[[notify.report.target]]
+platform = "webhook"
+url = "http://127.0.0.1:4322/hook"
+EOF
+(cd "$ACC/flaky" && bm2 start >/dev/null)
+# 0s fail, 5s fail, 20s succeed: wait past the last backoff.
+sleep 26
+check "the target was retried twice" 3 "$(grep -c '^attempt' "$ACC/flaky.log")"
+check "the alert landed exactly once" 1 "$(grep -c '"event":"crash"' "$ACC/flaky.log")"
+contains "the failures were recorded" "$state_dir/bm2d.events.jsonl" '"event":"notify_failed"'
+contains "the success was recorded" "$state_dir/bm2d.events.jsonl" '"event":"notify_sent"'
+bm2 kill flaky >/dev/null 2>&1 || true
+kill "$FLAKY" 2>/dev/null
+
+echo "===== AH. email credentials never leave the process before STARTTLS ====="
+# A relay that speaks plain SMTP only. bm2 must attempt STARTTLS, and when the
+# tunnel cannot be established it must fail — with the credentials still unsent,
+# which is the invariant the library documents and the whole reason smtp:// forces
+# STARTTLS in the first place.
+cat > "$ACC/plain-smtp.ts" <<'EOF'
+import { appendFileSync } from "node:fs";
+const log = process.argv[2];
+Bun.listen({
+  hostname: "127.0.0.1",
+  port: 4325,
+  socket: {
+    data(socket, data) {
+      const text = data.toString("latin1");
+      for (const line of text.split("\r\n")) {
+        if (line.length > 0) appendFileSync(log, line + "\n");
+      }
+      if (text.startsWith("EHLO")) socket.write("250-relay\r\n250 OK\r\n");
+      else if (text.startsWith("STARTTLS")) socket.write("220 ready\r\n");
+      else if (text.startsWith("QUIT")) socket.write("221 bye\r\n");
+      else socket.write("250 OK\r\n");
+    },
+    open(socket) {
+      // A relay speaks first: without the greeting the client waits for a 220
+      // that never comes and the session dies on the timeout instead.
+      socket.write("220 relay ESMTP\r\n");
+    },
+    close() {},
+  },
+});
+EOF
+: > "$ACC/plain-smtp.log"
+bun "$ACC/plain-smtp.ts" "$ACC/plain-smtp.log" >/dev/null 2>&1 &
+SMTP=$!
+sleep 0.5
+write_project mail mail 4361 crash.ts 1 1000
+cat >> "$ACC/mail/bm2.toml" <<EOF
+
+[notify]
+enabled = true
+timeout_ms = 2000
+mail_url = "smtp://127.0.0.1:4325"
+mail_from = "bm2@example.com"
+mail_username = "relay-user"
+mail_password = "SMTP-SECRET-PW"
+
+[[notify.report]]
+name = "mail"
+events = ["crash"]
+
+[[notify.report.target]]
+platform = "email"
+to = ["ops@example.com"]
+EOF
+NOTIFY_OUT=$(cd "$ACC/mail" && bm2 notify 2>&1 || true)
+printf '%s\n' "$NOTIFY_OUT" > "$ACC/notify-out.txt"
+contains "the relay was asked to start TLS" "$ACC/plain-smtp.log" "STARTTLS"
+check "no AUTH command was ever sent in the clear" 0 \
+  "$(grep -c 'AUTH PLAIN' "$ACC/plain-smtp.log" || true)"
+check "the password never reached the relay log" 0 \
+  "$(grep -c 'SMTP-SECRET-PW' "$ACC/plain-smtp.log" || true)"
+check "the envelope was never reached before TLS" 0 \
+  "$(grep -c 'MAIL FROM' "$ACC/plain-smtp.log" || true)"
+check "the delivery was reported as failed" 1 \
+  "$([ "$(grep -c 'failed' "$ACC/notify-out.txt" || true)" -ge 1 ] && echo 1 || echo 0)"
+check "the password never reached the CLI output" 0 \
+  "$(grep -c 'SMTP-SECRET-PW' "$ACC/notify-out.txt" || true)"
+kill "$SMTP" 2>/dev/null
+
+# Whatever the paths above did, the installed version stays the installed version.
 echo ""
 echo "e2e results: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
