@@ -463,9 +463,7 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
     }
   }
   for name in ready {
-    self.pending_remove.remove(name)
-    self.apps.remove(name)
-    self.instances.remove(name)
+    // One call releases everything the name owns.
     self.forget_app(name)
     @utils.discard(() => remove_project(self.state_dir, name))
     log_event(
@@ -510,10 +508,24 @@ pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
 /// plus the notifier's own maps. Without this, a project re-registered under the
 /// same name inherits the previous generation's numbers, and every removed
 /// project leaves entries behind for good.
+///
+/// It is the single place a project's state is released: every map keyed by
+/// project name is cleared here and nowhere else. A forgotten map is a silent
+/// cross-project leak — the name would keep answering with a dead project's
+/// numbers — and the test next to this function lists them all.
 pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
+  self.apps.remove(app_name)
+  self.instances.remove(app_name)
+  self.pending_restart.remove(app_name)
+  self.pending_remove.remove(app_name)
+  self.config_paths.remove(app_name)
+  self.stopped.remove(app_name)
   self.stats_window.remove(app_name)
   self.storm_hits.remove(app_name)
   drop_app_keys(self.start_probe_done, app_name)
+  // The notify side owns four more per-project maps (`offline_since`,
+  // `cpu_samples`, `rss_peak`, `rss_peak_daily`); this is the call that clears
+  // them, and `publish_forget` drops whatever the delivery side still holds.
   self.notify.forget_app(app_name)
   self.notify.publish_forget(app_name)
 }

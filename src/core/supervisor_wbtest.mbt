@@ -367,3 +367,39 @@ test "a name may not be re-registered from a different config file" {
   assert_true(conflict.contains("other"))
   assert_true(conflict.contains(owner))
 }
+
+///|
+/// The register of everything a project name owns. `forget_app` is the one place
+/// that releases it, so this test fails the moment one of these maps stops being
+/// cleared — and a forgotten map is a silent cross-project leak, because the name
+/// would keep answering with a dead project's state.
+test "a forgotten project leaves nothing behind" {
+  let root = "/tmp/bm2-wbtest-forget-\{@proc.get_pid()}"
+  let sv = wb_setup(root, 4480)
+  let name = "wbapp"
+  // Touch the per-project maps a live project fills in, so that "nothing left
+  // behind" is a statement about cleared state rather than about empty maps.
+  sv.storm_hits[name] = [1UL]
+  // The probe map is keyed by `app/instance`, which is what `drop_app_keys`
+  // matches on — the real convention, so this asserts the real cleanup.
+  sv.start_probe_done[name + "/0"] = 1UL
+  sv.stopped[name] = ()
+  assert_true(sv.config_paths.contains(name))
+  sv.forget_app(name)
+  // Every map keyed by the project name: the daemon's own nine, then the four the
+  // notify side keeps.
+  assert_false(sv.apps.contains(name))
+  assert_false(sv.instances.contains(name))
+  assert_false(sv.pending_restart.contains(name))
+  assert_false(sv.pending_remove.contains(name))
+  assert_false(sv.config_paths.contains(name))
+  assert_false(sv.stopped.contains(name))
+  assert_false(sv.stats_window.contains(name))
+  assert_false(sv.storm_hits.contains(name))
+  assert_false(sv.start_probe_done.contains(name + "/0"))
+  let notify = sv.notifier()
+  assert_false(notify.offline_since.contains(name))
+  assert_false(notify.cpu_samples.contains(name))
+  assert_false(notify.rss_peak.contains(name))
+  assert_false(notify.rss_peak_daily.contains(name))
+}
