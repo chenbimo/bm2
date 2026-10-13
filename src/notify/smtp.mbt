@@ -59,19 +59,58 @@ async fn SmtpWire::reply(
 }
 
 ///|
-/// Like `reply`, but never repeats the server's own text. Used for the one step
-/// whose answer could quote the command: a relay that echoes it would put the
-/// base64 credentials into the reason we log. The fact that the step failed is
-/// all an operator needs.
-async fn SmtpWire::reply_code(
+/// The next reply's status code, with its continuation lines consumed.
+async fn SmtpWire::status_code(self : SmtpWire) -> String {
+  let line = self.read_reply()
+  if line.length() < 4 {
+    raise SmtpError("malformed reply from the relay")
+  }
+  line[:3].to_owned()
+}
+
+///|
+/// Require one status code. The server's own text never reaches the reason: on
+/// these steps it can quote the base64 credentials back at us.
+async fn SmtpWire::expect(
   self : SmtpWire,
   code : String,
   hint : String,
 ) -> Unit {
-  let current = self.read_reply()
-  if current.length() < 4 || !current.has_prefix(code) {
+  if self.status_code() != code {
     raise SmtpError(hint)
   }
+}
+
+///|
+/// Authenticate against the relay.
+///
+/// `AUTH PLAIN` goes first: one round trip, and what every relay that
+/// authenticates at all accepts. A relay answering 504 — the mechanism is not one
+/// it supports — gets `AUTH LOGIN` instead, the other mechanism in common use and
+/// the only one a few relays offer. Any other answer is about the credentials,
+/// and the reason must never carry the server's own text: it echoes the command,
+/// and the command carries them.
+async fn SmtpWire::authenticate(
+  self : SmtpWire,
+  username : String,
+  password : String,
+) -> Unit {
+  let blob = @base64.encode(
+    @utf8.encode("\u{0}" + username + "\u{0}" + password),
+  )
+  self.send("AUTH PLAIN " + blob + "\r\n")
+  match self.status_code() {
+    "235" => return
+    "504" => ()
+    _ => raise SmtpError("the relay rejected the AUTH PLAIN credentials")
+  }
+  // AUTH LOGIN: username then password, each base64, each answered with 334.
+  self.send("AUTH LOGIN\r\n")
+  self.expect("334", "the relay rejected AUTH LOGIN")
+  self.send(@base64.encode(@utf8.encode(username)) + "\r\n")
+  self.expect("334", "the relay rejected AUTH LOGIN")
+  self.send(@base64.encode(@utf8.encode(password)) + "\r\n")
+  self.expect("235", "the relay rejected the AUTH LOGIN credentials")
 }
 
 ///|
@@ -170,11 +209,8 @@ async fn smtp_session(
     wire.reply("250")
   }
   match target.username {
-    Some(username) if username != "" => {
-      let blob = "\u{0}" + username + "\u{0}" + target.password.unwrap_or("")
-      wire.send("AUTH PLAIN " + @base64.encode(@utf8.encode(blob)) + "\r\n")
-      wire.reply_code("235", "the relay rejected the AUTH PLAIN credentials")
-    }
+    Some(username) if username != "" =>
+      wire.authenticate(username, target.password.unwrap_or(""))
     _ => ()
   }
   wire.send("MAIL FROM:<" + target.from.unwrap_or("") + ">\r\n")
