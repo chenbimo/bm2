@@ -3,15 +3,26 @@
 /// ten megabytes: on a slow disk that is long enough to stall every deadline,
 /// every delivery and every accept behind it. So the expensive half lives here,
 /// where each filesystem call awaits, and the supervision task only publishes
-/// which files it wants swept.
+/// which logs it wants swept.
 ///
 /// Failures are values, not aborts: the async filesystem raises `OSError`, so a
 /// rotation that cannot finish reports why instead of taking the rotation task
 /// down with it.
 
 ///|
-/// How many archived generations a rotation keeps (`path.1` .. `path.10`).
-const ROTATE_GENERATIONS : Int32 = 10
+/// One log to look at: where it is, how it is held open, and how much history the
+/// project it belongs to asked for.
+pub(all) struct RotateJob {
+  path : String
+  /// True when an app process holds the file open, so the content is copied out
+  /// and the original emptied in place (copytruncate). False when the daemon
+  /// writes the log itself, where a rename is enough.
+  copytruncate : Bool
+  /// Rotate once the file is larger than this.
+  max_bytes : Int64
+  /// Generations to keep. Zero keeps every generation.
+  keep : Int32
+}
 
 ///|
 /// What one rotation attempt did, so the caller can log the outcome without
@@ -62,11 +73,56 @@ async fn rename_generation(src : String, dst : String) -> Unit {
 }
 
 ///|
-/// Shift the chain (`path.9` -> `path.10`, .., `path.1` -> `path.2`) and drop
-/// the oldest, leaving room for a new `path.1`.
-async fn shift_chain(path : String) -> Unit {
-  remove_quietly(path + "." + ROTATE_GENERATIONS.to_string())
-  let mut i = ROTATE_GENERATIONS - 1
+/// Highest archived generation next to `path`, 0 when there is none.
+///
+/// A bounded chain knows its own length, but an unbounded one does not, so the
+/// length is read from the directory: every `<name>.<digits>` entry counts as a
+/// generation and the largest number wins. Entries that are not a plain number
+/// (a rotated name, a hand-made backup) are ignored rather than guessed at.
+async fn highest_generation(path : String) -> Int32 {
+  let full = @path.Path::Path(path)
+  let dir = full.dirname().to_string()
+  let stem = full.basename().to_owned() + "."
+  let names = try @fs.readdir(dir, sort=false) catch {
+    _ => []
+  } noraise {
+    entries => entries
+  }
+  let mut highest = 0
+  for name in names {
+    if name.has_prefix(stem) {
+      let tail = name[stem.length():].to_owned()
+      let mut value = 0
+      let mut numeric = tail.length() > 0
+      for ch in tail {
+        if ch is ('0'..<='9') {
+          value = value * 10 + (ch.to_int() - 48)
+        } else {
+          numeric = false
+          break
+        }
+      }
+      if numeric && value > highest {
+        highest = value
+      }
+    }
+  }
+  highest
+}
+
+///|
+/// Shift the chain (`path.N` -> `path.N+1`, .., `path.1` -> `path.2`), leaving
+/// room for a new `path.1`. With a bound, the oldest generations beyond it are
+/// dropped; with `keep = 0` nothing is dropped and the chain is as long as the
+/// directory says it is.
+async fn shift_chain(path : String, keep : Int32) -> Unit {
+  let mut i = keep
+  if keep > 0 {
+    remove_quietly(path + "." + keep.to_string())
+    i = keep - 1
+  } else {
+    i = highest_generation(path)
+  }
   while i >= 1 {
     rename_generation(
       path + "." + i.to_string(),
@@ -79,8 +135,8 @@ async fn shift_chain(path : String) -> Unit {
 ///|
 /// Rename rotation: for logs the daemon itself writes, where no fd survives
 /// the rename.
-async fn rename_rotate(path : String) -> Unit {
-  shift_chain(path)
+async fn rename_rotate(path : String, keep : Int32) -> Unit {
+  shift_chain(path, keep)
   @fs.rename(path, path + ".1", replace=true)
 }
 
@@ -89,9 +145,9 @@ async fn rename_rotate(path : String) -> Unit {
 /// keeps writing to the old inode. The inode survives, so the app's output
 /// continues into the now-empty file; the few bytes written during the copy are
 /// lost, the accepted trade-off for fd-held logs.
-async fn copy_truncate(path : String) -> Unit {
+async fn copy_truncate(path : String, keep : Int32) -> Unit {
   let content : Bytes = @fs.read_file(path).binary()
-  shift_chain(path)
+  shift_chain(path, keep)
   // The copy lands before the source is emptied, and both sides are synced: a
   // crash in between must not lose the content twice.
   @fs.write_file(path + ".1", content, permission=0o600, sync=Data)
@@ -99,26 +155,22 @@ async fn copy_truncate(path : String) -> Unit {
 }
 
 ///|
-/// Rotate `path` once it exceeds `max_bytes`: copytruncate for logs held open
-/// by an app process, rename for logs the daemon writes itself. A missing file
-/// is not an error, and a rotation that does fail reports the reason as a value
-/// rather than raising it into the task that called.
-pub async fn maybe_rotate_async(
-  path : String,
-  max_bytes : Int64,
-  copytruncate~ : Bool = false,
-) -> RotateOutcome {
-  match size_of(path) {
+/// Rotate the job's log once it exceeds its size limit: copytruncate for logs
+/// held open by an app process, rename for logs the daemon writes itself. A
+/// missing file is not an error, and a rotation that does fail reports the reason
+/// as a value rather than raising it into the task that called.
+pub async fn maybe_rotate_async(job : RotateJob) -> RotateOutcome {
+  match size_of(job.path) {
     None => Skipped
     Some(size) =>
-      if size <= max_bytes {
+      if size <= job.max_bytes {
         Skipped
       } else {
         try {
-          if copytruncate {
-            copy_truncate(path)
+          if job.copytruncate {
+            copy_truncate(job.path, job.keep)
           } else {
-            rename_rotate(path)
+            rename_rotate(job.path, job.keep)
           }
         } catch {
           e => Failed(e.to_string())

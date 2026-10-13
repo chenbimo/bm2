@@ -442,3 +442,32 @@ test "load reads and validates a file with cwd default" {
   }
   assert_true(missing)
 }
+
+///|
+/// `[logs]` is optional: without it a project rotates at the built-in size and
+/// keeps every generation. With it, both limits are the project's to choose.
+test "logs section: defaults, overrides and bounds" {
+  let doc = "name = \"app\"\ncwd = \"/srv/app\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\n"
+  let config = @config.parse(doc, "/srv/app")
+  assert_eq(config.logs.max_size_mb, 10)
+  assert_eq(config.logs.keep, 0)
+  let tuned = @config.parse(
+    doc + "[logs]\nmax_size_mb = 50\nkeep = 3\n",
+    "/srv/app",
+  )
+  assert_eq(tuned.logs.max_size_mb, 50)
+  assert_eq(tuned.logs.keep, 3)
+  // A rotation that silently never happens, and a negative generation count,
+  // are both rejected at parse time rather than discovered later on disk.
+  for bad in ["[logs]\nmax_size_mb = 0\n", "[logs]\nkeep = -1\n"] {
+    let rejected = try {
+      ignore(@config.parse(doc + bad, "/srv/app"))
+      false
+    } catch {
+      _ => true
+    } noraise {
+      _ => false
+    }
+    assert_true(rejected)
+  }
+}

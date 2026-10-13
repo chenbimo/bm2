@@ -73,6 +73,20 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
       "project \{config.name}: stop_timeout_ms must be between 1 and 60000",
     )
   }
+  // Rotation limits. A size of zero is rejected rather than treated as "never
+  // rotate": keeping a log uncapped by accident is worse than having to say so.
+  // The generation count is capped because each generation costs a suffix, and
+  // zero is the documented way to say "keep everything".
+  if config.logs.max_size_mb < 1 || config.logs.max_size_mb > 102400 {
+    raise ConfigError::InvalidField(
+      "project \{config.name}: logs.max_size_mb must be between 1 and 102400",
+    )
+  }
+  if config.logs.keep < 0 || config.logs.keep > 1000 {
+    raise ConfigError::InvalidField(
+      "project \{config.name}: logs.keep must be between 0 and 1000",
+    )
+  }
   // The notification section is validated by its own rules, but it belongs to
   // the project: a bad target must fail `bm2 start`, not silently disable
   // reporting later.

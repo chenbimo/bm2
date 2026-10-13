@@ -23,6 +23,7 @@ fn app_config(
 ) -> @config.Config {
   {
     name,
+    logs: @config.LogsConfig::builtin(),
     cwd,
     script,
     runtime: "bun",

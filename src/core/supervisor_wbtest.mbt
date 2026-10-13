@@ -15,6 +15,7 @@ fn wb_setup(root : String, port : Int32) -> Supervisor raise {
     min_uptime_ms: 60000,
     stop_timeout_ms: 200,
     notify: @config.NotifyConfig::disabled(),
+    logs: @config.LogsConfig::builtin(),
     env: [],
   }
   let sv = Supervisor::new(state_dir=root + "/state", bun_path="/bin/sh")
@@ -144,9 +145,12 @@ test "publish_rotation names every log and who holds it open" {
     None => fail("expected publish_rotation to publish a sweep")
   }
   let found : Map[String, Bool] = Map([])
-  for pair in jobs {
-    let (path, copytruncate) = pair
-    found.set(path, copytruncate)
+  for job in jobs {
+    found.set(job.path, job.copytruncate)
+    // The built-in policy travels with every job: this project has no `[logs]`
+    // table, and the daemon's own logs are not any project's to configure.
+    assert_eq(job.max_bytes, 10L * 1024L * 1024L)
+    assert_eq(job.keep, 0)
   }
   let base = root + "/state/wbapp/logs/wbapp-0"
   // stdout and stderr are held open by the app; the crash log is ours.

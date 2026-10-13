@@ -1,39 +1,73 @@
 ///|
-/// One log file rotates once it exceeds this size; ten generations are
-/// kept, bounding total log usage per file at ~100 MB.
-const LOG_ROTATE_BYTES : Int64 = 10L * 1024L * 1024L
+/// Bytes in a megabyte: the configured size is in megabytes, the rotation
+/// compares it against a byte count.
+const MIB : Int64 = 1024L * 1024L
 
 ///|
 /// How often the daemon checks log sizes for rotation.
 const LOG_CHECK_INTERVAL_MS : UInt64 = 10000UL
 
 ///|
-/// Ask the rotation task to sweep the logs that are past the size limit: app
+/// Ask the rotation task to sweep the logs that are past their size limit: app
 /// stdout/stderr are held open by the app process (copytruncate), crash logs
 /// and the daemon event logs are written by us (rename).
 ///
-/// Building this list is pure string work. The sizes, the copy and the rename
-/// all happen on the rotation task, so the tick never touches the filesystem
-/// for rotation at all — a ten-megabyte copy on a slow disk cannot delay a
-/// deadline, a delivery or an accept.
+/// Building this list is pure string work: each job carries the project's own
+/// `[logs]` policy, and the sizes, the copy and the rename all happen on the
+/// rotation task. So the tick never touches the filesystem for rotation at all —
+/// a ten-megabyte copy on a slow disk cannot delay a deadline, a delivery or an
+/// accept.
 fn Supervisor::publish_rotation(self : Supervisor) -> Unit {
-  let jobs : Array[(String, Bool)] = []
+  let jobs : Array[@log.RotateJob] = []
   for pair in self.instances.iter() {
     let (name, arr) = pair
+    // The project owns its rotation policy. A project registered before the
+    // `[logs]` table existed, or one that omits it, gets the built-in policy.
+    let policy = match self.apps.get(name) {
+      Some(app) => app.logs
+      None => @config.LogsConfig::builtin()
+    }
+    let max_bytes = policy.max_size_mb.to_int64() * MIB
     for inst in arr {
       let base = "\{self.state_dir}/\{name}/logs/\{name}-\{inst.instance_id}"
-      jobs.push((base + ".out.log", true))
-      jobs.push((base + ".error.log", true))
-      jobs.push((base + ".crash.log", false))
+      for
+        suffix in [
+          (".out.log", true),
+          (".error.log", true),
+          (".crash.log", false),
+        ] {
+        let (tail, copytruncate) = suffix
+        jobs.push({
+          path: base + tail,
+          copytruncate,
+          max_bytes,
+          keep: policy.keep,
+        })
+      }
     }
   }
-  jobs.push(("\{self.state_dir}/bm2d.events.jsonl", false))
-  // The other two daemon-level logs have no other writer that could bound
-  // them: the CLI's own event log grows one line per invocation, and the
-  // daemon's stderr is held open by the daemon itself (so it rotates by
-  // copytruncate, the same trade-off as the app logs).
-  jobs.push(("\{self.state_dir}/bm2.events.jsonl", false))
-  jobs.push(("\{self.state_dir}/bm2d.log", true))
+  // The daemon's own logs belong to no single project, so they use the built-in
+  // policy. Two of them have no other writer that could bound them: the CLI's own
+  // event log grows one line per invocation, and the daemon's stderr is held open
+  // by the daemon itself (so it rotates by copytruncate, the same trade-off as
+  // the app logs).
+  let builtin = @config.LogsConfig::builtin()
+  let daemon_bytes = builtin.max_size_mb.to_int64() * MIB
+  let daemon_keep = builtin.keep
+  for
+    suffix in [
+      ("bm2d.events.jsonl", false),
+      ("bm2.events.jsonl", false),
+      ("bm2d.log", true),
+    ] {
+    let (name, copytruncate) = suffix
+    jobs.push({
+      path: self.state_dir + "/" + name,
+      copytruncate,
+      max_bytes: daemon_bytes,
+      keep: daemon_keep,
+    })
+  }
   // Capacity one, dropping put: a sweep the rotation task has not picked up yet
   // is superseded by this one, which re-checks every path anyway.
   @utils.discard(() => ignore(self.rotations.try_put(jobs)))

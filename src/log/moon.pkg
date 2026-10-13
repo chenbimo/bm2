@@ -1,6 +1,7 @@
 import {
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/async/fs",
+  "moonbitlang/x/path",
   "chensuiyi/bm2/fsx",
   "chensuiyi/bm2/utils",
 }

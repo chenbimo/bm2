@@ -4,6 +4,7 @@
 fn check_config() -> @config.Config {
   {
     name: "api",
+    logs: @config.LogsConfig::builtin(),
     cwd: "/srv/api",
     script: "index.ts",
     runtime: "bun",

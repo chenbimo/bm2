@@ -19,6 +19,10 @@ pub(all) struct Config {
   /// where they go. Written as `[notify]` plus `[[notify.target]]` in bm2.toml,
   /// so a project's supervision and its reporting stay in one file.
   notify : NotifyConfig
+  /// Log rotation for this project's instance logs, from the `[logs]` table.
+  /// Kept per project because the logs are per project: one noisy app must not
+  /// decide how long another one's history is.
+  logs : LogsConfig
   /// Application environment from the `[env]` table, injected into every
   /// instance after the whitelist and before the reserved vars, so it beats
   /// .env files (bun never overrides an existing variable) but never the
@@ -143,6 +147,26 @@ pub fn NotifyConfig::disabled() -> NotifyConfig {
     threshold_storm: 0,
     reports: [],
   }
+}
+
+///|
+/// Log rotation for one project, from the `[logs]` table.
+pub(all) struct LogsConfig {
+  /// A log rotates once it exceeds this size, in megabytes.
+  max_size_mb : Int32
+  /// How many archived generations to keep. Zero keeps every generation, so the
+  /// only bound on disk usage is the one the operator sets.
+  keep : Int32
+} derive(Debug)
+
+///|
+pub extend LogsConfig with Debug::{to_repr}
+
+///|
+/// The built-in rotation policy, used by a project without a `[logs]` table and
+/// by the daemon's own logs (which no single project's config governs).
+pub fn LogsConfig::builtin() -> LogsConfig {
+  { max_size_mb: DEFAULT_LOG_MAX_SIZE_MB, keep: DEFAULT_LOG_KEEP, }
 }
 
 ///|

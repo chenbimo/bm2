@@ -65,7 +65,7 @@ pub struct Supervisor {
   /// Rotation sweeps published by the tick and executed by the rotation task.
   /// Sizes, copying and renaming all happen over there, so no filesystem work
   /// can land in a tick that must stay free of blocking calls.
-  rotations : @aqueue.Queue[Array[(String, Bool)]]
+  rotations : @aqueue.Queue[Array[@log.RotateJob]]
   /// When this daemon started, on the monotonic clock: the uptime it reports is
   /// a duration, so a system time change cannot distort it.
   started_mono_ms : UInt64
@@ -230,7 +230,7 @@ pub fn Supervisor::outbound(self : Supervisor) -> @aqueue.Queue[Outbound] {
 /// the rotation task once, at startup, and nothing else takes it.
 pub fn Supervisor::rotations(
   self : Supervisor,
-) -> @aqueue.Queue[Array[(String, Bool)]] {
+) -> @aqueue.Queue[Array[@log.RotateJob]] {
   self.rotations
 }
 

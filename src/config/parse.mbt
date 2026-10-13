@@ -32,7 +32,7 @@ fn opt_env(
 let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "exec_mode", "instances", "port", "max_memory_mb",
   "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "notify",
-  "env",
+  "logs", "env",
 ]
 
 ///|
@@ -49,6 +49,17 @@ const DEFAULT_MIN_UPTIME_MS : Int32 = 10000
 
 ///|
 const DEFAULT_STOP_TIMEOUT_MS : Int32 = 10000
+
+///|
+/// A log rotates once it exceeds this size in megabytes. Ten is what the daemon
+/// has always used; `[logs] max_size_mb` changes it per project.
+const DEFAULT_LOG_MAX_SIZE_MB : Int32 = 10
+
+///|
+/// Generations kept by default: zero, meaning none are ever dropped — the
+/// operator decides when disk usage has to stop, and `[logs] keep` is the place
+/// to say so.
+const DEFAULT_LOG_KEEP : Int32 = 0
 
 ///|
 /// Parse a bm2.toml document. `base_dir` is the config file's directory:
@@ -96,6 +107,7 @@ pub fn parse(doc : String, base_dir : String) -> Config raise ConfigError {
       DEFAULT_STOP_TIMEOUT_MS,
     ),
     notify: opt_notify(table),
+    logs: opt_logs(table),
     env: opt_env(table),
   }
   validate(config)
@@ -114,6 +126,33 @@ fn opt_notify(
     Some(_) => raise ConfigError::InvalidField("notify must be a table")
   }
 }
+
+///|
+/// The `[logs]` table is optional: without one a project rotates at the built-in
+/// size and keeps every generation.
+fn opt_logs(
+  table : Map[String, @toml.TomlValue],
+) -> LogsConfig raise ConfigError {
+  match table.get("logs") {
+    None => LogsConfig::builtin()
+    Some(@toml.TomlTable(section)) => {
+      reject_unknown_keys(section, logKeys, "logs")
+      {
+        max_size_mb: opt_int(
+          section,
+          "max_size_mb",
+          "logs",
+          DEFAULT_LOG_MAX_SIZE_MB,
+        ),
+        keep: opt_int(section, "keep", "logs", DEFAULT_LOG_KEEP),
+      }
+    }
+    Some(_) => raise ConfigError::InvalidField("logs must be a table")
+  }
+}
+
+///|
+let logKeys : Array[String] = ["max_size_mb", "keep"]
 
 ///|
 fn req_string(
