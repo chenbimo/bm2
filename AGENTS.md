@@ -25,7 +25,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 - `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
 - `src/fsx` — 文件读写、原子写、锁与有界读(含 C 桩)
 - `src/ipc` — 长度前缀帧与子命令的收发(经 loopback TCP + 共享令牌)
-- `src/log` — 事件日志与按大小轮转(轮转走异步文件 API,不经过 `@fsx` 的 C 桩)
+- `src/log` — 事件日志与按大小轮转(大小与代数由 `[logs]` 配置,轮转走异步文件 API,不经过 `@fsx` 的 C 桩)
 - `src/notify` — 通知投递包(模块内包,不是外部依赖:多平台 webhook 与 SMTP、去重与限流重试)
 - `src/proc` — 进程与系统调用(spawn / pidfd / procfs / 信号,含 C 桩)
 - `src/utils` — 纯函数工具(日期、文本与 JSON 辅助、版本比较)
