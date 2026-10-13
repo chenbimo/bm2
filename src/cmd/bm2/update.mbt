@@ -1,6 +1,6 @@
 ///|
-/// 自升级的下载侧:读取发布站的更新清单,按本机平台取产物,下载并校验。
-/// 清单与目录布局的条文见 yicode-tech 仓库 `specs/update-spec.md`。
+/// 自升级的下载侧:读取发布站的更新清单(本项目发布产物的格式),
+/// 按本机平台取产物,下载并校验。
 
 ///|
 /// How long the manifest may take: it is a small JSON document on a static host.
@@ -303,8 +303,6 @@ fn restore(dir : String, backed : Array[String]) -> Unit {
 /// published version with the running one, download this platform's binaries,
 /// verify their SHA256, swap them in place, then swap the daemon so the new
 /// binary takes over without touching the running apps.
-/// The manifest and the online layout are defined in yicode-tech
-/// `specs/update-spec.md`.
 async fn cmd_upgrade(state_dir : String) -> Int32 {
   // One upgrade at a time: two of them would stage and swap the same files. The
   // lock is released when this process exits, so a crashed upgrade never blocks

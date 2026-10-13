@@ -1,7 +1,6 @@
 ///|
 /// The upgrade path: read the release manifest, pick this platform's
 /// artifacts, and compare the published version with the running one.
-/// 清单条文见 yicode-tech 仓库 `specs/update-spec.md`。
 
 ///|
 fn manifest_fixture(target : String) -> String {
