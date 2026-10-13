@@ -66,6 +66,11 @@ pub struct Supervisor {
   /// Sizes, copying and renaming all happen over there, so no filesystem work
   /// can land in a tick that must stay free of blocking calls.
   rotations : @aqueue.Queue[Array[@log.RotateJob]]
+  /// Children killed on a failed spawn, waiting to be reaped: (pid, deadline on
+  /// the monotonic clock). Such a child is never registered as an instance, so
+  /// the instance reaper cannot see it, and waiting for it in place would hold
+  /// the tick. Bounded by `ORPHAN_REAP_LIMIT`.
+  mut reaping : Array[(Int32, UInt64)]
   /// When this daemon started, on the monotonic clock: the uptime it reports is
   /// a duration, so a system time change cannot distort it.
   started_mono_ms : UInt64
@@ -147,6 +152,7 @@ pub fn Supervisor::new(
     last_reuseport_probe_ms: 0UL,
     commands: @aqueue.Queue::Queue(kind=Blocking(COMMAND_QUEUE_CAPACITY)),
     rotations: @aqueue.Queue::Queue(kind=Blocking(1)),
+    reaping: [],
     started_mono_ms: @proc.monotonic_ms(),
     commands_applied: 0UL,
     notify: Notifier::new(state_dir, @proc.hostname(), outbound),
@@ -348,6 +354,7 @@ pub async fn Supervisor::wait_settled(
 pub fn Supervisor::tick(self : Supervisor) -> Unit {
   self.drain_commands()
   self.reap()
+  self.check_reaps()
   // Every gate and deadline below is measured on the monotonic clock, so a
   // system time change can neither stall a scan forever nor make it run on
   // every tick. Wall-clock time is read separately, where a human needs an
@@ -658,8 +665,10 @@ fn Supervisor::spawn_instance(
   let pidfd = try @proc.pidfd_open(pid) catch {
     e => {
       @utils.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
-      // Reap the killed child so a failed spawn leaves no zombie.
-      @proc.drain_child(pid)
+      // Hand the killed child to the tick's reaper: a failed spawn must leave no
+      // zombie, but waiting for it here would block this tick for up to half a
+      // second — on the one path where the process is already misbehaving.
+      self.register_reap(pid)
       raise IoError(e.to_string())
     }
   } noraise {
@@ -674,6 +683,71 @@ fn Supervisor::spawn_instance(
     instance=inst.instance_id,
     pid~,
   )
+}
+
+///|
+/// How long a killed child is given to disappear before its pid is forgotten.
+/// This is the window the synchronous drain used to cover (50 attempts, 10ms
+/// apart); being a duration, it is measured on the monotonic clock.
+const ORPHAN_REAP_MS : UInt64 = 500UL
+
+///|
+/// How many killed-but-unreaped children to track. Spawn failures are rate
+/// limited by the restart backoff, so a real daemon never comes near this; it
+/// exists so the list cannot grow without a bound.
+const ORPHAN_REAP_LIMIT : Int32 = 64
+
+///|
+/// Queue one killed child for the tick to reap. Nothing waits here: the pid is
+/// remembered until it is gone or its window closes.
+fn Supervisor::register_reap(self : Supervisor, pid : Int32) -> Unit {
+  if self.reaping.length() >= ORPHAN_REAP_LIMIT {
+    // The oldest entry is the one closest to giving up anyway.
+    self.reaping = self.reaping[1:].to_owned()
+    log_event(
+      self.state_dir,
+      "bm2d.events.jsonl",
+      "reap_overflow",
+      detail="dropped the oldest pending child",
+    )
+  }
+  self.reaping.push((pid, @proc.monotonic_ms() + ORPHAN_REAP_MS))
+}
+
+///|
+/// Reap the children left by failed spawns. Each tick makes one non-blocking
+/// attempt per pending pid and keeps it until its deadline: the same bounded
+/// window the synchronous drain covered, spread across ticks instead of slept
+/// through, so no tick is ever held for it.
+///
+/// A pid that is not ours answers ECHILD and is dropped at once; an entry past
+/// its deadline is dropped too, which leaves a zombie rather than a stuck tick —
+/// the daemon's own exit collects anything left.
+fn Supervisor::check_reaps(self : Supervisor) -> Unit {
+  if self.reaping.is_empty() {
+    return
+  }
+  let now = @proc.monotonic_ms()
+  let keep : Array[(Int32, UInt64)] = []
+  for entry in self.reaping {
+    let (pid, deadline) = entry
+    if now >= deadline {
+      continue
+    }
+    let done = try @proc.wait_child(pid, nohang=true) catch {
+      _ => true
+    } noraise {
+      reaped =>
+        match reaped {
+          Some(_) => true
+          None => false
+        }
+    }
+    if !done {
+      keep.push(entry)
+    }
+  }
+  self.reaping = keep
 }
 
 ///|

@@ -257,3 +257,78 @@ test "notification copy renders in the configured language" {
   let (dt, _) = render_msg("zh", DaemonAdopted(4))
   assert_eq(dt, "bm2d 已启动")
 }
+
+///|
+/// A killed child of a failed spawn is handed to the tick, not waited for. This
+/// drives the reaper with a real child, because the branch that matters is the
+/// one that actually reaps.
+test "the tick reaps a killed child without waiting for it" {
+  let root = "/tmp/bm2-wbtest-reap-\{@proc.get_pid()}"
+  let sv = wb_setup(root, 4455)
+  let pid = @proc.spawn({
+    bun_path: "/bin/sh",
+    script: "-c\u{0}sleep 30",
+    cwd: root,
+    out_log: root + "/reap.out.log",
+    err_log: root + "/reap.err.log",
+    env_blob: @proc.instance_env_blob("wbapp", 0, 4455),
+  })
+  // The child calls setsid() after the fork, so its process group does not exist
+  // yet at the instant spawn returns: let it settle before signalling the group.
+  @proc.sleep_ms(150)
+  @utils.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
+  sv.register_reap(pid)
+  assert_eq(sv.reaping.length(), 1)
+  // The tick's sweep, driven by hand. A SIGKILL needs a few rounds at most.
+  for _ in 0..<25 {
+    sv.check_reaps()
+    if sv.reaping.is_empty() {
+      break
+    }
+    @proc.sleep_ms(20)
+  }
+  assert_true(sv.reaping.is_empty())
+  // The other half of the contract: a live child is kept, not reaped. The entry
+  // has to survive as long as the process does, or a slow exit would be
+  // forgotten while the zombie is still there.
+  let live = @proc.spawn({
+    bun_path: "/bin/sh",
+    script: "-c\u{0}sleep 30",
+    cwd: root,
+    out_log: root + "/reap-live.out.log",
+    err_log: root + "/reap-live.err.log",
+    env_blob: @proc.instance_env_blob("wbapp", 1, 4456),
+  })
+  sv.register_reap(live)
+  sv.check_reaps()
+  assert_eq(sv.reaping.length(), 1)
+  @proc.sleep_ms(150)
+  @utils.discard(() => @proc.kill_group(live, @proc.SIGKILL))
+  for _ in 0..<25 {
+    sv.check_reaps()
+    if sv.reaping.is_empty() {
+      break
+    }
+    @proc.sleep_ms(20)
+  }
+  assert_true(sv.reaping.is_empty())
+}
+
+///|
+/// The two ways an entry leaves the list unreaped: a pid that is not ours (ECHILD
+/// — reaped already, adopted, or never a child), and a window that has closed.
+/// Both drop the entry rather than hold the tick, and the list stays bounded.
+test "check_reaps drops what it cannot reap, and the list stays bounded" {
+  let root = "/tmp/bm2-wbtest-reap-drop-\{@proc.get_pid()}"
+  let sv = wb_setup(root, 4456)
+  // A window already closed, and a pid that is not our child (pid 1).
+  sv.reaping.push((1, 0UL))
+  sv.reaping.push((1, @proc.monotonic_ms() + 60000UL))
+  sv.check_reaps()
+  assert_true(sv.reaping.is_empty())
+  // Past the limit the oldest entry goes, so the list cannot grow without bound.
+  for i in 0..<(ORPHAN_REAP_LIMIT + 1) {
+    sv.register_reap(1000 + i)
+  }
+  assert_eq(sv.reaping.length(), ORPHAN_REAP_LIMIT)
+}
