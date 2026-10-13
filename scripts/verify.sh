@@ -7,8 +7,14 @@
 set -euo pipefail
 
 WITH_E2E=0
+WITH_SOAK=0
 for arg in "$@"; do
   [ "$arg" = "--with-e2e" ] && WITH_E2E=1
+  # The release gate: the end-to-end suite plus the long-run soak.
+  if [ "$arg" = "--release" ]; then
+    WITH_E2E=1
+    WITH_SOAK=1
+  fi
 done
 
 # The push hook may arrive from Windows git through WSL as any user, so
@@ -91,6 +97,9 @@ if [ "$WITH_E2E" = "1" ]; then
   done
   chmod +x "$bin_dir/bm2" "$bin_dir/bm2d"
   BM2_BIN_DIR="$bin_dir" bash scripts/e2e/run.sh
+  if [ "$WITH_SOAK" = "1" ]; then
+    bash "$root/scripts/soak.sh"
+  fi
 else
-  echo "verify: fmt/check/unit/build ok (e2e skipped; release runs it via --with-e2e)"
+  echo "verify: fmt/check/unit/build ok (e2e and soak run via --with-e2e / --release)"
 fi
