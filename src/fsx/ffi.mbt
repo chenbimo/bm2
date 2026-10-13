@@ -32,6 +32,10 @@ extern "C" fn c_write_atomic(path : Bytes, data : Bytes) -> Int32 = "fsx_write_a
 
 ///|
 #borrow(path, data)
+extern "C" fn c_write_atomic_fast(path : Bytes, data : Bytes) -> Int32 = "fsx_write_atomic_fast"
+
+///|
+#borrow(path, data)
 extern "C" fn c_append_file(path : Bytes, data : Bytes) -> Int32 = "fsx_append_file"
 
 ///|

@@ -91,9 +91,11 @@ int32_t fsx_mkdir_p(moonbit_bytes_t path, int32_t mode) {
   return 0;
 }
 
-/* Write data to "<path>.tmp", fsync, then atomically rename over path. */
-MOONBIT_FFI_EXPORT
-int32_t fsx_write_atomic(moonbit_bytes_t path, moonbit_bytes_t data) {
+/* Write data to "<path>.tmp", fsync, then atomically rename over path.
+ * `sync_dir` additionally fsyncs the directory, which is what makes the rename
+ * itself survive a power loss. */
+static int32_t write_atomic_impl(moonbit_bytes_t path, moonbit_bytes_t data,
+                                 int sync_dir) {
   char tmp[4096];
   size_t len = strlen((char *)path);
   if (len + 5 >= sizeof(tmp)) return -ENAMETOOLONG;
@@ -113,8 +115,23 @@ int32_t fsx_write_atomic(moonbit_bytes_t path, moonbit_bytes_t data) {
     unlink(tmp);
     return -err;
   }
-  sync_parent_dir((char *)path);
+  if (sync_dir) sync_parent_dir((char *)path);
   return 0;
+}
+
+/* The durable form: contents and directory entry. */
+MOONBIT_FFI_EXPORT
+int32_t fsx_write_atomic(moonbit_bytes_t path, moonbit_bytes_t data) {
+  return write_atomic_impl(path, data, 1);
+}
+
+/* The same write without the directory fsync: for files rewritten on every
+ * spawn that are reconstructible from the running state (per-instance
+ * supervision state), the directory entry does not need to survive a power loss
+ * on its own — and this saves one fsync per instance per start. */
+MOONBIT_FFI_EXPORT
+int32_t fsx_write_atomic_fast(moonbit_bytes_t path, moonbit_bytes_t data) {
+  return write_atomic_impl(path, data, 0);
 }
 
 MOONBIT_FFI_EXPORT

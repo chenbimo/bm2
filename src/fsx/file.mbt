@@ -16,6 +16,17 @@ pub fn write_atomic(path : String, data : Bytes) -> Unit raise FileError {
 }
 
 ///|
+/// The same atomic write without the directory fsync, for files that are
+/// rewritten on every spawn and are reconstructible from the running state
+/// (per-instance supervision state). Skips one fsync per write.
+pub fn write_atomic_fast(path : String, data : Bytes) -> Unit raise FileError {
+  let rc = c_write_atomic_fast(cstr(path), data)
+  if rc < 0 {
+    raise Failed(op="write_atomic_fast", errno=-rc)
+  }
+}
+
+///|
 pub fn append_file(path : String, data : Bytes) -> Unit raise FileError {
   let rc = c_append_file(cstr(path), data)
   if rc < 0 {

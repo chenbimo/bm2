@@ -141,11 +141,14 @@ pub fn remove_project(state_dir : String, name : String) -> Unit raise {
 }
 
 ///|
-/// Atomic write: "<path>.tmp" + fsync + rename, done in bm2_write_atomic.
+/// Atomic write, without the directory fsync: instance state is rewritten on
+/// every spawn and is reconstructible from the running process, so its directory
+/// entry does not need to survive a power loss on its own — and a project with
+/// many instances skips one fsync per instance per start.
 pub fn save_state(state_dir : String, inst : Instance) -> Unit raise {
   let json = ToJson::to_json(InstanceState::of(inst)).stringify()
   let path = state_path(state_dir, inst.app_name, inst.instance_id)
-  @fsx.write_atomic(path, @utf8.encode(json))
+  @fsx.write_atomic_fast(path, @utf8.encode(json))
 }
 
 ///|
