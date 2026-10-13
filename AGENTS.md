@@ -15,10 +15,10 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 - `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
 - `src/config` — bm2.toml 解析与校验(`[notify]` 订阅过滤也在此层)
-- `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
-- `src/fsx` — 文件读写、原子写与锁(含 C 桩)
+- `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
+- `src/fsx` — 文件读写、原子写、锁与有界读(含 C 桩)
 - `src/ipc` — 长度前缀帧与子命令的收发(经 loopback TCP + 共享令牌)
-- `src/log` — 事件日志与按大小轮转
+- `src/log` — 事件日志与按大小轮转(轮转走异步文件 API,不经过 `@fsx` 的 C 桩)
 - `src/notify` — 通知投递包(模块内包,不是外部依赖:多平台 webhook 与 SMTP、去重与限流重试)
 - `src/proc` — 进程与系统调用(spawn / pidfd / procfs / 信号,含 C 桩)
 - `src/utils` — 纯函数工具(日期、文本与 JSON 辅助、版本比较)
@@ -32,7 +32,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 - tick(50ms)内新增的周期性检查**必须自带时间闸**(参考 `check_notify` 的 `NOTIFY_CHECK_INTERVAL_MS` 模式):cron 分钟粒度检查用 60s 闸,重扫描用各自间隔闸;无闸的周期检查不予合入
 - 到期/事件型检查(deadline/pending/removals 等)不加闸,但必须保证重复调用幂等
-- **tick 内只发布,不投递**:通知先投进队列(`Notifier`),由独立 notify 任务投递与重试;`Supervisor::tick` 不含任何 await 点,网络绝不能拖慢监督心跳
+- **tick 内只发布,不做事**:通知投进 `Outbound` 队列、由 notify 任务投递与重试,日志轮转只发布一份待扫清单、由 rotate 任务用异步文件 API 执行(拷贝、改名、截断都不在 tick 里);`Supervisor::tick` 不含任何 await 点,网络与磁盘都不能拖慢监督心跳
 - **控制面只经命令队列进入监督任务**:`bm2` 的请求变成 `Command` 投进 `Supervisor.commands`,由 tick 开头排空并就地应答;apps / instances / 重启预算只有监督任务一个写者(`bm2 notify` 例外:它只往通知队列投一条测试消息,不读被监督状态)
 
 ## 测试粒度

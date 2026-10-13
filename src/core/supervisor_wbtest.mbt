@@ -131,20 +131,31 @@ test "spawn failures back off and exhaust the budget into errored" {
 }
 
 ///|
-test "rotate_logs rotates oversized app logs with copytruncate" {
+/// The rotation set is built on the tick and executed on the rotation task, so
+/// what supervision owes the rotation task is exactly this list: every
+/// instance's three logs, plus the three daemon-level ones, with copytruncate
+/// only where a process holds the file open.
+test "publish_rotation names every log and who holds it open" {
   let root = "/tmp/bm2-wbtest-rotate-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4452)
-  let base = root + "/state/wbapp/logs/wbapp-0"
-  // 11 MB exceeds the 10 MB rotation threshold.
-  @fsx.append_file(base + ".out.log", Bytes::make(11 * 1024 * 1024, b'x'))
-  @fsx.append_file(base + ".crash.log", @utf8.encode("small\n"))
-  sv.rotate_logs()
-  match @fsx.file_size(base + ".out.log.1") {
-    Some(size) => assert_true(size > 10L * 1024L * 1024L)
-    None => fail("expected rotated generation .out.log.1")
+  sv.publish_rotation()
+  let jobs = match sv.rotations().try_get() {
+    Some(jobs) => jobs
+    None => fail("expected publish_rotation to publish a sweep")
   }
-  assert_eq(@fsx.file_size(base + ".out.log"), Some(0L))
-  assert_false(@fs.path_exists(base + ".crash.log.1"))
+  let found : Map[String, Bool] = Map([])
+  for pair in jobs {
+    let (path, copytruncate) = pair
+    found.set(path, copytruncate)
+  }
+  let base = root + "/state/wbapp/logs/wbapp-0"
+  // stdout and stderr are held open by the app; the crash log is ours.
+  assert_eq(found.get(base + ".out.log"), Some(true))
+  assert_eq(found.get(base + ".error.log"), Some(true))
+  assert_eq(found.get(base + ".crash.log"), Some(false))
+  assert_eq(found.get(root + "/state/bm2d.events.jsonl"), Some(false))
+  assert_eq(found.get(root + "/state/bm2.events.jsonl"), Some(false))
+  assert_eq(found.get(root + "/state/bm2d.log"), Some(true))
 }
 
 ///|

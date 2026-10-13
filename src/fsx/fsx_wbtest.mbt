@@ -27,17 +27,6 @@ test "mkdir_p is idempotent" {
 }
 
 ///|
-/// Log rotation runs over every registered instance, including ones that have
-/// not written anything yet, so a missing file has to be a no-op rather than an
-/// error that would be logged on every sweep.
-test "rotating or truncating a missing log is a no-op" {
-  rotate("/tmp/fsx-test-missing/none.log")
-  truncate_in_place("/tmp/fsx-test-missing/none.log")
-  assert_false(exists("/tmp/fsx-test-missing/none.log"))
-  assert_false(exists("/tmp/fsx-test-missing/none.log.1"))
-}
-
-///|
 test "chmod reports a missing path" {
   let failed = try {
     chmod("/tmp/fsx-no-such-file", 0o600)
@@ -60,34 +49,6 @@ test "read_small stops at the cap" {
   assert_eq(read_small(path, cap=10).length(), 10)
   assert_eq(read_small(path, cap=1000).length(), 100)
   unlink(path)
-}
-
-///|
-test "rotate keeps at most ten generations" {
-  let path = "/tmp/fsx-test-rotate/app.log"
-  mkdir_p("/tmp/fsx-test-rotate")
-  for i in 0..<12 {
-    write_atomic(path, @utf8.encode("gen\{i}"))
-    rotate(path)
-  }
-  assert_false(exists(path))
-  assert_true(exists(path + ".1"))
-  assert_true(exists(path + ".10"))
-  assert_false(exists(path + ".11"))
-  // Eleven generations were written; the oldest (gen1) fell off at the
-  // twelfth rotation, so .10 holds gen2 and .1 holds gen11.
-  assert_eq(@utf8.decode_lossy(read_small(path + ".10")), "gen2")
-  assert_eq(@utf8.decode_lossy(read_small(path + ".1")), "gen11")
-}
-
-///|
-test "copytruncate copies and truncates in place" {
-  let path = "/tmp/fsx-test-copytruncate/app.log"
-  mkdir_p("/tmp/fsx-test-copytruncate")
-  write_atomic(path, @utf8.encode("content"))
-  truncate_in_place(path)
-  assert_eq(@utf8.decode_lossy(read_small(path)), "")
-  assert_eq(@utf8.decode_lossy(read_small(path + ".1")), "content")
 }
 
 ///|

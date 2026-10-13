@@ -8,52 +8,35 @@ const LOG_ROTATE_BYTES : Int64 = 10L * 1024L * 1024L
 const LOG_CHECK_INTERVAL_MS : UInt64 = 10000UL
 
 ///|
-/// Rotate logs past the size limit: app stdout/stderr are held open by
-/// the app process (copytruncate), crash logs and the daemon event log
-/// are written by us (rename). Failures are logged, never fatal.
-fn Supervisor::rotate_logs(self : Supervisor) -> Unit {
+/// Ask the rotation task to sweep the logs that are past the size limit: app
+/// stdout/stderr are held open by the app process (copytruncate), crash logs
+/// and the daemon event logs are written by us (rename).
+///
+/// Building this list is pure string work. The sizes, the copy and the rename
+/// all happen on the rotation task, so the tick never touches the filesystem
+/// for rotation at all — a ten-megabyte copy on a slow disk cannot delay a
+/// deadline, a delivery or an accept.
+fn Supervisor::publish_rotation(self : Supervisor) -> Unit {
+  let jobs : Array[(String, Bool)] = []
   for pair in self.instances.iter() {
     let (name, arr) = pair
     for inst in arr {
       let base = "\{self.state_dir}/\{name}/logs/\{name}-\{inst.instance_id}"
-      self.rotate_log(base + ".out.log", copytruncate=true)
-      self.rotate_log(base + ".error.log", copytruncate=true)
-      self.rotate_log(base + ".crash.log", copytruncate=false)
+      jobs.push((base + ".out.log", true))
+      jobs.push((base + ".error.log", true))
+      jobs.push((base + ".crash.log", false))
     }
   }
-  self.rotate_log("\{self.state_dir}/bm2d.events.jsonl", copytruncate=false)
+  jobs.push(("\{self.state_dir}/bm2d.events.jsonl", false))
   // The other two daemon-level logs have no other writer that could bound
   // them: the CLI's own event log grows one line per invocation, and the
   // daemon's stderr is held open by the daemon itself (so it rotates by
   // copytruncate, the same trade-off as the app logs).
-  self.rotate_log("\{self.state_dir}/bm2.events.jsonl", copytruncate=false)
-  self.rotate_log("\{self.state_dir}/bm2d.log", copytruncate=true)
-}
-
-///|
-fn Supervisor::rotate_log(
-  self : Supervisor,
-  path : String,
-  copytruncate~ : Bool,
-) -> Unit {
-  let rotated = try
-    @log.maybe_rotate(path, LOG_ROTATE_BYTES, copytruncate~)
-  catch {
-    e => {
-      log_event(
-        self.state_dir,
-        "bm2d.events.jsonl",
-        "log_rotate_failed",
-        detail=path + ": " + e.to_string(),
-      )
-      false
-    }
-  } noraise {
-    rotated => rotated
-  }
-  if rotated {
-    log_event(self.state_dir, "bm2d.events.jsonl", "log_rotated", detail=path)
-  }
+  jobs.push(("\{self.state_dir}/bm2.events.jsonl", false))
+  jobs.push(("\{self.state_dir}/bm2d.log", true))
+  // Capacity one, dropping put: a sweep the rotation task has not picked up yet
+  // is superseded by this one, which re-checks every path anyway.
+  @utils.discard(() => ignore(self.rotations.try_put(jobs)))
 }
 
 ///|

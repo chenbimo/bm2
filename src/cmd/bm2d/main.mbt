@@ -190,9 +190,11 @@ async fn run() -> Int32 {
   let commands = sv.commands()
   let outcome = @async.handle_cancellation(async fn() {
     @async.with_task_group(async fn(tg) {
-      // Three long-lived tasks, each owning its own state and none able to take
-      // another down. Supervision is synchronous and never waits on the network;
-      // delivery is the only place that touches it; the control plane serves one
+      // Four long-lived tasks, each owning its own state and none able to take
+      // another down. Supervision is synchronous: it never waits on the network
+      // and never copies a log, publishing both kinds of work onto a queue
+      // instead; delivery is the only place that touches the network, and
+      // rotation the only place that copies a file. The control plane serves one
       // connection per task and reaches supervision only through the command
       // queue. `allow_failure` keeps a failure in one task from cancelling the
       // others, and each task records its own failures in the event log.
@@ -201,6 +203,7 @@ async fn run() -> Int32 {
         @proc.hostname(),
         outbound,
       )
+      let rotator = @core.RotateRunner::new(state_dir, sv.rotations())
       let exits : @aqueue.Queue[@core.ExitMode] = @aqueue.Queue::Queue(
         kind=Blocking(EXIT_SIGNAL_CAPACITY),
       )
@@ -210,6 +213,7 @@ async fn run() -> Int32 {
       let probe = RuntimeProbe::new()
       ignore(tg.spawn(async fn() { tick_loop(sv) }, allow_failure=true))
       ignore(tg.spawn(async fn() { runner.run() }, allow_failure=true))
+      ignore(tg.spawn(async fn() { rotator.run() }, allow_failure=true))
       ignore(
         tg.spawn(async fn() {
           accept_loop(

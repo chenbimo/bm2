@@ -77,24 +77,3 @@ pub fn file_size(path : String) -> Int64? {
     Some(size)
   }
 }
-
-///|
-/// Shift the rotation chain and rename path to path.1 (drops path.10).
-/// For logs written by this daemon, where no fd survives the rename.
-pub fn rotate(path : String) -> Unit raise FileError {
-  let rc = c_rotate(cstr(path))
-  if rc < 0 {
-    raise Failed(op="rotate", errno=-rc)
-  }
-}
-
-///|
-/// Copy path into path.1 (shifting the chain) and truncate path to zero.
-/// For logs held open by app processes, which keep writing to the old
-/// inode; a few bytes written during the copy are lost.
-pub fn truncate_in_place(path : String) -> Unit raise FileError {
-  let rc = c_copytruncate(cstr(path))
-  if rc < 0 {
-    raise Failed(op="copytruncate", errno=-rc)
-  }
-}

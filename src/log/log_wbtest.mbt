@@ -21,36 +21,3 @@ test "event writes jsonl with ts, event and caller fields" {
   assert_true(line.contains("\"pid\":42"))
   assert_true(line.has_suffix("}\n"))
 }
-
-///|
-test "maybe_rotate leaves small files alone" {
-  let path = "/tmp/log-test/small.log"
-  @fsx.mkdir_p("/tmp/log-test")
-  // This is the one case that depends on the file staying small, and every run
-  // appends a line to it: start from nothing so a repeated run cannot creep past
-  // the limit and rotate where the test says it must not.
-  @utils.discard(() => @fsx.unlink(path))
-  @utils.discard(() => @fsx.unlink(path + ".1"))
-  plain(path, "tiny")
-  assert_false(maybe_rotate(path, 1024))
-  assert_false(@fsx.file_size(path + ".1") is Some(_))
-}
-
-///|
-test "maybe_rotate renames past the limit" {
-  let path = "/tmp/log-test/renamed.log"
-  // One timestamped line is ~28 bytes, over the tiny limit.
-  plain(path, "x")
-  assert_true(maybe_rotate(path, 10))
-  assert_false(@fsx.file_size(path) is Some(_))
-  assert_true(@fsx.file_size(path + ".1") is Some(_))
-}
-
-///|
-test "maybe_rotate copytruncate empties in place" {
-  let path = "/tmp/log-test/trunc.log"
-  plain(path, "content")
-  assert_true(maybe_rotate(path, 10, copytruncate=true))
-  assert_eq(@utf8.decode_lossy(@fsx.read_small(path)), "")
-  assert_true(@fsx.file_size(path + ".1") is Some(_))
-}

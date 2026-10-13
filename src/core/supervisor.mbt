@@ -62,6 +62,10 @@ pub struct Supervisor {
   /// supervised state, so this queue is the control plane's whole vocabulary:
   /// `tick` drains it and applies each request on the supervision task.
   commands : @aqueue.Queue[Command]
+  /// Rotation sweeps published by the tick and executed by the rotation task.
+  /// Sizes, copying and renaming all happen over there, so no filesystem work
+  /// can land in a tick that must stay free of blocking calls.
+  rotations : @aqueue.Queue[Array[(String, Bool)]]
   /// When this daemon started, on the monotonic clock: the uptime it reports is
   /// a duration, so a system time change cannot distort it.
   started_mono_ms : UInt64
@@ -142,6 +146,7 @@ pub fn Supervisor::new(
     last_log_check_ms: 0UL,
     last_reuseport_probe_ms: 0UL,
     commands: @aqueue.Queue::Queue(kind=Blocking(COMMAND_QUEUE_CAPACITY)),
+    rotations: @aqueue.Queue::Queue(kind=Blocking(1)),
     started_mono_ms: @proc.monotonic_ms(),
     commands_applied: 0UL,
     notify: Notifier::new(state_dir, @proc.hostname(), outbound),
@@ -218,6 +223,15 @@ pub fn Supervisor::notifier(self : Supervisor) -> Notifier {
 /// notify task once, at startup, and nothing else takes it.
 pub fn Supervisor::outbound(self : Supervisor) -> @aqueue.Queue[Outbound] {
   self.notify.outbound
+}
+
+///|
+/// The queue supervision publishes rotation sweeps on. The daemon hands it to
+/// the rotation task once, at startup, and nothing else takes it.
+pub fn Supervisor::rotations(
+  self : Supervisor,
+) -> @aqueue.Queue[Array[(String, Bool)]] {
+  self.rotations
 }
 
 ///|
@@ -345,7 +359,7 @@ pub fn Supervisor::tick(self : Supervisor) -> Unit {
   }
   if now - self.last_log_check_ms >= LOG_CHECK_INTERVAL_MS {
     self.last_log_check_ms = now
-    self.rotate_logs()
+    self.publish_rotation()
   }
   self.check_reuseport(now)
   self.check_deadlines(now)

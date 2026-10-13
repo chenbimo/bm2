@@ -30,27 +30,3 @@ pub fn event(
   }
   @fsx.append_file(path, @utf8.encode(@utils.jobj(all) + "\n"))
 }
-
-///|
-/// Rotate `path` once it exceeds `max_bytes`: copytruncate for logs held
-/// open by app processes (they keep writing to the old inode), rename for
-/// logs written by the caller itself. Returns true when a rotation ran.
-/// Raises @fsx.FileError when a needed rotation failed; a missing file is not
-/// an error (nothing to rotate).
-pub fn maybe_rotate(
-  path : String,
-  max_bytes : Int64,
-  copytruncate~ : Bool = false,
-) -> Bool raise @fsx.FileError {
-  match @fsx.file_size(path) {
-    Some(size) if size > max_bytes => {
-      if copytruncate {
-        @fsx.truncate_in_place(path)
-      } else {
-        @fsx.rotate(path)
-      }
-      true
-    }
-    _ => false
-  }
-}

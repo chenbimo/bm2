@@ -52,14 +52,6 @@ extern "C" fn c_file_size(path : Bytes) -> Int64 = "fsx_file_size"
 
 ///|
 #borrow(path)
-extern "C" fn c_rotate(path : Bytes) -> Int32 = "fsx_rotate"
-
-///|
-#borrow(path)
-extern "C" fn c_copytruncate(path : Bytes) -> Int32 = "fsx_copytruncate"
-
-///|
-#borrow(path)
 extern "C" fn c_lock_exclusive(path : Bytes) -> Int32 = "fsx_lock_exclusive"
 
 ///|
