@@ -41,6 +41,10 @@ pub struct Engine {
   /// project, so a failing endpoint delays its own project's alerts rather than
   /// everybody's.
   mut last_owner : String?
+  /// Owner → how many of its messages are queued. Kept in step with `queue` so
+  /// the per-owner limit is a map lookup instead of a scan of the whole queue,
+  /// which made a burst quadratic in the queue length.
+  owner_queue : Map[String, Int32]
   /// Owner → (window started ms, emitted in window). Each owner gets its own
   /// rolling minute budget, so one project's throttle never starves another.
   rate_window : Map[String, (UInt64, Int32)]
@@ -61,6 +65,7 @@ pub fn Engine::new(
     queue: [],
     dropped: 0,
     last_owner: None,
+    owner_queue: Map([]),
     rate_window: Map([]),
     dedupe: Map([]),
   }
@@ -148,7 +153,10 @@ pub fn Engine::emit(
     }
     self.rate_window[owner] = (started, sent + 1)
   }
-  let queued = self.queue.filter(fn(notice) { notice.owner == owner }).length()
+  let queued = match self.owner_queue.get(owner) {
+    Some(counted) => counted
+    None => 0
+  }
   if queue_limit > 0 && queued >= queue_limit {
     // Keep the first events of a burst: they carry the root cause.
     self.dropped += 1
@@ -162,6 +170,7 @@ pub fn Engine::emit(
     attempts: 0,
     next_attempt_ms: 0UL,
   })
+  self.owner_queue[owner] = queued + 1
   EmitOutcome::Queued
 }
 
@@ -287,9 +296,21 @@ fn Engine::drop_at(self : Engine, index : Int32) -> Unit {
   for i, queued in self.queue {
     if i != index {
       kept.push(queued)
+    } else {
+      self.note_dequeue(queued.owner)
     }
   }
   self.queue = kept
+}
+
+///|
+/// Keep the per-owner count in step when a message leaves the queue.
+fn Engine::note_dequeue(self : Engine, owner : String) -> Unit {
+  let left = match self.owner_queue.get(owner) {
+    Some(counted) => if counted > 1 { counted - 1 } else { 0 }
+    None => 0
+  }
+  self.owner_queue[owner] = left
 }
 
 ///|
@@ -311,6 +332,7 @@ pub fn Engine::forget_owner(self : Engine, owner : String) -> Unit {
   }
   // Its queued alerts are no longer worth delivering: the project is gone.
   self.queue = self.queue.filter(fn(notice) { notice.owner != owner })
+  self.owner_queue[owner] = 0
   match self.last_owner {
     Some(last) => if last == owner { self.last_owner = None }
     None => ()
