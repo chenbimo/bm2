@@ -624,9 +624,8 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
     }
   }
   for name in ready {
-    match self.projects.get(name) {
-      Some(project) => project.restarting = false
-      None => ()
+    if self.projects.get(name) is Some(project) {
+      project.restarting = false
     }
     if self.is_stopped(name) {
       continue
