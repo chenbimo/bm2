@@ -71,6 +71,7 @@ async test "a busy daemon is reported instead of being replaced" {
     app: None,
     config_path: None,
     notify_target: None,
+    force: None,
   }
   let outcome = try {
     ignore(request_with_recovery(state_dir, req, 300))

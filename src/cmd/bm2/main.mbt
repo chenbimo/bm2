@@ -38,6 +38,13 @@ async fn run() -> Int32 {
       @argparse.Command(
         "remove",
         about="Retire a project: stop it, free its name, keep its logs",
+        flags=[
+          @argparse.FlagArg(
+            "force",
+            short='f',
+            about="Also delete its state directory, logs included",
+          ),
+        ],
         positionals=[optional_name("Project to remove")],
       ),
       @argparse.Command(
@@ -93,6 +100,7 @@ async fn run() -> Int32 {
   }
   let json_flag = sub.flags.get("json") is Some(true)
   let confirmed = sub.flags.get("all") is Some(true)
+  let force_flag = sub.flags.get("force") is Some(true)
   let app_arg : String? = match sub.values.get("name") {
     Some(names) if names.length() > 0 => Some(names[0])
     _ =>
@@ -215,6 +223,7 @@ async fn run() -> Int32 {
     app,
     config_path: request_config_path,
     notify_target,
+    force: Some(force_flag),
   }
   let resp = try request_with_recovery(state_dir, req, timeout_ms) catch {
     NoDaemon => {
@@ -264,6 +273,25 @@ async fn run() -> Int32 {
         print_list(resp.instances)
       }
       0
+    } else if command == "remove" && force_flag {
+      // The daemon retires asynchronously: it unregisters once every instance has
+      // stopped. Only after the project is gone from the registry is it safe to
+      // delete its directory — before that we would be pulling files out from
+      // under a project the daemon still supervises.
+      match app {
+        Some(name) =>
+          if wait_project_gone(state_dir, name) {
+            purge_project(state_dir, name)
+            println("removed " + name)
+            0
+          } else {
+            @proc.eprintln(
+              "bm2: the project did not finish retiring within the wait; its files were kept",
+            )
+            1
+          }
+        None => 0
+      }
     } else if command == "reload" {
       // Swap in a fresh bm2d; the running apps are adopted unchanged.
       if swap_daemon(state_dir) {
@@ -314,4 +342,39 @@ suberror CliError {
 enum Send {
   Replied(@protocol.Response)
   Errored(String)
+}
+
+///|
+/// Wait for a retired project to leave the registry. The daemon does that once
+/// every instance has stopped, and the signal is on disk: `project.json` is
+/// removed as the removal finalizes. Watching the file keeps this to one request
+/// and works even while the daemon is busy with something else.
+fn wait_project_gone(state_dir : String, name : String) -> Bool {
+  let marker = state_dir + "/" + name + "/project.json"
+  for _ in 0..<300 {
+    if !@fs.path_exists(marker) {
+      return true
+    }
+    @proc.sleep_ms(100)
+  }
+  false
+}
+
+///|
+/// Delete a retired project's state directory, logs included. `remove` keeps logs
+/// on purpose, so this runs only for `bm2 remove -f`, and only after the daemon
+/// has let go of the project. The layout is fixed: by then the state files are
+/// already gone, so `logs/` is all that is left.
+fn purge_project(state_dir : String, name : String) -> Unit {
+  let root = state_dir + "/" + name
+  let logs = root + "/logs"
+  // The read is inside `discard`: a missing `logs/` is the normal case for a
+  // project that never wrote anything, and the removals below then find nothing.
+  @utils.discard(() => {
+    for entry in @fs.read_dir(logs) {
+      @utils.discard(() => @fs.remove_file(logs + "/" + entry))
+    }
+  })
+  @utils.discard(() => @fs.remove_dir(logs))
+  @utils.discard(() => @fs.remove_dir(root))
 }

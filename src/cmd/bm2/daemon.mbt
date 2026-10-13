@@ -9,6 +9,7 @@ async fn request_detach(state_dir : String) -> Bool {
     app: None,
     config_path: None,
     notify_target: None,
+    force: None,
   }
   match connect_daemon(state_dir) {
     Some(pair) =>
@@ -131,6 +132,7 @@ async fn poll_settled(
     app,
     config_path: None,
     notify_target: None,
+    force: None,
   }
   while true {
     @async.sleep(200)

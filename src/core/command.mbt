@@ -74,6 +74,7 @@ fn Supervisor::cmd_stop(self : Supervisor, app : String?) -> @protocol.Response 
 fn Supervisor::cmd_remove(
   self : Supervisor,
   app : String?,
+  force : Bool?,
 ) -> @protocol.Response {
   match app {
     None => @protocol.Response::error("remove requires a project name")
@@ -85,14 +86,13 @@ fn Supervisor::cmd_remove(
       } noraise {
         _ => ()
       }
-      // Graceful: SIGTERM with the usual escalation behind it. `check_removals`
-      // finalizes once every instance has stopped, exactly as `kill` does.
-      try self.stop_app(name) catch {
+      // Hard with `-f`, graceful (SIGTERM, with the usual escalation) without it.
+      // `check_removals` finalizes once every instance has stopped.
+      try self.remove_app(name, force=force.unwrap_or(false)) catch {
         e => return @protocol.Response::error(e.to_string())
       } noraise {
         _ => ()
       }
-      self.pending_remove[name] = ()
       self.stopped.remove(name)
       @protocol.Response::ok("removing", self.infos_of([name]))
     }
@@ -134,9 +134,9 @@ pub fn Supervisor::handle_command(self : Supervisor, command : Command) -> Unit 
   let (response, exit) = match req.command {
     "list" => (self.cmd_list(req.app), ExitMode::Stay)
     "stop" => (self.cmd_stop(req.app), ExitMode::Stay)
-    "remove" => (self.cmd_remove(req.app), ExitMode::Stay)
+    "remove" => (self.cmd_remove(req.app, req.force), ExitMode::Stay)
     "start" => (self.cmd_start(req), ExitMode::Stay)
-    "kill" => self.cmd_kill(req.app)
+    "kill" => cmd_kill(req.app)
     "reload" => (@protocol.Response::ok("reloading", []), ExitMode::Detach)
     _ =>
       (
@@ -216,23 +216,25 @@ fn Supervisor::cmd_start(
 }
 
 ///|
-/// Kill an app immediately, or end the daemon when no app was named. The
-/// all-app kill itself happens in the shutdown path, after the reply has
-/// reached the caller.
-fn Supervisor::cmd_kill(
-  self : Supervisor,
-  app : String?,
-) -> (@protocol.Response, ExitMode) {
+/// Bare `kill` ends the daemon; there is no app form. Retiring an app is `stop`
+/// (stop, stay registered) or `remove` (retire, free the name) — `kill` used to be
+/// a third, harder version of `remove`, which made one verb mean two things at two
+/// layers. The all-app kill itself happens in the shutdown path, after the reply
+/// has reached the caller.
+fn cmd_kill(app : String?) -> (@protocol.Response, ExitMode) {
   match app {
     None => (@protocol.Response::ok("bm2d stopping", []), ExitMode::Shutdown)
-    Some(name) => {
-      try self.kill_app(name) catch {
-        e => return (@protocol.Response::error(e.to_string()), ExitMode::Stay)
-      } noraise {
-        _ => ()
-      }
-      (@protocol.Response::ok("killed", self.infos_of([name])), ExitMode::Stay)
-    }
+    Some(name) =>
+      (
+        @protocol.Response::error(
+          "kill no longer takes a project: use 'bm2 stop " +
+          name +
+          "' to stop it, or 'bm2 remove " +
+          name +
+          "' to retire it",
+        ),
+        ExitMode::Stay,
+      )
   }
 }
 

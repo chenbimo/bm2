@@ -173,29 +173,54 @@ pub fn Supervisor::stop_app(self : Supervisor, app_name : String) -> Unit raise 
 }
 
 ///|
-/// Immediate SIGKILL; marked manual and never auto-restarted. Clears any
-/// pending full restart, mirroring stop_app. The project is queued for
-/// removal once every instance has stopped, so a killed project never
-/// comes back after a daemon restart.
-pub fn Supervisor::kill_app(self : Supervisor, app_name : String) -> Unit raise {
+/// Retire a project: hard (- `force`) or graceful. Either way it is marked manual
+/// and never auto-restarted, and queued for removal once every instance has
+/// stopped, so a retired project never comes back after a daemon restart.
+pub fn Supervisor::remove_app(
+  self : Supervisor,
+  app_name : String,
+  force~ : Bool = false,
+) -> Unit raise {
   self.pending_restart.remove(app_name)
   self.pending_remove[app_name] = ()
   let app = self.app_config(app_name)
-  let (title, body) = render_msg(app.notify.lang, ProjectKilled(app_name))
+  let (title, body) = render_msg(
+    app.notify.lang,
+    if force {
+      ProjectKilled(app_name)
+    } else {
+      ProjectStopped(app_name)
+    },
+  )
   self.notify_project(
     app_name,
     "lifecycle",
     "info",
     title,
     body,
-    "killed|" + app_name,
+    "removed|" + app_name,
   )
   for inst in self.app_instances(app_name) {
     inst.restart_at_ms = 0UL
     if inst.alive() {
-      inst.mark_stopping(Stop, "manual_kill")
-      inst.kill_deadline_ms = 0UL
-      @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
+      inst.mark_stopping(
+        Stop,
+        if force {
+          "manual_kill"
+        } else {
+          "manual_remove"
+        },
+      )
+      if force {
+        inst.kill_deadline_ms = 0UL
+        @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
+      } else {
+        // Graceful: SIGTERM now, and the tick's escalation behind it if the app
+        // is still there when its own stop timeout runs out.
+        inst.kill_deadline_ms = @proc.monotonic_ms() +
+          app.stop_timeout_ms.to_uint64()
+        @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGTERM))
+      }
     } else if !(inst.status is Errored) {
       inst.exit_intent = Stop
       self.mark_stopped(inst)

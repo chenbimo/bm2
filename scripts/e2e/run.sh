@@ -142,7 +142,7 @@ write_project slow slow 4231 slow.ts 1 1000
 check "slow http" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
 
 echo "===== F. kill quick unregisters it ====="
-bm2 kill quick
+bm2 remove -f quick
 # The project is gone entirely: querying it reports unknown app.
 OUT=$(bm2 list quick 2>&1)
 check "quick omitted from list" "unknown app: quick" "$OUT"
@@ -190,13 +190,13 @@ sed -i 's/port = 4231/port = 4241/' "$ACC/slow/bm2.toml"
 check "structural restart on new port" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 
 echo "===== K. structural change accepted when stopped ====="
-bm2 kill slow
+bm2 remove -f slow
 sed -i 's/port = 4241/port = 4241/; s/instances = [0-9]*/instances = 2/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "two instances after rebuild" "2" "$(bm2 list slow | grep -c '^slow ')"
 check "rebuilt instance on 4241" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 check "rebuilt instance on 4242" "slow slow-1 production 4242 1" "$(wait_http 4242 "slow slow-1 production 4242 1")"
-bm2 kill slow
+bm2 remove -f slow
 
 echo "===== L. kill without app shuts down bm2d ====="
 (cd "$ACC/slow" && bm2 start >/dev/null)
@@ -234,7 +234,7 @@ check "slow still served" "slow slow-0 production 4241 0" "$(wait_http 4241 "slo
 check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
 
 echo "===== N. ignored SIGTERM escalates to SIGKILL ====="
-bm2 kill slow
+bm2 remove -f slow
 write_project stubborn stubborn 4251 ignore-term.ts 1 300
 (cd "$ACC/stubborn" && bm2 start >/dev/null)
 sleep 1
@@ -243,7 +243,7 @@ check "restart with ignored SIGTERM" "started" "$(cd "$ACC/stubborn" && bm2 star
 sleep 1
 check "stubborn old process SIGKILLed" 1 "$(kill -0 "$SPID" 2>/dev/null; echo $?)"
 check "stubborn new instance online" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $6}')"
-bm2 kill stubborn
+bm2 remove -f stubborn
 
 echo "===== O. external SIGKILL records signal reason ====="
 (cd "$ACC/slow" && bm2 start >/dev/null)
@@ -266,14 +266,14 @@ check "state_load_failed event" 1 "$(grep -c 'state_load_failed' "$state_dir/bm2
 check "slow online after corrupt state" "online" "$(wait_status slow online 20)"
 
 echo "===== R. multi-instance port sequence ====="
-bm2 kill slow
+bm2 remove -f slow
 sed -i 's/instances = [0-9]*/instances = 3/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "three instances online" "3" "$(bm2 list slow | grep -c '^slow ')"
 check "instance on 4241" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 check "instance on 4242" "slow slow-1 production 4242 1" "$(wait_http 4242 "slow slow-1 production 4242 1")"
 check "instance on 4243" "slow slow-2 production 4243 2" "$(wait_http 4243 "slow slow-2 production 4243 2")"
-bm2 kill slow
+bm2 remove -f slow
 
 echo "===== Q. CLI error paths ====="
 OUT=$(bm2 list nosuch 2>&1)
@@ -323,7 +323,7 @@ check "the owner keeps its instances" "3" "$(bm2 list slow | grep -c '^slow ')"
 (cd "$ACC/slow" && bm2 start >/dev/null 2>&1)
 check "same directory restart still updates" "0" "$?"
 check "owner still online after the update" "3" "$(bm2 list slow | grep -c ' online')"
-bm2 kill slow
+bm2 remove -f slow
 
 echo "===== T. long stop_timeout must not split the daemon ====="
 write_project stubborn stubborn 4271 ignore-term.ts 1 5000
@@ -345,7 +345,7 @@ fi
 wait "$START_PID"
 sleep 5
 check "stubborn online after full restart" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $6}')"
-bm2 kill stubborn
+bm2 remove -f stubborn
 
 echo "===== U. log rotation by size ====="
 write_project slowback slowback 4291 slow.ts 1 1000
@@ -358,7 +358,7 @@ check "rotated generation exists" 1 "$([ -f "$state_dir/slowback/logs/slowback-0
 SIZE=$(stat -c%s "$state_dir/slowback/logs/slowback-0.out.log")
 check "active log truncated below 1 MB" 1 "$([ "$SIZE" -lt 1048576 ] && echo 1 || echo 0)"
 check "app unaffected by rotation" "slow slowback-0 production 4291 0" "$(wait_http 4291 "slow slowback-0 production 4291 0")"
-bm2 kill slowback >/dev/null
+bm2 remove -f slowback >/dev/null
 
 echo "===== V. kill app with one instance already dead ====="
 write_project twin twin 4292 slow.ts 2 1000
@@ -370,7 +370,7 @@ P1=$(bm2 list twin | sed -n '2p' | awk '{print $3}')
 kill -9 "$P1"
 sleep 1
 # One instance errored (pid gone), one still online: kill must unregister both.
-bm2 kill twin >/dev/null
+bm2 remove -f twin >/dev/null
 DEAD_GONE=0
 for _ in $(seq 1 20); do
   OUT=$(bm2 list twin 2>&1)
@@ -410,7 +410,7 @@ kill -9 "$R_PID"
 sleep 2
 check "port still served after one crash" 1 "$(curl -s --max-time 1 localhost:4301 >/dev/null && echo 1 || echo 0)"
 check "crashed instance restarted" "3" "$(bm2 list reuseapp | grep -c '^reuseapp ')"
-bm2 kill reuseapp >/dev/null
+bm2 remove -f reuseapp >/dev/null
 
 echo "===== Y. cluster without reusePort is stopped with a clear reason ====="
 mkdir -p "$ACC/noreuse"
@@ -452,7 +452,7 @@ for _ in $(seq 1 40); do
 done
 check "project recovers after app fix" "1" "$RECOVERED"
 check "fixed project serving" 1 "$(curl -s --max-time 1 localhost:4311 >/dev/null && echo 1 || echo 0)"
-bm2 kill noreuse >/dev/null 2>&1 || true
+bm2 remove -f noreuse >/dev/null 2>&1 || true
 
 echo "===== X. runtime below the minimum is rejected ====="
 bm2 kill -y >/dev/null 2>&1
@@ -490,7 +490,7 @@ FD_LAST=$(ls "/proc/$DPID/fd" | wc -l)
 check "instance online after four restarts" "online" "$(bm2 list cycle | tail -1 | awk '{print $6}')"
 check "no zombie children under bm2d" "0" "$(ps --ppid "$DPID" -o stat= 2>/dev/null | grep -c '^Z' || true)"
 check "fd count bounded across restarts" 1 "$([ "$FD_LAST" -le $((FD_FIRST + 3)) ] && echo 1 || echo 0)"
-bm2 kill cycle >/dev/null
+bm2 remove -f cycle >/dev/null
 
 echo "===== AB. a second daemon refuses to start ====="
 bm2 list >/dev/null 2>&1
@@ -597,7 +597,7 @@ check "one crash notice despite the loop" 1 "$(grep -c '"event":"crash"' "$ACC/n
 check "errored notice delivered" 1 "$(grep -c '"event":"errored"' "$ACC/notify/received.log" || true)"
 contains "notice carries the app name" "$ACC/notify/received.log" '"app":"notif"'
 contains "notice carries the exit code" "$ACC/notify/received.log" 'exit code 1'
-bm2 kill notif >/dev/null 2>&1 || true
+bm2 remove -f notif >/dev/null 2>&1 || true
 kill "$RECEIVER" 2>/dev/null
 pkill -f "bun .*notify/receiver.ts" 2>/dev/null
 
@@ -743,7 +743,7 @@ check "the running app keeps its pid across the swap" "$STUBBORN_PID" \
   "$(bm2 list stubborn | tail -1 | awk '{print $3}')"
 check "the running app is still online" "online" \
   "$(bm2 list stubborn | tail -1 | awk '{print $6}')"
-bm2 kill stubborn >/dev/null 2>&1 || true
+bm2 remove -f stubborn >/dev/null 2>&1 || true
 
 # Two upgrades at once would stage and swap the same files: the lock is what
 # makes the second one stop instead of interleaving.
@@ -802,8 +802,8 @@ check "alpha was attempted once, on its first try" 1 \
   "$(grep '"event":"notify_failed"' "$state_dir/bm2d.events.jsonl" | grep -c '"app":"alpha"' || true)"
 check "beta was attempted without waiting out alpha's backoff" 1 \
   "$(grep '"event":"notify_failed"' "$state_dir/bm2d.events.jsonl" | grep -c '"app":"beta"' || true)"
-bm2 kill alpha >/dev/null 2>&1 || true
-bm2 kill beta >/dev/null 2>&1 || true
+bm2 remove -f alpha >/dev/null 2>&1 || true
+bm2 remove -f beta >/dev/null 2>&1 || true
 
 echo "===== AI. one instance crashes, its neighbour keeps running ====="
 # The same script behaves differently per instance: id 0 exits at once, id 1 serves
@@ -838,7 +838,7 @@ check "its neighbour is still online" "online" \
 check "the neighbour never restarted" "1" \
   "$(printf '%s\n' "$PAIR_LIST" | sed -n '3p' | awk '{print $7}')"
 check "the neighbour still serves" "ok" "$(curl -s --max-time 2 localhost:4372)"
-bm2 kill pair >/dev/null 2>&1 || true
+bm2 remove -f pair >/dev/null 2>&1 || true
 
 echo "===== AJ. a dead target fails alone; the live one still gets the message ====="
 # Two targets, one with nothing listening: the delivery is partial, the live
@@ -948,7 +948,7 @@ check "the target was retried twice" 3 "$(grep -c '^attempt' "$ACC/flaky.log")"
 check "the alert landed exactly once" 1 "$(grep -c '"event":"crash"' "$ACC/flaky.log")"
 contains "the failures were recorded" "$state_dir/bm2d.events.jsonl" '"event":"notify_failed"'
 contains "the success was recorded" "$state_dir/bm2d.events.jsonl" '"event":"notify_sent"'
-bm2 kill flaky >/dev/null 2>&1 || true
+bm2 remove -f flaky >/dev/null 2>&1 || true
 kill "$FLAKY" 2>/dev/null
 
 echo "===== AH. email credentials never leave the process before STARTTLS ====="

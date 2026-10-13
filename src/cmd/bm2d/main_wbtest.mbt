@@ -115,7 +115,14 @@ fn probe_sv(name : String) -> (@core.Supervisor, String) raise {
 
 ///|
 fn request(protocol : Int32?, command : String) -> @protocol.Request {
-  { protocol, command, app: None, config_path: None, notify_target: None, }
+  {
+    protocol,
+    command,
+    app: None,
+    config_path: None,
+    notify_target: None,
+    force: None,
+  }
 }
 
 ///|

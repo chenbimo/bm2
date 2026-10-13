@@ -3,7 +3,7 @@
 /// a way an older peer cannot read, so version skew between a freshly
 /// installed CLI and a still-running daemon is reported as such instead of
 /// surfacing as an unexplained decode failure.
-pub const PROTOCOL_VERSION : Int32 = 3
+pub const PROTOCOL_VERSION : Int32 = 4
 
 ///|
 /// One CLI request. The field is optional so a peer predating versioning
@@ -17,6 +17,9 @@ pub(all) struct Request {
   /// Notification target name; used by `notify` to test one destination
   /// instead of all of them.
   notify_target : String?
+  /// `remove`: retire the project without waiting for a graceful stop, and let
+  /// the caller purge its state directory afterwards.
+  force : Bool?
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|

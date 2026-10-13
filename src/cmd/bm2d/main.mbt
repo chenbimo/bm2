@@ -516,7 +516,7 @@ async fn shutdown(
     if graceful {
       @utils.discard(() => sv.stop_app(name))
     } else {
-      @utils.discard(() => sv.kill_app(name))
+      @utils.discard(() => sv.remove_app(name, force=true))
     }
   }
   if graceful {

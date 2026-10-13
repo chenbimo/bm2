@@ -262,7 +262,7 @@ async test "kill marks manual, never restarts, and unregisters the project" {
   sv.start_app("api")
   drive(sv, 300)
   assert_eq(sv.app_names().length(), 1)
-  sv.kill_app("api")
+  sv.remove_app("api", force=true)
   drive(sv, 800)
   // The project leaves the registry once its instance stopped.
   assert_eq(sv.app_names().length(), 0)
@@ -322,7 +322,7 @@ async test "start conflicts while full restart is pending" {
   } noraise {
     _ => fail("expected conflict with pending start")
   }
-  sv.kill_app("api")
+  sv.remove_app("api", force=true)
   drive(sv, 1000)
   stop_all(sv, "api")
 }
@@ -338,7 +338,7 @@ async test "kill during pending restart does not resurrect the app" {
   // spawn is still pending.
   sv.start_app("api")
   // Kill while the restart is pending; pending_restart must be cleared.
-  sv.kill_app("api")
+  sv.remove_app("api", force=true)
   drive(sv, 1500)
   // The project is gone entirely: a kill during a pending restart must
   // never be resurrected by check_pending.
@@ -360,7 +360,7 @@ async test "kill clears a stale pid so removal never blocks" {
   // Kill the process behind the instance without letting the supervisor
   // reap it first: the pidfd still exists, so alive() reads dead.
   @proc.kill_group(inst.pid, @proc.SIGKILL)
-  sv.kill_app("api")
+  sv.remove_app("api", force=true)
   drive(sv, 600)
   assert_eq(sv.app_names().length(), 0)
   assert_false(@fs.path_exists(root + "/state/api/project.json"))
@@ -505,7 +505,7 @@ async test "load_projects restores registered projects" {
   let inst = fresh.instance("api", 0)
   assert_eq(inst.pid, pid)
   assert_eq(inst.status, @core.Status::Online)
-  fresh.kill_app("api")
+  fresh.remove_app("api", force=true)
   drive(fresh, 1200)
 }
 
@@ -551,11 +551,13 @@ test "protocol request and response round-trip" {
     app: Some("api"),
     config_path: Some("/srv/blog/bm2.toml"),
     notify_target: None,
+    force: None,
   }
   assert_eq(@protocol.decode_request(@protocol.encode_request(req)), req)
   let bare : @protocol.Request = {
     protocol: Some(@protocol.PROTOCOL_VERSION),
     command: "kill",
+    force: None,
     app: None,
     config_path: None,
     notify_target: None,
