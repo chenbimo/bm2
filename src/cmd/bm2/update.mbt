@@ -160,22 +160,7 @@ pub async fn download_to(url : String, path : String) -> Unit {
 ///|
 /// 文件的 SHA256,小写十六进制。
 pub fn sha256_hex(path : String) -> String raise {
-  let digest = @crypto.sha256(@fs.read_file_to_bytes(path))
-  let out = StringBuilder()
-  for byte in digest {
-    out.write_string(hex_pair(byte.to_int()))
-  }
-  out.to_string()
-}
-
-///|
-let hex_digits : Array[String] = [
-  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f",
-]
-
-///|
-fn hex_pair(value : Int32) -> String {
-  hex_digits[(value >> 4) & 0xf] + hex_digits[value & 0xf]
+  @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file_to_bytes(path)))
 }
 
 ///|

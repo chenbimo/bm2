@@ -76,19 +76,7 @@ fn constant_time_eq(a : String, b : String) -> Bool {
 /// 256 bits from the kernel RNG, hex-encoded: 64 characters, no ambiguity
 /// on the wire or in a file.
 pub fn generate_token() -> String raise {
-  hex_encode(@fsx.read_small("/dev/urandom", cap=32))
-}
-
-///|
-pub fn hex_encode(bytes : Bytes) -> String {
-  let digits = "0123456789abcdef"
-  let out = StringBuilder()
-  for i in 0..<bytes.length() {
-    let b = bytes[i].to_int()
-    out.write_string(digits[b >> 4:(b >> 4) + 1].to_owned())
-    out.write_string(digits[b & 15:(b & 15) + 1].to_owned())
-  }
-  out.to_string()
+  @crypto.bytes_to_hex_string(@fsx.read_small("/dev/urandom", cap=32))
 }
 
 ///|
@@ -125,7 +113,7 @@ pub fn read_endpoint(state_dir : String) -> (Int32, String)? {
 /// Split "port\ntoken\n": the first newline is the separator and everything after
 /// it is the token, exactly as `write_endpoint` laid it out.
 fn parse_endpoint(text : String) -> (Int32, String)? {
-  let body = trim_ascii(text)
+  let body = text.trim().to_owned()
   let mut split_at = -1
   for i in 0..<body.length() {
     if body[i] == '\n' {
@@ -138,8 +126,8 @@ fn parse_endpoint(text : String) -> (Int32, String)? {
   if split_at < 0 {
     return None
   }
-  let token = trim_ascii(body[split_at + 1:].to_owned())
-  match parse_port(trim_ascii(body[0:split_at].to_owned())) {
+  let token = body[split_at + 1:].trim().to_owned()
+  match parse_port(body[0:split_at].trim().to_owned()) {
     Some(port) => if token.is_empty() { None } else { Some((port, token)) }
     None => None
   }
@@ -147,7 +135,7 @@ fn parse_endpoint(text : String) -> (Int32, String)? {
 
 ///|
 fn parse_port(text : String) -> Int32? {
-  let trimmed = trim_ascii(text)
+  let trimmed = text.trim().to_owned()
   if trimmed.is_empty() {
     return None
   }
@@ -163,36 +151,6 @@ fn parse_port(text : String) -> Int32? {
     return None
   }
   Some(value)
-}
-
-///|
-fn trim_ascii(text : String) -> String {
-  let mut start = 0
-  let end = text.length()
-  while start < end {
-    let ch = text[start].to_int()
-    if ch == 0x20 || ch == 0x09 || ch == 0x0A || ch == 0x0D {
-      start += 1
-    } else {
-      break
-    }
-  }
-  let mut stop = end
-  while stop > start {
-    let ch = text[stop - 1].to_int()
-    if ch == 0x20 || ch == 0x09 || ch == 0x0A || ch == 0x0D {
-      stop -= 1
-    } else {
-      break
-    }
-  }
-  if start == 0 && stop == end {
-    text
-  } else if start >= stop {
-    ""
-  } else {
-    text[start:stop].to_owned()
-  }
 }
 
 ///|

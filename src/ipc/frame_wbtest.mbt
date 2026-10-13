@@ -1,11 +1,4 @@
 ///|
-test "hex_encode lowercases and pads" {
-  assert_eq(hex_encode(Bytes::from_array([])), "")
-  assert_eq(hex_encode(Bytes::from_array([0x0a, 0xff])), "0aff")
-  assert_eq(hex_encode(Bytes::from_array([0x00, 0x01])), "0001")
-}
-
-///|
 test "read_endpoint tolerates a missing file" {
   assert_eq(read_endpoint("/tmp/dcipc-test-empty"), None)
 }
