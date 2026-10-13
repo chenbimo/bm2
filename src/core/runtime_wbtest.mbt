@@ -1,41 +1,45 @@
 ///|
-/// The probe is the daemon's one blocking call, so a runtime that never
-/// answers must be killed and reported, not waited on: this is the test that
-/// would hang the whole suite if the timeout regressed.
-test "check_runtime gives up on a runtime that never answers" {
-  let root = "/tmp/bm2-runtime-hang-\{@proc.get_pid()}"
-  @fsx.mkdir_p(root)
-  let hang = root + "/hang.sh"
-  @fs.write_string_to_file(hang, "#!/bin/sh\nwhile true; do sleep 1; done\n")
-  @fsx.chmod(hang, 0o755)
-  let sv = Supervisor::new(state_dir=root + "/state", bun_path="bun")
-  let started = @env.now()
-  let rejected = try sv.check_runtime(hang) catch {
-    e => e.to_string()
-  } noraise {
-    _ => "no error"
+/// The runtime verdict is a pure function so the probe can run wherever its wait
+/// is cheapest (the control task) and still report exactly these words. The
+/// blocking part — running the helper and waiting for it — is covered end to end
+/// by the daemon's probe tests and the e2e suite.
+test "runtime_verdict judges a missing runtime, a bad exit and a version" {
+  // A missing binary is the exec failure the caller maps here.
+  assert_eq(
+    runtime_verdict("bun", 127, ""),
+    Some("bun not found on PATH (or failed to execute)"),
+  )
+  assert_eq(
+    runtime_verdict("bun", 1, ""),
+    Some("bun --version exited with code 1"),
+  )
+  assert_eq(
+    runtime_verdict("bun", 0, "not a version"),
+    Some("cannot parse bun --version output"),
+  )
+  // Below the floor: the reason names both what was found and what is required.
+  let old = runtime_verdict("bun", 0, "1.0.0")
+  assert_true(old is Some(_))
+  match old {
+    Some(reason) => {
+      assert_true(reason.contains("1.0.0"))
+      assert_true(reason.contains("1.4.0"))
+    }
+    None => ()
   }
-  let elapsed = @env.now() - started
-  assert_true(rejected.contains("runtime rejected"))
-  // Both timeout outcomes (killed, or unkillable and given up on) name the
-  // probe deadline, so the message stays diagnostic either way.
-  assert_true(rejected.contains("5000ms"))
-  assert_true(elapsed < 30000UL)
-  @fsx.unlink(hang)
+  // At the floor and above it: accepted.
+  assert_eq(runtime_verdict("bun", 0, "1.4.0"), None)
+  assert_eq(runtime_verdict("bun", 0, "1.9.3"), None)
+  // node has its own floor.
+  assert_true(runtime_verdict("node", 0, "24.0.0") is None)
+  assert_true(runtime_verdict("node", 0, "22.0.0") is Some(_))
 }
 
 ///|
-test "check_runtime rejects a missing runtime with a clear reason" {
-  let sv = Supervisor::new(
-    state_dir="/tmp/bm2-runtime-test-\{@proc.get_pid()}",
-    bun_path="bun",
-  )
-  let rejected = try sv.check_runtime("no-such-runtime-bm2") catch {
-    e => e.to_string()
-  } noraise {
-    _ => "no error"
-  }
-  assert_true(rejected.contains("runtime rejected"))
-  assert_true(rejected.contains("no-such-runtime-bm2"))
-  assert_true(rejected.contains("not found on PATH"))
+/// The two verdict messages that depend on the probe itself, not on its output.
+test "runtime probe messages name the runtime and the deadline" {
+  assert_true(runtime_timeout("bun").contains("bun"))
+  assert_true(runtime_timeout("bun").contains("5000ms"))
+  assert_true(runtime_unrunnable("node").contains("node"))
+  assert_true(runtime_unrunnable("node").contains("not found on PATH"))
 }

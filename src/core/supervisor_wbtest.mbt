@@ -72,36 +72,6 @@ test "a shrunk instance set loses its stale state files" {
 }
 
 ///|
-/// The runtime probe blocks this daemon's single thread, so its verdict is kept
-/// per daemon. A fabricated runtime name proves the cache short-circuits the
-/// probe: probing it would fail to spawn, with a different message.
-test "a cached runtime verdict is reused instead of probing" {
-  let root = "/tmp/bm2-wbtest-runtime-\{@proc.get_pid()}"
-  let sv = wb_setup(root, 4457)
-  sv.runtime_checked["ghost-runtime"] = Some("ghost-runtime is too old")
-  let message = try {
-    sv.check_runtime("ghost-runtime")
-    ""
-  } catch {
-    e => e.to_string()
-  } noraise {
-    value => value
-  }
-  assert_true(message.contains("ghost-runtime is too old"))
-  // A cached pass is reused as well, so a restart never probes again.
-  sv.runtime_checked["ghost-runtime"] = None
-  let probed = try {
-    sv.check_runtime("ghost-runtime")
-    false
-  } catch {
-    _ => true
-  } noraise {
-    value => value
-  }
-  assert_false(probed)
-}
-
-///|
 /// The state dir holds the control-plane token: a path that is not a directory
 /// must be refused at startup instead of being written into.
 test "a state dir that is not a directory is refused" {

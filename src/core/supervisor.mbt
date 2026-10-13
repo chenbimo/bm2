@@ -79,11 +79,6 @@ pub struct Supervisor {
   stats_window : Map[String, StatsWindow]
   /// Per project: restart timestamps inside the storm window.
   storm_hits : Map[String, Array[UInt64]]
-  /// Runtime name → the verdict of its version probe (`None` = it passed). The
-  /// probe is the one place a stuck helper binary can stall this single-threaded
-  /// daemon, and restarts ask the same question over and over, so the answer is
-  /// kept per daemon rather than re-derived on every start.
-  runtime_checked : Map[String, String?]
   /// Instance key → the spawn generation (started_mono_ms) already probed
   /// for a missing listener, so each spawn is judged once.
   start_probe_done : Map[String, UInt64]
@@ -154,7 +149,6 @@ pub fn Supervisor::new(
     last_schedule_check_ms: 0UL,
     stats_window: Map([]),
     storm_hits: Map([]),
-    runtime_checked: Map([]),
     start_probe_done: Map([]),
   }
 }

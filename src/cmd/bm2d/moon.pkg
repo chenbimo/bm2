@@ -2,6 +2,7 @@ import {
   "chensuiyi/bm2/protocol",
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
+  "moonbitlang/async/process",
   "moonbitlang/async/semaphore",
   "moonbitlang/async/signal",
   "moonbitlang/async/socket",

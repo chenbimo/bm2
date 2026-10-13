@@ -34,7 +34,8 @@ async fn round_trip(
                   @protocol.protocol_problem(received.protocol) {
                   Some(problem) =>
                     (@protocol.Response::error(problem), @core.ExitMode::Stay)
-                  None => dispatch(commands, outbound, received)
+                  None =>
+                    dispatch(commands, outbound, RuntimeProbe::new(), received)
                 }
                 let _ = @ipc.write_response(conn, response)
                 conn.close()
@@ -61,6 +62,48 @@ async fn round_trip(
     tg.return_immediately(resp)
     resp
   })
+}
+
+///|
+/// The probe is the daemon's one long wait, so a runtime that never answers must be
+/// killed and reported — this is the test that would hang the suite if the timeout
+/// regressed. The second call proves the verdict is cached per daemon.
+async test "the runtime probe gives up on a hung runtime and caches the verdict" {
+  let root = "/tmp/bm2-probe-hang-\{@proc.get_pid()}"
+  @fsx.mkdir_p(root)
+  let hang = root + "/hang.sh"
+  @fsx.write_atomic(
+    hang,
+    @utf8.encode("#!/bin/sh\nwhile true; do sleep 1; done\n"),
+  )
+  @fsx.chmod(hang, 0o755)
+  let probe = RuntimeProbe::new()
+  let started = @proc.monotonic_ms()
+  let verdict = probe.check(hang)
+  let elapsed = @proc.monotonic_ms() - started
+  assert_true(verdict is Some(_))
+  match verdict {
+    Some(reason) => assert_true(reason.contains("5000ms"))
+    None => ()
+  }
+  assert_true(elapsed < 30000UL)
+  // Cached: the second answer comes back immediately.
+  let cached_at = @proc.monotonic_ms()
+  let again = probe.check(hang)
+  assert_true(@proc.monotonic_ms() - cached_at < 1000UL)
+  assert_eq(again, verdict)
+  @fsx.unlink(hang)
+}
+
+///|
+async test "the probe reports a runtime that cannot be run" {
+  let probe = RuntimeProbe::new()
+  let verdict = probe.check("no-such-runtime-bm2")
+  assert_true(verdict is Some(_))
+  match verdict {
+    Some(reason) => assert_true(reason.contains("not found on PATH"))
+    None => ()
+  }
 }
 
 ///|

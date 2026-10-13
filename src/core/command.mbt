@@ -144,11 +144,9 @@ fn Supervisor::cmd_start(
   } noraise {
     loaded => loaded
   }
-  try self.check_runtime(config.runtime) catch {
-    e => return @protocol.Response::error(e.to_string())
-  } noraise {
-    _ => ()
-  }
+  // The runtime verdict was already produced on the control side (RuntimeProbe),
+  // where waiting for the helper costs nothing: doing it here would block the
+  // supervision tick, which is the one thing the tick must never do.
   try self.register(config, config_path) catch {
     e => return @protocol.Response::error(e.to_string())
   } noraise {

@@ -25,6 +25,58 @@ const EXIT_SIGNAL_CAPACITY : Int32 = 4
 const MAX_CONTROL_CONNECTIONS : Int32 = 64
 
 ///|
+/// Runtime version probes, owned by the control task. `<runtime> --version` is a
+/// helper process on a possibly stuck filesystem: waiting for it belongs to a task
+/// that can wait (`@async.with_timeout_opt`), never to the supervision tick. The
+/// verdict is cached per daemon, so restarting an existing project costs nothing.
+struct RuntimeProbe {
+  /// Runtime name → verdict (`None` = the runtime is acceptable).
+  checked : Map[String, String?]
+}
+
+///|
+fn RuntimeProbe::new() -> RuntimeProbe {
+  { checked: Map([]), }
+}
+
+///|
+/// The verdict for one runtime, probing at most once per daemon. `None` means the
+/// runtime is acceptable; `Some(reason)` is what the operator sees.
+async fn RuntimeProbe::check(self : RuntimeProbe, runtime : String) -> String? {
+  match self.checked.get(runtime) {
+    Some(verdict) => verdict
+    None => {
+      let attempt = async fn() {
+        let (code, out, _err) = @process.collect_output(runtime, ["--version"])
+        @core.runtime_verdict(
+          runtime,
+          code,
+          @utf8.decode_lossy(out.binary()).trim().to_owned(),
+        )
+      }
+      // A cancelled wait kills the helper (only orphan spawns survive their
+      // caller), so a stuck runtime cannot outlive its own timeout.
+      // Shapes: `Some(None)` = acceptable, `Some(Some(reason))` = rejected,
+      // `None` = the probe never answered.
+      let answer = try
+        @async.with_timeout_opt(@core.RUNTIME_PROBE_TIMEOUT_MS, attempt)
+      catch {
+        _ => Some(Some(@core.runtime_unrunnable(runtime)))
+      } noraise {
+        result => result
+      }
+      let verdict = match answer {
+        Some(None) => None
+        Some(Some(reason)) => Some(reason)
+        None => Some(@core.runtime_timeout(runtime))
+      }
+      self.checked[runtime] = verdict
+      verdict
+    }
+  }
+}
+
+///|
 async fn main {
   @proc.exit(run())
 }
@@ -155,12 +207,13 @@ async fn run() -> Int32 {
       let gate : @semaphore.Semaphore = @semaphore.Semaphore(
         MAX_CONTROL_CONNECTIONS,
       )
+      let probe = RuntimeProbe::new()
       ignore(tg.spawn(async fn() { tick_loop(sv) }, allow_failure=true))
       ignore(tg.spawn(async fn() { runner.run() }, allow_failure=true))
       ignore(
         tg.spawn(async fn() {
           accept_loop(
-            server, commands, outbound, state_dir, token, exits, gate, tg,
+            server, commands, outbound, state_dir, token, exits, gate, probe, tg,
           )
         }),
       )
@@ -233,6 +286,7 @@ async fn accept_loop(
   token : String,
   exits : @aqueue.Queue[@core.ExitMode],
   gate : @semaphore.Semaphore,
+  probe : RuntimeProbe,
   tg : @async.TaskGroup[@core.ExitMode],
 ) -> Unit {
   while true {
@@ -253,7 +307,7 @@ async fn accept_loop(
             tg.spawn(
               async fn() {
                 serve_conn(
-                  conn, commands, outbound, state_dir, token, exits, gate,
+                  conn, commands, outbound, state_dir, token, exits, gate, probe,
                 )
               },
               allow_failure=true,
@@ -279,6 +333,7 @@ async fn serve_conn(
   token : String,
   exits : @aqueue.Queue[@core.ExitMode],
   gate : @semaphore.Semaphore,
+  probe : RuntimeProbe,
 ) -> Unit {
   if !@ipc.authenticate(conn, token) {
     // A rejected handshake is a wrong token or a probe: worth a line in the
@@ -300,7 +355,7 @@ async fn serve_conn(
             app=req.app,
             detail=req.command,
           )
-          dispatch(commands, outbound, req)
+          dispatch(commands, outbound, probe, req)
         }
       }
     None => (@protocol.Response::error("invalid request"), @core.ExitMode::Stay)
@@ -339,10 +394,19 @@ async fn serve_conn(
 async fn dispatch(
   commands : @aqueue.Queue[@core.Command],
   outbound : @aqueue.Queue[@core.Outbound],
+  probe : RuntimeProbe,
   req : @protocol.Request,
 ) -> (@protocol.Response, @core.ExitMode) {
   if req.command == "notify" {
     return (cmd_notify(outbound, req), @core.ExitMode::Stay)
+  }
+  // A start is probed here, before the request reaches supervision: the wait for
+  // `<runtime> --version` is a wait, and the supervision tick has no await point
+  // by design. A rejected runtime never reaches the register step.
+  match preflight_runtime(probe, req) {
+    Some(reason) =>
+      return (@protocol.Response::error(reason), @core.ExitMode::Stay)
+    None => ()
   }
   let command = @core.Command::new(req)
   let queued = try commands.try_put(command) catch {
@@ -366,6 +430,29 @@ async fn dispatch(
         @core.ExitMode::Stay,
       )
   }
+}
+
+///|
+/// The runtime verdict for a start request, or None when there is nothing to check
+/// — another command, no config path, or a config that does not load (the command
+/// itself reports that one, with the parser's own message).
+async fn preflight_runtime(
+  probe : RuntimeProbe,
+  req : @protocol.Request,
+) -> String? {
+  if req.command != "start" {
+    return None
+  }
+  let path = match req.config_path {
+    Some(path) => path
+    None => return None
+  }
+  let config = try @config.load(path) catch {
+    _ => return None
+  } noraise {
+    loaded => loaded
+  }
+  probe.check(config.runtime)
 }
 
 ///|

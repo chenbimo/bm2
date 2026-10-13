@@ -1,96 +1,65 @@
 ///|
-/// Minimum runtime versions bm2 supports; `bm2 start` probes the real
-/// binary and rejects older ones. cluster mode additionally needs these
-/// floors for SO_REUSEPORT (Bun reusePort / Node listen reusePort).
+/// Minimum runtime versions bm2 supports; a start is refused when the real binary
+/// is older. cluster mode additionally needs these floors for SO_REUSEPORT (Bun
+/// reusePort / Node listen reusePort).
 const MIN_BUN : String = "1.4.0"
 
 ///|
 const MIN_NODE : String = "24.0.0"
 
 ///|
-/// How long the runtime version probe may take. The daemon is single
-/// threaded, so this probe is the one place where a stuck helper binary
-/// could stall supervision; the wait is hard-bounded and the probe killed
-/// on expiry rather than trusting the runtime to answer.
-const RUNTIME_PROBE_TIMEOUT_MS : Int32 = 5000
+/// How long a `<runtime> --version` probe may take. The wait itself belongs to the
+/// control task (see `RuntimeProbe` in the daemon): a stuck helper binary must not
+/// stall any task, and this bound is what turns "stuck" into a reported verdict.
+pub const RUNTIME_PROBE_TIMEOUT_MS : Int32 = 5000
 
 ///|
-/// Verify the project's runtime meets the minimum version before any
-/// spawn: run `<runtime> --version` once, stdout captured through a temp
-/// file under the state dir (stderr stays on the daemon's own log).
-/// Every failure mode rejects the start with a concrete reason instead
-/// of letting an old runtime fail in confusing ways later.
-pub fn Supervisor::check_runtime(
-  self : Supervisor,
+/// The runtime version bm2 requires for this name.
+pub fn runtime_min(runtime : String) -> String {
+  if runtime == "node" {
+    MIN_NODE
+  } else {
+    MIN_BUN
+  }
+}
+
+///|
+/// Judge one `<runtime> --version` run: `None` when the runtime is acceptable,
+/// `Some(reason)` when it is not. Pure, so the daemon can run the probe wherever
+/// the wait is cheapest and still report exactly these words.
+pub fn runtime_verdict(
   runtime : String,
-) -> Unit raise SupervisorError {
-  // The probe below blocks this daemon's only thread for as long as the runtime
-  // takes to answer (up to RUNTIME_PROBE_TIMEOUT_MS, plus the bounded post-kill
-  // reap), and every restart of an existing project asks the same question
-  // again. The verdict is therefore remembered per daemon: one probe per
-  // runtime, not one per start.
-  match self.runtime_checked.get(runtime) {
-    Some(verdict) =>
-      match verdict {
-        None => return
-        Some(msg) => raise RuntimeRejected(msg)
-      }
-    None => ()
-  }
-  let min_text = if runtime == "node" { MIN_NODE } else { MIN_BUN }
+  exit_code : Int32,
+  output : String,
+) -> String? {
+  let min_text = runtime_min(runtime)
   let min = @utils.parse(min_text)
-  let out = "\{self.state_dir}/runtime-version.tmp"
-  let problem = try
-    @proc.spawn({
-      bun_path: runtime,
-      script: "--version",
-      cwd: "/",
-      out_log: out,
-      err_log: "",
-      env_blob: @proc.base_env_blob(),
-    })
-  catch {
-    e => Some(e.to_string())
-  } noraise {
-    pid => {
-      let reaped = @proc.wait_child_timeout(pid, RUNTIME_PROBE_TIMEOUT_MS)
-      match reaped {
-        Some((_, @proc.ChildExit::Exited(0))) => {
-          let text = try @fsx.read_small(out, cap=256) catch {
-            _ => ""
-          } noraise {
-            data => @utf8.decode_lossy(data)
-          }
-          let version = @utils.parse(text)
-          if version == { major: 0, minor: 0, patch: 0, } {
-            Some("cannot parse \{runtime} --version output")
-          } else if @utils.compare(version, min) >= 0 {
-            None
-          } else {
-            Some(
-              "\{runtime} \{text.trim()} is too old, bm2 requires \{runtime} >= \{min_text}",
-            )
-          }
-        }
-        Some((_, @proc.ChildExit::Exited(127))) =>
-          Some("\{runtime} not found on PATH (or failed to execute)")
-        Some((_, @proc.ChildExit::Exited(code))) =>
-          Some("\{runtime} --version exited with code \{code}")
-        Some((_, @proc.ChildExit::Signaled(sig))) =>
-          Some(
-            "\{runtime} --version was killed by signal \{sig} after \{RUNTIME_PROBE_TIMEOUT_MS}ms",
-          )
-        None =>
-          Some(
-            "\{runtime} --version did not answer within \{RUNTIME_PROBE_TIMEOUT_MS}ms and was killed",
-          )
-      }
-    }
+  if exit_code == 127 {
+    return Some("\{runtime} not found on PATH (or failed to execute)")
   }
-  @utils.discard(() => @fsx.unlink(out))
-  self.runtime_checked[runtime] = problem
-  match problem {
-    Some(msg) => raise RuntimeRejected(msg)
-    None => ()
+  if exit_code != 0 {
+    return Some("\{runtime} --version exited with code \{exit_code}")
   }
+  let version = @utils.parse(output)
+  if version == { major: 0, minor: 0, patch: 0, } {
+    Some("cannot parse \{runtime} --version output")
+  } else if @utils.compare(version, min) >= 0 {
+    None
+  } else {
+    Some(
+      "\{runtime} \{output.trim()} is too old, bm2 requires \{runtime} >= \{min_text}",
+    )
+  }
+}
+
+///|
+/// What to report when the probe never answered within its budget.
+pub fn runtime_timeout(runtime : String) -> String {
+  "\{runtime} --version did not answer within \{RUNTIME_PROBE_TIMEOUT_MS}ms and was killed"
+}
+
+///|
+/// What to report when the runtime could not be run at all.
+pub fn runtime_unrunnable(runtime : String) -> String {
+  "\{runtime} not found on PATH (or failed to execute)"
 }
