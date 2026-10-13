@@ -295,7 +295,9 @@ MOONBIT_FFI_EXPORT
 int64_t proc_disk_free_kb(const char *path) {
   struct statvfs fs;
   if (statvfs(path, &fs) != 0) return -1;
-  return (int64_t)fs.f_bavail * ((int64_t)fs.f_bsize / 1024);
+  /* Multiply before dividing: an f_bsize below 1 KiB would otherwise round the
+   * whole answer down to zero. */
+  return (int64_t)fs.f_bavail * (int64_t)fs.f_bsize / 1024;
 }
 
 /* Probe whether a cluster app's listener enables SO_REUSEPORT, by asking
@@ -418,6 +420,7 @@ int32_t proc_uname(moonbit_bytes_t buf, int32_t cap) {
 
 MOONBIT_FFI_EXPORT
 int32_t proc_self_exe(moonbit_bytes_t buf, int32_t cap) {
+  if (cap <= 0) return -EINVAL;
   ssize_t n = readlink("/proc/self/exe", (char *)buf, (size_t)cap - 1);
   if (n < 0) return -errno;
   buf[n] = 0;

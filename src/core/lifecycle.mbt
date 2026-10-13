@@ -49,6 +49,9 @@ fn Supervisor::mark_online(
   inst.kill_deadline_ms = 0UL
   inst.restart_at_ms = 0UL
   inst.last_reason = None
+  // Each generation samples its own RSS: without this the OOM heuristic could
+  // compare a SIGKILL against a peak from the generation before it.
+  inst.last_rss_kb = 0
   inst.reuseport = if app.exec_mode == "cluster" {
     ReusePending
   } else {

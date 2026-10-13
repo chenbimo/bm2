@@ -34,7 +34,8 @@ fn Supervisor::reject_port_conflict(
 /// `reuseport_missing`) instead of letting later instances crash on
 /// EADDRINUSE in confusing ways.
 fn Supervisor::check_reuseport(self : Supervisor, now : UInt64) -> Unit {
-  if now - self.last_reuseport_probe_ms < REUSEPORT_PROBE_INTERVAL_MS {
+  if now >= self.last_reuseport_probe_ms &&
+    now - self.last_reuseport_probe_ms < REUSEPORT_PROBE_INTERVAL_MS {
     return
   }
   self.last_reuseport_probe_ms = now
