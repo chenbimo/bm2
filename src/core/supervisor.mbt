@@ -62,6 +62,12 @@ pub struct Supervisor {
   /// supervised state, so this queue is the control plane's whole vocabulary:
   /// `tick` drains it and applies each request on the supervision task.
   commands : @aqueue.Queue[Command]
+  /// When this daemon started, on the monotonic clock: the uptime it reports is
+  /// a duration, so a system time change cannot distort it.
+  started_mono_ms : UInt64
+  /// Commands applied since start. Monotonic, so an operator can sample it twice
+  /// and see whether the control plane is moving.
+  mut commands_applied : UInt64
   /// Notification engine: events flow in (an in-memory publish), deliveries flow
   /// out in the notify task. Supervision never waits on it — the tick has no
   /// await point at all.
@@ -141,6 +147,8 @@ pub fn Supervisor::new(
     last_log_check_ms: 0UL,
     last_reuseport_probe_ms: 0UL,
     commands: @aqueue.Queue::Queue(kind=Blocking(COMMAND_QUEUE_CAPACITY)),
+    started_mono_ms: @proc.monotonic_ms(),
+    commands_applied: 0UL,
     notify: Notifier::new(state_dir, @proc.hostname(), outbound),
     last_notify_check_ms: 0UL,
     last_schedule_check_ms: 0UL,
@@ -410,6 +418,32 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
       "project_removed",
       app=Some(name),
     )
+  }
+}
+
+///|
+/// What the daemon reports about itself in a `list` answer.
+pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
+  let mut instances = 0
+  for pair in self.instances.iter() {
+    let (_, arr) = pair
+    instances += arr.length()
+  }
+  let mut restarts = 0
+  for _ in self.pending_restart.iter() {
+    restarts += 1
+  }
+  let mut removals = 0
+  for _ in self.pending_remove.iter() {
+    removals += 1
+  }
+  {
+    pid: @proc.get_pid(),
+    uptime_ms: @proc.monotonic_ms() - self.started_mono_ms,
+    instances,
+    commands_applied: self.commands_applied,
+    pending_restarts: restarts,
+    pending_removals: removals,
   }
 }
 

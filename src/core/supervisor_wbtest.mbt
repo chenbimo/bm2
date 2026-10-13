@@ -121,6 +121,22 @@ test "a state dir that is not a directory is refused" {
 }
 
 ///|
+/// The daemon reports about itself: managed instances and a monotonic command
+/// counter an operator can sample twice.
+test "daemon info counts instances and commands" {
+  let root = "/tmp/bm2-wbtest-daemon-info-\{@proc.get_pid()}"
+  let sv = wb_setup(root, 4459)
+  let info = sv.daemon_info()
+  assert_eq(info.instances, 1)
+  assert_eq(info.commands_applied, 0UL)
+  assert_eq(info.pending_restarts, 0)
+  assert_eq(info.pending_removals, 0)
+  assert_eq(info.pid, @proc.get_pid())
+  // Uptime is a duration measured from construction.
+  assert_true(info.uptime_ms < 60000UL)
+}
+
+///|
 test "spawn failures back off and exhaust the budget into errored" {
   let root = "/tmp/bm2-wbtest-spawn-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4451)

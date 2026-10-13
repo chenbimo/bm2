@@ -65,6 +65,10 @@ pub(all) struct Response {
   ok : Bool
   message : String
   instances : Array[InstanceInfo]
+  /// Present on `list` answers from a daemon that reports about itself. Optional
+  /// on the wire: an older CLI ignores it and a newer CLI accepts a daemon that
+  /// does not send it yet, so neither side needs a protocol bump.
+  daemon : DaemonInfo?
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|
@@ -84,13 +88,54 @@ pub fn Response::ok(
   message : String,
   instances : Array[InstanceInfo],
 ) -> Response {
-  { protocol: Some(PROTOCOL_VERSION), ok: true, message, instances, }
+  {
+    protocol: Some(PROTOCOL_VERSION),
+    ok: true,
+    message,
+    instances,
+    daemon: None,
+  }
 }
 
 ///|
 pub fn Response::error(message : String) -> Response {
-  { protocol: Some(PROTOCOL_VERSION), ok: false, message, instances: [], }
+  {
+    protocol: Some(PROTOCOL_VERSION),
+    ok: false,
+    message,
+    instances: [],
+    daemon: None,
+  }
 }
+
+///|
+/// What a `list` answer can carry about the daemon itself: the numbers an
+/// operator cannot read off the instance table.
+pub(all) struct DaemonInfo {
+  pid : Int32
+  /// Milliseconds since this daemon started (monotonic, so it is a duration).
+  uptime_ms : UInt64
+  /// Instances under management, across every project.
+  instances : Int32
+  /// Commands applied since start: monotonic, so two samples show whether the
+  /// control plane is moving.
+  commands_applied : UInt64
+  /// Projects waiting for a restart, and projects waiting to be unregistered.
+  pending_restarts : Int32
+  pending_removals : Int32
+} derive(ToJson, FromJson, Debug, Eq)
+
+///|
+pub extend DaemonInfo with ToJson::{to_json}
+
+///|
+pub extend DaemonInfo with FromJson::{from_json}
+
+///|
+pub extend DaemonInfo with Debug::{to_repr}
+
+///|
+pub extend DaemonInfo with Eq::{not_equal, equal}
 
 ///|
 /// Human-readable protocol mismatch, or None when both sides agree. Kept

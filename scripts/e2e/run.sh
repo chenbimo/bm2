@@ -105,6 +105,10 @@ check "crash present" "1" "$(bm2 list | grep -c '^crash ')"
 check "list --json valid array" "1" "$(bm2 list --json | grep -c '^\[.*\]$')"
 check "list --json carries app name" "1" "$(bm2 list --json | grep -c '"app_name":"crash"')"
 check "list --json name filter" "0" "$(bm2 list --json crash | grep -c '"app_name":"quick"')"
+# The human table also reports the daemon itself, above the instance rows (so the
+# last line of `bm2 list <app>` stays an instance row).
+check "list reports the daemon" 1 "$(bm2 list | grep -c '^daemon: pid ' || true)"
+contains "list names the daemon pid" "$state_dir/bm2d.pid" "$(bm2 list | sed -n 's/^daemon: pid \([0-9]*\).*/\1/p')"
 
 echo "===== B. crash loop -> errored ====="
 check "crash errored" "errored" "$(wait_status crash errored 60)"

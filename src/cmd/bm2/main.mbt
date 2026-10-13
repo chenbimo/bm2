@@ -179,16 +179,9 @@ async fn run() -> Int32 {
         timeout_ms = need
       }
       if command == "notify" {
-        // notify delivers synchronously, one target after another, so the CLI
-        // has to wait out every target's own timeout.
-        let mut targets = 0
-        for report in cfg.notify.reports {
-          targets += report.targets.length()
-        }
-        if targets == 0 {
-          targets = 1
-        }
-        let notify_need = cfg.notify.timeout_ms * targets + 3000
+        // Targets are delivered in parallel, so the request has to outlast the
+        // slowest of them, not their sum.
+        let notify_need = cfg.notify.timeout_ms + 3000
         if notify_need > timeout_ms {
           timeout_ms = notify_need
         }
@@ -249,6 +242,15 @@ async fn run() -> Int32 {
         })
         println("[" + parts.join(",") + "]")
       } else {
+        // The daemon line is the overview's context line: printed before the
+        // table, and only for an unfiltered `list` — a query for one app keeps
+        // exactly the shape it always had (scripts read it row by row).
+        if app is None {
+          match resp.daemon {
+            Some(info) => print_daemon(info)
+            None => ()
+          }
+        }
         print_list(resp.instances)
       }
       0

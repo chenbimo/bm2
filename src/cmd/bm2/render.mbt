@@ -64,3 +64,22 @@ fn print_row(cols : Array[String], widths : Array[Int32]) -> Unit {
   }
   println(buf.to_string())
 }
+
+///|
+/// The daemon's own numbers, printed under the instance table: `list` is where an
+/// operator looks first, and descriptor growth or a stalled command counter is
+/// exactly what the table cannot show.
+pub fn print_daemon(info : @protocol.DaemonInfo) -> Unit {
+  let fds = try @fs.read_dir("/proc/\{info.pid}/fd").length() catch {
+    _ => 0
+  } noraise {
+    count => count
+  }
+  let rss = match @proc.read_rss_kb(info.pid) {
+    Some(kb) => kb
+    None => 0
+  }
+  println(
+    "daemon: pid \{info.pid} fds \{fds} rss \{rss / 1024} MB uptime \{@utils.human_duration(info.uptime_ms, pad=true)} instances \{info.instances} commands \{info.commands_applied} restarts \{info.pending_restarts} removals \{info.pending_removals}",
+  )
+}

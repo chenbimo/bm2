@@ -66,7 +66,10 @@ fn Supervisor::drain_commands(self : Supervisor) -> Unit {
       item => item
     }
     match next {
-      Some(command) => self.handle_command(command)
+      Some(command) => {
+        self.commands_applied += 1
+        self.handle_command(command)
+      }
       None => return
     }
   }
@@ -114,7 +117,10 @@ fn Supervisor::cmd_list(self : Supervisor, app : String?) -> @protocol.Response 
   } noraise {
     found => found
   }
-  @protocol.Response::ok("ok", self.infos_of(names))
+  // `list` is where an operator looks first, so it also carries the daemon's own
+  // numbers; `bm2 list` prints them under the instance table.
+  let listed = @protocol.Response::ok("ok", self.infos_of(names))
+  { ..listed, daemon: Some(self.daemon_info()), }
 }
 
 ///|
