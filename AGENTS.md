@@ -51,6 +51,8 @@ e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了�
 
 发布(版本递增、构建产物、上传下载站、发 mooncakes)由 yicode-tech 仓库的 `scripts/famoonbit` 承担,本仓库不保留发布脚本。
 
+发布门禁:`bash scripts/verify.sh --release`(fmt / check / 单测 / 构建 / e2e / 长跑 soak)。推 tag 时 `pre-push` 自动跑这一档,不推 tag 的普通推送只跑快档。
+
 版本号在发布时由 famoonbit 同步写入 `moon.mod` 与 CLI 的 `VERSION` 常量,两者必须一致(verify.sh 与 pre-commit 校验)。
 
 ## 提交格式(严格遵守)
