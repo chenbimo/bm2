@@ -9,7 +9,9 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 - **构建目录两级制**:`_build` = Windows IDE 默认产物;`_build-wsl` = WSL 全部构建的显式目标(`--target-dir _build-wsl`)。两棵树隔离,防止 IDE 与 WSL 的缓存互相污染
 - **WSL 互操作层不可信(已实证)**:本机 wsl.exe 的参数桥会随机损坏输出与退出码回传——同一二进制,interop 通道测得恒 0,文件通道测得真实码(2/1/0)。因此:复杂命令一律落盘脚本后以 `wsl bash 脚本` 执行;涉及退出码 / 输出内容的验证,**结果必须写文件再读回**,禁止依赖命令行回传;出现"异常退出码"类怪象时,先用文件通道复测再定位
 - Windows 侧自动化调用统一走 `wsl -d Debian --cd /mnt/c/codes/moonbit/bm2 -- bash <脚本>`
-- **产品文案**:面向全球开发者,CLI 帮助/输出/错误与通知文案统一英文,不做 i18n;README 用单文件内嵌双语;事件日志与状态文件保持语言中立键
+- **例外:文档站的 node 工具链跑在 Windows 侧**(`docs/` 下 `bun install` / `bun run dev`):Rollup 与 esbuild 装的是平台专属的原生二进制,`node_modules` 在 Windows 与 WSL 之间不可共用;而文档的交互(浏览器预览)发生在 Windows,工具链就该跟着交互走
+- **产品文案**:面向全球开发者,CLI 帮助/输出/错误与通知文案统一英文,不做 i18n;事件日志与状态文件保持语言中立键
+- **文档暂时只做中文**:`README.md` 与 `docs/` 都是中文单语。英文文档等实现稳定后再补,现在不做——同时维护两份必然漂移(已经发生过:英文 README 的命令清单落后了整整一代)
 
 ## 依赖库的使用(严格遵守)
 
@@ -20,6 +22,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## 目录结构
 
+- `docs/` — 手册(VitePress,中文单语;英文待实现稳定后再补)。依赖与构建在 Windows 侧跑,配置读 `moon.mod` 取版本与仓库地址,页面里不写版本号。部署挂在 `yicode.tech/bm2` 子路径下(`base` 为 `/bm2/`,构建产物放服务器 `/wwwroot/site/bm2/`);服务端配置在 `yicode-tech` 仓库的 `web/api/Caddyfile`,**本仓库不留副本**。VitePress 精确锁在 `2.0.0-alpha.20`:依赖树从 126 个包降到 36 个,但 alpha 的破坏性变更**可能静默生效**(已遇到 `lastUpdatedText` 被移除且不报错),升级时逐个核对配置键;等 npm 的 `latest` 变成 2.x 再改成 `^2`
 - `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
 - `src/config` — bm2.toml 解析与校验(`[notify]` 订阅过滤也在此层)
 - `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
@@ -41,7 +44,8 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 - **整体视图写在模块顶部的块注释里**:任务模型、不变式、跨模块的时序与代价,一处写清,不拆到十个文件
 - **不为同一件事建第二份文档**:本仓库没有 `specs/` 一类的契约目录。行为与取值只有一处真相(代码 + 测试名),需要提到别处时只放链接
 - **改行为的提交必须同时动到注释或测试**:只改代码、任何一处说明都不动,视为漏做
-- 用户面的事实(安装、升级、配置、命令、排障)在 `README.md`:代码注释不替代它,用户不读源码
+- 用户面的事实(安装、升级、配置、命令、排障)在 `README.md` 与 `docs/`:代码注释不替代它们,用户不读源码
+- **文档站只用纯 JavaScript**,不引入 TypeScript:配置文件是 `docs/.vitepress/config.js`(靠 `package.json` 的 `"type": "module"` 走 ESM)
 
 ## bm2d 监督循环(严格遵守)
 

@@ -3,3 +3,9 @@
 _build/
 _build-wsl/
 nul
+
+# The docs site is the only JavaScript tooling in the repository. Its lockfile
+# is tracked; its dependencies and build output are not.
+docs/node_modules/
+docs/.vitepress/cache/
+docs/dist/
