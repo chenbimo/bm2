@@ -118,11 +118,11 @@ pub fn Supervisor::start_app(
     None => ()
   }
   if was_stopped {
-    match self.config_paths.get(app_name) {
-      Some(path) =>
+    match self.projects.get(app_name) {
+      Some(project) =>
         @utils.discard(() => {
           save_project(self.state_dir, app_name, {
-            config_path: path,
+            config_path: project.config_path,
             stopped: false,
           })
         })
@@ -246,11 +246,11 @@ pub fn Supervisor::pause_app(
     Some(project) => project.stopped = true
     None => ()
   }
-  match self.config_paths.get(app_name) {
-    Some(path) =>
+  match self.projects.get(app_name) {
+    Some(project) =>
       @utils.discard(() => {
         save_project(self.state_dir, app_name, {
-          config_path: path,
+          config_path: project.config_path,
           stopped: true,
         })
       })

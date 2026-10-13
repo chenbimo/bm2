@@ -82,11 +82,6 @@ pub struct Supervisor {
   /// the instance reaper cannot see it, and waiting for it in place would hold
   /// the tick. Bounded by `ORPHAN_REAP_LIMIT`.
   mut reaping : Array[(Int32, UInt64)]
-  /// Canonical config file of every registered project, keyed by name. A name is
-  /// the project's identity — state dir, logs, supervision and policy all hang
-  /// off it — so the same name may only ever be re-registered from the same file.
-  /// Keeping it here makes that a pure in-memory check inside the tick.
-  config_paths : Map[String, String]
   /// Every registered project, by name. The per-project state that used to be one
   /// map per concern lives in this value instead: adding a field is adding a
   /// field, not a new map plus a new cleanup obligation every place that forgets
@@ -174,7 +169,6 @@ pub fn Supervisor::new(
     commands: @aqueue.Queue::Queue(kind=Blocking(COMMAND_QUEUE_CAPACITY)),
     rotations: @aqueue.Queue::Queue(kind=Blocking(1)),
     reaping: [],
-    config_paths: Map([]),
     projects: Map([]),
     started_mono_ms: @proc.monotonic_ms(),
     commands_applied: 0UL,
@@ -208,8 +202,9 @@ pub fn Supervisor::register(
     Some(real) => real
     None => config_path
   }
-  match self.config_paths.get(name) {
-    Some(owner) if owner != canonical => raise NameTaken(name, owner)
+  match self.projects.get(name) {
+    Some(owner) if owner.config_path != canonical =>
+      raise NameTaken(name, owner.config_path)
     _ => ()
   }
   @fsx.mkdir_p("\{self.state_dir}/\{name}/logs", mode=0o700)
@@ -226,7 +221,6 @@ pub fn Supervisor::register(
   }
   self.pending_restart.remove(name)
   self.pending_remove.remove(name)
-  self.config_paths[name] = canonical
   // Registration preserves the stopped mark: recovery goes through here, and a
   // project the operator stopped has to stay stopped across a daemon restart.
   let was_stopped = self.is_stopped(name)
@@ -526,7 +520,6 @@ pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
   self.instances.remove(app_name)
   self.pending_restart.remove(app_name)
   self.pending_remove.remove(app_name)
-  self.config_paths.remove(app_name)
   self.projects.remove(app_name)
   self.stats_window.remove(app_name)
   self.storm_hits.remove(app_name)

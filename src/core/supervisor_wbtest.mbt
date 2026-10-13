@@ -387,7 +387,7 @@ test "a forgotten project leaves nothing behind" {
     Some(project) => project.stopped = true
     None => fail("expected the registered project")
   }
-  assert_true(sv.config_paths.contains(name))
+  assert_true(sv.projects.contains(name))
   sv.forget_app(name)
   // Every map keyed by the project name: the daemon's own nine, then the four the
   // notify side keeps.
@@ -395,7 +395,6 @@ test "a forgotten project leaves nothing behind" {
   assert_false(sv.instances.contains(name))
   assert_false(sv.pending_restart.contains(name))
   assert_false(sv.pending_remove.contains(name))
-  assert_false(sv.config_paths.contains(name))
   assert_false(sv.projects.contains(name))
   assert_false(sv.stats_window.contains(name))
   assert_false(sv.storm_hits.contains(name))
