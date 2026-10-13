@@ -56,11 +56,9 @@ e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了�
 
 ## 发布
 
-发布不在本仓库进行:版本递增、构建产物、上传下载站与 mooncakes 发布都由外部发布工具承担。
-
 本仓库的发布门禁是 `bash scripts/verify.sh --release`(fmt / check / 单测 / 构建 / e2e / 长跑 soak)。推 tag 时 `pre-push` 自动跑这一档,不推 tag 的普通推送只跑快档。
 
-版本号由发布流程同步写入 `moon.mod` 与 CLI 的 `VERSION` 常量,两者必须一致(verify.sh 与 pre-commit 校验)。
+版本号在 `moon.mod` 与 CLI 的 `VERSION` 常量里必须一致(verify.sh 与 pre-commit 校验)。
 
 ## 提交格式(严格遵守)
 
