@@ -9,33 +9,13 @@ fn hex_pair(value : Int32) -> String {
 }
 
 ///|
-/// Escape a string for embedding inside a JSON double-quoted literal:
-/// quotes, backslashes and the C/JSON control escapes; other control
-/// characters become `\u00XX`.
-pub fn json_escape(text : String) -> String {
-  let buf = StringBuilder()
-  for c in text {
-    match c {
-      '"' => buf.write_string("\\\"")
-      '\\' => buf.write_string("\\\\")
-      '\n' => buf.write_string("\\n")
-      '\r' => buf.write_string("\\r")
-      '\t' => buf.write_string("\\t")
-      _ =>
-        if c.to_int() < 0x20 {
-          buf.write_string("\\u00" + hex_pair(c.to_int()))
-        } else {
-          buf.write_char(c)
-        }
-    }
-  }
-  buf.to_string()
-}
-
-///|
-/// A JSON string literal: the text, escaped and wrapped in quotes.
+/// A JSON string literal: the text, escaped and wrapped in quotes. The escaping
+/// comes from the standard library, which is the part worth not hand-writing: a
+/// body carrying a quote or a control character must not be able to break out of
+/// the literal, and an escaped alert body reaches a third-party platform
+/// verbatim.
 pub fn jstr(text : String) -> String {
-  "\"" + json_escape(text) + "\""
+  @json.to_json(text).stringify()
 }
 
 ///|

@@ -1,12 +1,12 @@
 ///|
-test "json_escape/control_and_quotes" {
-  assert_eq(json_escape("a\"b\\c\nd\te"), "a\\\"b\\\\c\\nd\\te")
-  assert_eq(json_escape("\u{01}"), "\\u0001")
-}
-
-///|
+/// `jstr` is the defence between a log line and the JSON document it travels in:
+/// a quote or a control character in a body must not be able to break out of the
+/// literal. The escaping itself is the standard library's, so what this pins is
+/// the wire contract.
 test "jstr/wraps_and_escapes" {
   assert_eq(jstr("say \"hi\""), "\"say \\\"hi\\\"\"")
+  assert_eq(jstr("a\"b\\c\nd\te"), "\"a\\\"b\\\\c\\nd\\te\"")
+  assert_eq(jstr("\u{01}"), "\"\\u0001\"")
 }
 
 ///|

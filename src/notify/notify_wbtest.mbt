@@ -51,10 +51,17 @@ test "request signing matches the platforms' published vectors" {
 }
 
 ///|
+/// `jstr` is the whole defence between an alert body and the JSON literal it
+/// travels in: a quote or a control character in a log line must not be able to
+/// break out of it. The escaping itself is the standard library's, so what is
+/// pinned here is the wire contract, not an implementation.
 test "escaping survives the json layer" {
-  assert_eq(@utils.json_escape("a\"b\\c\nd"), "a\\\"b\\\\c\\nd")
-  assert_eq(@utils.json_escape("\u{1}"), "\\u0001")
+  assert_eq(@utils.jstr("a\"b\\c\nd"), "\"a\\\"b\\\\c\\nd\"")
+  assert_eq(@utils.jstr("\u{1}"), "\"\\u0001\"")
+  assert_eq(@utils.jstr("\u{1b}"), "\"\\u001b\"")
   assert_eq(@utils.jstr("x"), "\"x\"")
+  // Multibyte text travels as UTF-8, unescaped.
+  assert_eq(@utils.jstr("中文😀"), "\"中文😀\"")
   assert_eq(@utils.url_encode("a b/c?d=e&f"), "a%20b%2Fc%3Fd%3De%26f")
   assert_eq(@utils.url_encode("中文"), "%E4%B8%AD%E6%96%87")
   assert_eq(@utils.url_encode("AZaz09-_.~"), "AZaz09-_.~")
