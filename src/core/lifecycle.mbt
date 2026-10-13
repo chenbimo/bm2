@@ -185,7 +185,10 @@ pub fn Supervisor::remove_app(
   force~ : Bool = false,
 ) -> Unit raise {
   self.pending_restart.remove(app_name)
-  self.pending_remove[app_name] = ()
+  match self.projects.get(app_name) {
+    Some(project) => project.removing = true
+    None => ()
+  }
   let app = self.app_config(app_name)
   let (title, body) = render_msg(
     app.notify.lang,

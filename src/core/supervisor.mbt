@@ -56,7 +56,6 @@ pub struct Supervisor {
   apps : Map[String, @config.Config]
   instances : Map[String, Array[Instance]]
   pending_restart : Map[String, Unit]
-  pending_remove : Map[String, Unit]
   state_dir : String
   /// Runtime path used when a project does not pick `node`. Only tests
   /// override it (they drive the loop with /bin/sh); production keeps bun.
@@ -159,7 +158,6 @@ pub fn Supervisor::new(
     apps: Map([]),
     instances: Map([]),
     pending_restart: Map([]),
-    pending_remove: Map([]),
     state_dir,
     bun_path,
     memory_interval_ms,
@@ -220,7 +218,6 @@ pub fn Supervisor::register(
     }
   }
   self.pending_restart.remove(name)
-  self.pending_remove.remove(name)
   // Registration preserves the stopped mark: recovery goes through here, and a
   // project the operator stopped has to stay stopped across a daemon restart.
   let was_stopped = self.is_stopped(name)
@@ -447,8 +444,11 @@ fn Supervisor::try_save_state(self : Supervisor, inst : Instance) -> Unit {
 /// project is never listed or re-adopted after a daemon restart.
 fn Supervisor::check_removals(self : Supervisor) -> Unit {
   let ready = []
-  for pair in self.pending_remove.iter() {
-    let (name, _) = pair
+  for pair in self.projects.iter() {
+    let (name, project) = pair
+    if !project.removing {
+      continue
+    }
     let mut all_stopped = true
     match self.instances.get(name) {
       Some(arr) =>
@@ -490,7 +490,11 @@ pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
     restarts += 1
   }
   let mut removals = 0
-  for _ in self.pending_remove.iter() {
+  for pair in self.projects.iter() {
+    let (_, project) = pair
+    if !project.removing {
+      continue
+    }
     removals += 1
   }
   {
@@ -519,7 +523,6 @@ pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
   self.apps.remove(app_name)
   self.instances.remove(app_name)
   self.pending_restart.remove(app_name)
-  self.pending_remove.remove(app_name)
   self.projects.remove(app_name)
   self.stats_window.remove(app_name)
   self.storm_hits.remove(app_name)
