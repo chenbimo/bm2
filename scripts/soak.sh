@@ -4,7 +4,8 @@
 # slow leak; this is where "grows a little every cycle" shows up.
 #
 # Run from the repository root in WSL:  bash scripts/soak.sh
-# Or as part of the release gate:      bash scripts/verify.sh --release
+# Manual by rule — no hook, no CI job and no release step runs this; the gate
+# they run is the fast verify only.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)

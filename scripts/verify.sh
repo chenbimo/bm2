@@ -1,9 +1,11 @@
 #!/bin/bash
 # Run from the Remote-WSL terminal: bash scripts/verify.sh
-# Default gate: fmt / check / unit tests / native build.
-# Pass --with-e2e to also run the end-to-end suite — that full gate belongs
-# to the release flow (run it manually before publishing), not to everyday
-# commits.
+# Default gate: fmt / check / unit tests / native build. This fast gate is the
+# only one anything automatic runs — the pre-commit and pre-push hooks, and CI.
+#
+# --with-e2e adds the end-to-end suite, --release adds the soak on top of it.
+# Both are manual by rule: minutes each, so no hook, no CI job and no release
+# step runs them. Run them by hand, when the change warrants it.
 set -euo pipefail
 
 WITH_E2E=0
@@ -101,5 +103,5 @@ if [ "$WITH_E2E" = "1" ]; then
     bash "$root/scripts/soak.sh"
   fi
 else
-  echo "verify: fmt/check/unit/build ok (e2e and soak run via --with-e2e / --release)"
+  echo "verify: fmt/check/unit/build ok (--with-e2e and --release are manual, minutes-long gates)"
 fi

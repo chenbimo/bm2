@@ -48,15 +48,17 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 1. **快检**(改完即跑,秒级):`moon check --deny-warn --warn-list +implicit_impl_as_method --target-dir _build-wsl`(单模块下无需指定包路径)
 2. **模块测试**(功能完成时,十秒级):`moon test --target native`
-3. **全量**(批次收尾一次):`bash scripts/verify.sh`(fmt / check / 单测 / 构建);交付或发布前加 `--with-e2e` 跑端到端
+3. **全量**(批次收尾一次):`bash scripts/verify.sh`(fmt / check / 单测 / 构建)。交付或发布前的端到端属于手动档,见下
 
 e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了多少还添脆弱);测试内的 sleep 是真实时序语义,不为速度压缩。
+
+**耗时的用例只手动跑(严格)**:e2e 与 soak 都是分钟级,任何无人值守的流程——pre-commit、pre-push(含打 tag 推送)、CI、发布——都**不执行**它们,只跑第 1、2、3 档。手动入口只有两个:`bash scripts/verify.sh --with-e2e`(仅 e2e)与 `--release`(e2e + soak)。
 
 测试文件命名:`*_wbtest.mbt` 是白盒(测包内部实现,可直接调私有成员),`*_test.mbt` 是黑盒(测包的公开 API,用 `@包名.` 前缀调用);两者都放各包目录内,e2e 用例单独在 `scripts/e2e/`。
 
 ## 发布
 
-本仓库的发布门禁是 `bash scripts/verify.sh --release`(fmt / check / 单测 / 构建 / e2e / 长跑 soak)。推 tag 时 `pre-push` 自动跑这一档,不推 tag 的普通推送只跑快档。
+本仓库的发布门禁是 `bash scripts/verify.sh`(fmt / check / 单测 / 构建);推 tag 时 `pre-push` 跑的也是这一档。e2e 与 soak 属于手动档,发布同样不自动执行它们——见上文「测试粒度」。
 
 版本号在 `moon.mod` 与 CLI 的 `VERSION` 常量里必须一致(verify.sh 与 pre-commit 校验)。
 
