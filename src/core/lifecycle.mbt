@@ -129,7 +129,7 @@ pub fn Supervisor::start_app(
       None => ()
     }
   }
-  if self.pending_restart.contains(app_name) {
+  if self.is_restarting(app_name) {
     raise Conflict(app_name)
   }
   let app = self.app_config(app_name)
@@ -142,7 +142,10 @@ pub fn Supervisor::start_app(
     }
   }
   if any_running {
-    self.pending_restart[app_name] = ()
+    match self.projects.get(app_name) {
+      Some(project) => project.restarting = true
+      None => ()
+    }
   } else {
     self.spawn_fresh(app_name)
   }
@@ -153,7 +156,10 @@ pub fn Supervisor::start_app(
 /// Clears any pending full restart so a kill during a restart window
 /// cannot resurrect the app afterwards.
 pub fn Supervisor::stop_app(self : Supervisor, app_name : String) -> Unit raise {
-  self.pending_restart.remove(app_name)
+  match self.projects.get(app_name) {
+    Some(project) => project.restarting = false
+    None => ()
+  }
   let app = self.app_config(app_name)
   let (title, body) = render_msg(app.notify.lang, ProjectStopped(app_name))
   self.notify_project(
@@ -184,9 +190,11 @@ pub fn Supervisor::remove_app(
   app_name : String,
   force~ : Bool = false,
 ) -> Unit raise {
-  self.pending_restart.remove(app_name)
   match self.projects.get(app_name) {
-    Some(project) => project.removing = true
+    Some(project) => {
+      project.restarting = false
+      project.removing = true
+    }
     None => ()
   }
   let app = self.app_config(app_name)

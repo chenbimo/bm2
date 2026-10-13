@@ -393,7 +393,6 @@ test "a forgotten project leaves nothing behind" {
   // notify side keeps.
   assert_false(sv.apps.contains(name))
   assert_false(sv.instances.contains(name))
-  assert_false(sv.pending_restart.contains(name))
   assert_false(sv.projects.contains(name))
   assert_false(sv.stats_window.contains(name))
   assert_false(sv.storm_hits.contains(name))

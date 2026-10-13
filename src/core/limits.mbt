@@ -115,7 +115,10 @@ fn Supervisor::stop_for_reuseport(
     body,
     "reuseport_missing|" + app.name,
   )
-  self.pending_restart.remove(app.name)
+  match self.projects.get(app.name) {
+    Some(project) => project.restarting = false
+    None => ()
+  }
   match self.instances.get(app.name) {
     Some(arr) =>
       for inst in arr {

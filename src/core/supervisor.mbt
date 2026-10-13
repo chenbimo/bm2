@@ -55,7 +55,6 @@ pub extend SupervisorError with Show::{to_string, output}
 pub struct Supervisor {
   apps : Map[String, @config.Config]
   instances : Map[String, Array[Instance]]
-  pending_restart : Map[String, Unit]
   state_dir : String
   /// Runtime path used when a project does not pick `node`. Only tests
   /// override it (they drive the loop with /bin/sh); production keeps bun.
@@ -157,7 +156,6 @@ pub fn Supervisor::new(
   {
     apps: Map([]),
     instances: Map([]),
-    pending_restart: Map([]),
     state_dir,
     bun_path,
     memory_interval_ms,
@@ -217,7 +215,6 @@ pub fn Supervisor::register(
       self.instances[name] = arr
     }
   }
-  self.pending_restart.remove(name)
   // Registration preserves the stopped mark: recovery goes through here, and a
   // project the operator stopped has to stay stopped across a daemon restart.
   let was_stopped = self.is_stopped(name)
@@ -306,7 +303,7 @@ pub fn Supervisor::app_names(self : Supervisor) -> Array[String] {
 /// True when the app has no operation in flight: no pending full restart
 /// and every instance reached a visible terminal state.
 pub fn Supervisor::settled(self : Supervisor, app_name : String) -> Bool {
-  if self.pending_restart.contains(app_name) {
+  if self.is_restarting(app_name) {
     return false
   }
   match self.instances.get(app_name) {
@@ -486,7 +483,11 @@ pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
     instances += arr.length()
   }
   let mut restarts = 0
-  for _ in self.pending_restart.iter() {
+  for pair in self.projects.iter() {
+    let (_, project) = pair
+    if !project.restarting {
+      continue
+    }
     restarts += 1
   }
   let mut removals = 0
@@ -522,7 +523,6 @@ pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
 pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
   self.apps.remove(app_name)
   self.instances.remove(app_name)
-  self.pending_restart.remove(app_name)
   self.projects.remove(app_name)
   self.stats_window.remove(app_name)
   self.storm_hits.remove(app_name)
@@ -603,8 +603,11 @@ fn Supervisor::check_restarts(self : Supervisor, now : UInt64) -> Unit {
 ///|
 fn Supervisor::check_pending(self : Supervisor) -> Unit {
   let ready = []
-  for pair in self.pending_restart.iter() {
-    let (name, _) = pair
+  for pair in self.projects.iter() {
+    let (name, project) = pair
+    if !project.restarting {
+      continue
+    }
     let mut all_stopped = true
     match self.instances.get(name) {
       Some(arr) =>
@@ -621,7 +624,10 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
     }
   }
   for name in ready {
-    self.pending_restart.remove(name)
+    match self.projects.get(name) {
+      Some(project) => project.restarting = false
+      None => ()
+    }
     if self.is_stopped(name) {
       continue
     }
@@ -816,6 +822,15 @@ fn Supervisor::check_reaps(self : Supervisor) -> Unit {
     }
   }
   self.reaping = keep
+}
+
+///|
+/// Whether a full restart is in flight for a project.
+fn Supervisor::is_restarting(self : Supervisor, name : String) -> Bool {
+  match self.projects.get(name) {
+    Some(project) => project.restarting
+    None => false
+  }
 }
 
 ///|
