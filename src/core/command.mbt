@@ -93,9 +93,8 @@ fn Supervisor::cmd_remove(
       } noraise {
         _ => ()
       }
-      match self.projects.get(name) {
-        Some(project) => project.stopped = false
-        None => ()
+      if self.projects.get(name) is Some(project) {
+        project.stopped = false
       }
       @protocol.Response::ok("removing", self.infos_of([name]))
     }

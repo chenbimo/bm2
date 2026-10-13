@@ -113,21 +113,16 @@ pub fn Supervisor::start_app(
   // what puts it back under supervision, and the persisted copy has to follow, or
   // the next daemon restart would stop it again.
   let was_stopped = self.is_stopped(app_name)
-  match self.projects.get(app_name) {
-    Some(project) => project.stopped = false
-    None => ()
+  if self.projects.get(app_name) is Some(project) {
+    project.stopped = false
   }
-  if was_stopped {
-    match self.projects.get(app_name) {
-      Some(project) =>
-        @utils.discard(() => {
-          save_project(self.state_dir, app_name, {
-            config_path: project.config_path,
-            stopped: false,
-          })
-        })
-      None => ()
-    }
+  if was_stopped && self.projects.get(app_name) is Some(project) {
+    @utils.discard(() => {
+      save_project(self.state_dir, app_name, {
+        config_path: project.config_path,
+        stopped: false,
+      })
+    })
   }
   if self.is_restarting(app_name) {
     raise Conflict(app_name)
@@ -142,9 +137,8 @@ pub fn Supervisor::start_app(
     }
   }
   if any_running {
-    match self.projects.get(app_name) {
-      Some(project) => project.restarting = true
-      None => ()
+    if self.projects.get(app_name) is Some(project) {
+      project.restarting = true
     }
   } else {
     self.spawn_fresh(app_name)
@@ -156,9 +150,8 @@ pub fn Supervisor::start_app(
 /// Clears any pending full restart so a kill during a restart window
 /// cannot resurrect the app afterwards.
 pub fn Supervisor::stop_app(self : Supervisor, app_name : String) -> Unit raise {
-  match self.projects.get(app_name) {
-    Some(project) => project.restarting = false
-    None => ()
+  if self.projects.get(app_name) is Some(project) {
+    project.restarting = false
   }
   let app = self.app_config(app_name)
   let (title, body) = render_msg(app.notify.lang, ProjectStopped(app_name))
@@ -190,12 +183,9 @@ pub fn Supervisor::remove_app(
   app_name : String,
   force~ : Bool = false,
 ) -> Unit raise {
-  match self.projects.get(app_name) {
-    Some(project) => {
-      project.restarting = false
-      project.removing = true
-    }
-    None => ()
+  if self.projects.get(app_name) is Some(project) {
+    project.restarting = false
+    project.removing = true
   }
   let app = self.app_config(app_name)
   let (title, body) = render_msg(
@@ -253,18 +243,15 @@ pub fn Supervisor::pause_app(
   app_name : String,
 ) -> Unit raise {
   self.stop_app(app_name)
-  match self.projects.get(app_name) {
-    Some(project) => project.stopped = true
-    None => ()
+  if self.projects.get(app_name) is Some(project) {
+    project.stopped = true
   }
-  match self.projects.get(app_name) {
-    Some(project) =>
-      @utils.discard(() => {
-        save_project(self.state_dir, app_name, {
-          config_path: project.config_path,
-          stopped: true,
-        })
+  if self.projects.get(app_name) is Some(project) {
+    @utils.discard(() => {
+      save_project(self.state_dir, app_name, {
+        config_path: project.config_path,
+        stopped: true,
       })
-    None => ()
+    })
   }
 }
