@@ -474,16 +474,12 @@ async fn wait_notify_results(
 }
 
 ///|
-/// How long to wait for a test delivery: one `timeout_ms` per target plus
-/// margin, capped so a pathological endpoint count cannot pin the request. The
-/// CLI derives its own request timeout from the same shape of bound, so it
-/// gives up first and reports the timeout to the user.
-fn test_wait_budget_ms(
-  policy : @config.NotifyConfig,
-  targets : Int32,
-) -> UInt64 {
-  let count = if targets > 0 { targets } else { 1 }
-  let budget = policy.timeout_ms.to_uint64() * count.to_uint64()
+/// How long to wait for a test delivery: one `timeout_ms` plus margin — targets
+/// are delivered in parallel, so the wait is the slowest of them, not their sum.
+/// Capped so a pathological endpoint count cannot pin the request; the CLI derives
+/// its own request timeout from the same shape of bound, so it gives up first.
+fn test_wait_budget_ms(policy : @config.NotifyConfig) -> UInt64 {
+  let budget = policy.timeout_ms.to_uint64()
   let capped = if budget > 120000UL { 120000UL } else { budget }
   capped + 2000UL
 }
@@ -546,8 +542,7 @@ async fn cmd_notify(
     endpoints,
     @core.test_message(@utils.now_ms(), lang=policy.lang),
   )
-  let results = match
-    wait_notify_results(reply, test_wait_budget_ms(policy, endpoints.length())) {
+  let results = match wait_notify_results(reply, test_wait_budget_ms(policy)) {
     Some(results) => results
     None =>
       return @protocol.Response::error(

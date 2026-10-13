@@ -4,19 +4,21 @@
 /// credential-free reason.
 
 ///|
-/// Deliver one message to many targets, one request each, sequentially.
-/// Returns `(target name, failure)` pairs in input order.
+/// Deliver one message to many targets, all of them in flight at once.
+/// Delivery is best-effort by design — an alert is worth sending even when a
+/// target is down — so the fan-out costs nothing but wall-clock: the wait is the
+/// slowest target instead of the sum of every target's timeout. Results come back
+/// in input order.
 pub async fn deliver_all(
   targets : Array[Target],
   msg : Message,
   timeout_ms : Int32,
   ctx : Context,
 ) -> Array[(String, String?)] {
-  let results = []
-  for target in targets {
-    results.push((target.name, deliver(target, msg, timeout_ms, ctx)))
-  }
-  results
+  let attempts : Array[async () -> (String, String?)] = targets.map(fn(target) {
+    async fn() { (target.name, deliver(target, msg, timeout_ms, ctx)) }
+  })
+  @async.all(attempts)
 }
 
 ///|
