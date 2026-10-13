@@ -20,6 +20,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## 目录结构
 
+- `specs/` — 行为契约(编号 + 状态 + 覆盖测试):任务模型、命令面、线协议、配置、日志、通知、状态与恢复、spawn、自升级。**契约正文在 `specs/`,本文件只做索引**
 - `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
 - `src/config` — bm2.toml 解析与校验(`[notify]` 订阅过滤也在此层)
 - `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
@@ -103,8 +104,8 @@ git config core.hooksPath .githooks
 
 ## 硬性约定
 
-- **动词按层次分**:`kill` 只管守护进程(无参形态);应用的生命周期由 `stop`(停下留册)、`remove`(退役除名,`-f` 连状态目录一起清)与 `clean`(清无主目录)表达,不允许再出现「某个动词顺手管一下应用」的写法
-- **项目是一个值**:一个项目的一切(配置、路径、实例、标记、统计、探测记录)都装在 `Project` 里,以名字为键的表只有一张 `projects`。新增项目级状态就是给 `Project` 加字段,不是新开一张表加一处注销——散落的表会让「注销」变成一件必须记得很多次的事,而人一定会忘
+- **动词按层次分**:`kill` 只管守护进程;应用生命周期由 `stop`/`remove`/`clean` 表达——契约见 `specs/03-command-surface.md`
+- **项目是一个值**:项目级状态一律进 `Project`,不以名字散落在多张表里——契约见 `specs/02-project-identity.md`
 - 仅 Linux(内核 >= 5.3,pidfd),不引入跨平台抽象层
 - 配置不执行 shell 字符串;启动命令固定为参数数组
 - 环境变量值不得写入状态文件、事件、crash 日志或 CLI 输出
