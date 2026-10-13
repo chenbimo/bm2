@@ -36,6 +36,11 @@ async fn run() -> Int32 {
         positionals=[optional_name("Project to stop")],
       ),
       @argparse.Command(
+        "remove",
+        about="Retire a project: stop it, free its name, keep its logs",
+        positionals=[optional_name("Project to remove")],
+      ),
+      @argparse.Command(
         "kill",
         about="Stop and unregister a project",
         flags=[

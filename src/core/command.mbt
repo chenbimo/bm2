@@ -66,6 +66,40 @@ fn Supervisor::cmd_stop(self : Supervisor, app : String?) -> @protocol.Response 
 }
 
 ///|
+/// Retire a project: stop it, then unregister it, so the name is free again and
+/// its supervision state is gone. The logs stay — they are the operator's record
+/// of what the project did, and deleting them is a separate, explicit act on the
+/// client side (`bm2 remove -f` purges the state directory once the project is
+/// gone).
+fn Supervisor::cmd_remove(
+  self : Supervisor,
+  app : String?,
+) -> @protocol.Response {
+  match app {
+    None => @protocol.Response::error("remove requires a project name")
+    Some(name) => {
+      // An unknown name is an error, not a no-op: silently "removing" something
+      // that was never registered would hide a typo.
+      try self.app_config(name) catch {
+        e => return @protocol.Response::error(e.to_string())
+      } noraise {
+        _ => ()
+      }
+      // Graceful: SIGTERM with the usual escalation behind it. `check_removals`
+      // finalizes once every instance has stopped, exactly as `kill` does.
+      try self.stop_app(name) catch {
+        e => return @protocol.Response::error(e.to_string())
+      } noraise {
+        _ => ()
+      }
+      self.pending_remove[name] = ()
+      self.stopped.remove(name)
+      @protocol.Response::ok("removing", self.infos_of([name]))
+    }
+  }
+}
+
+///|
 /// The queue control requests arrive on. `tick` drains it, so a command is
 /// applied within one tick of arriving.
 pub fn Supervisor::commands(self : Supervisor) -> @aqueue.Queue[Command] {
@@ -100,6 +134,7 @@ pub fn Supervisor::handle_command(self : Supervisor, command : Command) -> Unit 
   let (response, exit) = match req.command {
     "list" => (self.cmd_list(req.app), ExitMode::Stay)
     "stop" => (self.cmd_stop(req.app), ExitMode::Stay)
+    "remove" => (self.cmd_remove(req.app), ExitMode::Stay)
     "start" => (self.cmd_start(req), ExitMode::Stay)
     "kill" => self.cmd_kill(req.app)
     "reload" => (@protocol.Response::ok("reloading", []), ExitMode::Detach)
