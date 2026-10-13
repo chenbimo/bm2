@@ -17,8 +17,17 @@ pub(all) struct Project {
   config_path : String
   /// The project's instances. Rebuilt in place when the instance count or the
   /// config generation changes; the instance records themselves are mutated
-  /// through the array, which is why this is the one mutable field here.
+  /// through the array, which is why this is the one mutable array field here.
   mut instances : Array[Instance]
+  /// Rolling stats window since the last report: peak RSS and automatic
+  /// restarts. Cleared when a report takes it.
+  mut stats : StatsWindow
+  /// Restart timestamps inside the storm window. Replaced when it is trimmed.
+  mut storm_hits : Array[UInt64]
+  /// Instance id → the spawn generation already probed for a missing listener, so
+  /// each spawn is judged once. Keyed by instance id because the project is what
+  /// this record belongs to: the name no longer has to be part of the key.
+  probe_done : Map[Int32, UInt64]
   /// A full restart is in flight: the old generation is stopping.
   mut restarting : Bool
   /// Retiring: the state is released once every instance has stopped.

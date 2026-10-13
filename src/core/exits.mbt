@@ -232,13 +232,11 @@ fn Supervisor::record_storm_hit(
   app_name : String,
   now : UInt64,
 ) -> Unit {
-  let hits = match self.storm_hits.get(app_name) {
-    Some(hits) => hits
-    None => {
-      let fresh : Array[UInt64] = []
-      self.storm_hits[app_name] = fresh
-      fresh
-    }
+  // A restart storm only ever concerns a project supervision is running, so the
+  // array is fetched, not created: hits are pushed into it in place.
+  let hits = match self.projects.get(app_name) {
+    Some(project) => project.storm_hits
+    None => []
   }
   hits.push(now)
   ignore(storm_hit_count(hits, now, STORM_WINDOW_MS))

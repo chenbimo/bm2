@@ -35,17 +35,17 @@ pub fn Supervisor::check_notify(self : Supervisor, now_mono : UInt64) -> Unit {
             self.notify_instance(inst, "threshold", "warn", title, body)
           }
           if policy.start_timeout_ms > 0 && inst.status is Online {
-            let probe_key = app_name + "/" + inst.instance_id.to_string()
-            let probed = match self.start_probe_done.get(probe_key) {
-              Some(generation) => generation
-              None => 0UL
-            }
+            let probed = self.probed_generation(app_name, inst.instance_id)
             if probed != inst.started_mono_ms &&
               now_mono >=
               inst.started_mono_ms + policy.start_timeout_ms.to_uint64() {
               let rc = @proc.probe_reuseport(inst.port)
               if rc == 0 {
-                self.start_probe_done[probe_key] = inst.started_mono_ms
+                self.note_probed(
+                  app_name,
+                  inst.instance_id,
+                  inst.started_mono_ms,
+                )
                 let (title, body) = render_msg(
                   policy.lang,
                   StartTimeout(inst.port, policy.start_timeout_ms),
@@ -53,7 +53,11 @@ pub fn Supervisor::check_notify(self : Supervisor, now_mono : UInt64) -> Unit {
                 self.notify_instance(inst, "start_timeout", "warn", title, body)
               } else if rc > 0 {
                 // Listening (shared or exclusive) — settled for this spawn.
-                self.start_probe_done[probe_key] = inst.started_mono_ms
+                self.note_probed(
+                  app_name,
+                  inst.instance_id,
+                  inst.started_mono_ms,
+                )
               }
               // rc < 0: probe itself failed; retry on the next pass.
             }
@@ -98,8 +102,8 @@ pub fn Supervisor::check_notify(self : Supervisor, now_mono : UInt64) -> Unit {
       }
     }
     if policy.enabled && policy.threshold_storm > 0 {
-      let hits = match self.storm_hits.get(app_name) {
-        Some(hits) => hits
+      let hits = match self.projects.get(app_name) {
+        Some(project) => project.storm_hits
         None => []
       }
       let count = storm_hit_count(hits, now_mono, STORM_WINDOW_MS)

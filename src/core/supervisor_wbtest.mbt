@@ -30,13 +30,19 @@ fn wb_setup(root : String, port : Int32) -> Supervisor raise {
 test "unregistering a project drops its in-memory state" {
   let root = "/tmp/bm2-wbtest-forget-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4453)
-  sv.stats_window["wbapp"] = { peak_kb: 1024, restarts: 2, }
-  sv.storm_hits["wbapp"] = [1UL, 2UL]
-  sv.start_probe_done["wbapp/0"] = 42UL
+  // The rolling state lives inside the project record now, so the assertion is
+  // about the record: forgetting it takes the stats, the storm history and the
+  // probe marks with it.
+  match sv.projects.get("wbapp") {
+    Some(project) => {
+      project.stats = { peak_kb: 1024, restarts: 2, }
+      project.storm_hits = [1UL, 2UL]
+      project.probe_done[0] = 42UL
+    }
+    None => fail("expected the registered project")
+  }
   sv.forget_app("wbapp")
-  assert_true(sv.stats_window.get("wbapp") is None)
-  assert_true(sv.storm_hits.get("wbapp") is None)
-  assert_true(sv.start_probe_done.get("wbapp/0") is None)
+  assert_true(sv.projects.get("wbapp") is None)
   // The delivery side is reached by message, never by sharing state: the queue
   // must carry the Forget for this project.
   let notice = try sv.outbound().try_get() catch {
@@ -212,8 +218,8 @@ test "recorded storm hits are pruned on write" {
   for i in 0..<200 {
     sv.record_storm_hit("wbapp", 1000UL + i.to_uint64())
   }
-  let hits = match sv.storm_hits.get("wbapp") {
-    Some(hits) => hits
+  let hits = match sv.projects.get("wbapp") {
+    Some(project) => project.storm_hits
     None => []
   }
   assert_eq(hits.length(), 200)
@@ -377,24 +383,20 @@ test "a forgotten project leaves nothing behind" {
   let root = "/tmp/bm2-wbtest-forget-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4480)
   let name = "wbapp"
-  // Touch the per-project maps a live project fills in, so that "nothing left
-  // behind" is a statement about cleared state rather than about empty maps.
-  sv.storm_hits[name] = [1UL]
-  // The probe map is keyed by `app/instance`, which is what `drop_app_keys`
-  // matches on — the real convention, so this asserts the real cleanup.
-  sv.start_probe_done[name + "/0"] = 1UL
+  // Touch the rolling state a live project fills in, so that "nothing left
+  // behind" is a statement about cleared state rather than about empty records.
   match sv.projects.get(name) {
-    Some(project) => project.stopped = true
+    Some(project) => {
+      project.storm_hits = [1UL]
+      project.probe_done[0] = 1UL
+      project.stopped = true
+    }
     None => fail("expected the registered project")
   }
   assert_true(sv.projects.contains(name))
   sv.forget_app(name)
-  // Every map keyed by the project name: the daemon's own nine, then the four the
-  // notify side keeps.
+  // The project record, then the four maps the notify side keeps.
   assert_false(sv.projects.contains(name))
-  assert_false(sv.stats_window.contains(name))
-  assert_false(sv.storm_hits.contains(name))
-  assert_false(sv.start_probe_done.contains(name + "/0"))
   let notify = sv.notifier()
   assert_false(notify.offline_since.contains(name))
   assert_false(notify.cpu_samples.contains(name))

@@ -95,14 +95,6 @@ pub struct Supervisor {
   notify : Notifier
   mut last_notify_check_ms : UInt64
   mut last_schedule_check_ms : UInt64
-  /// Per project: rolling stats window since the last stats push
-  /// (peak sampled RSS in kB, automatic restarts).
-  stats_window : Map[String, StatsWindow]
-  /// Per project: restart timestamps inside the storm window.
-  storm_hits : Map[String, Array[UInt64]]
-  /// Instance key → the spawn generation (started_mono_ms) already probed
-  /// for a missing listener, so each spawn is judged once.
-  start_probe_done : Map[String, UInt64]
 }
 
 ///|
@@ -167,9 +159,6 @@ pub fn Supervisor::new(
     notify: Notifier::new(state_dir, @proc.hostname(), outbound),
     last_notify_check_ms: 0UL,
     last_schedule_check_ms: 0UL,
-    stats_window: Map([]),
-    storm_hits: Map([]),
-    start_probe_done: Map([]),
   }
 }
 
@@ -217,13 +206,29 @@ pub fn Supervisor::register(
   // Registration preserves the stopped mark: recovery goes through here, and a
   // project the operator stopped has to stay stopped across a daemon restart.
   let was_stopped = self.is_stopped(name)
+  // A re-registration refreshes the config and keeps the rolling state: the stats
+  // window, the storm history and the probe marks belong to the project's life,
+  // not to one registration of it.
+  let previous = self.projects.get(name)
   self.projects[name] = {
     config,
     config_path: canonical,
+    instances,
+    stats: match previous {
+      Some(project) => project.stats
+      None => { peak_kb: 0, restarts: 0, }
+    },
+    storm_hits: match previous {
+      Some(project) => project.storm_hits
+      None => []
+    },
+    probe_done: match previous {
+      Some(project) => project.probe_done
+      None => Map([])
+    },
     restarting: false,
     removing: false,
     stopped: was_stopped,
-    instances,
   }
   @utils.discard(() => {
     save_project(self.state_dir, name, {
@@ -525,9 +530,6 @@ pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
 /// numbers — and the test next to this function lists them all.
 pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
   self.projects.remove(app_name)
-  self.stats_window.remove(app_name)
-  self.storm_hits.remove(app_name)
-  drop_app_keys(self.start_probe_done, app_name)
   // The notify side owns four more per-project maps (`offline_since`,
   // `cpu_samples`, `rss_peak`, `rss_peak_daily`); this is the call that clears
   // them, and `publish_forget` drops whatever the delivery side still holds.
@@ -826,6 +828,39 @@ fn Supervisor::check_reaps(self : Supervisor) -> Unit {
     }
   }
   self.reaping = keep
+}
+
+///|
+/// The spawn generation already probed for an instance's listener, or 0 when it
+/// was never probed. Keyed by instance id inside the project's record: the project
+/// is what the mark belongs to, so the name is no longer part of the key.
+fn Supervisor::probed_generation(
+  self : Supervisor,
+  app_name : String,
+  id : Int32,
+) -> UInt64 {
+  match self.projects.get(app_name) {
+    Some(project) =>
+      match project.probe_done.get(id) {
+        Some(generation) => generation
+        None => 0UL
+      }
+    None => 0UL
+  }
+}
+
+///|
+/// Record that this spawn generation has been probed. The map is mutated in place,
+/// so the field needs no `mut`.
+fn Supervisor::note_probed(
+  self : Supervisor,
+  app_name : String,
+  id : Int32,
+  generation : UInt64,
+) -> Unit {
+  if self.projects.get(app_name) is Some(project) {
+    project.probe_done[id] = generation
+  }
 }
 
 ///|

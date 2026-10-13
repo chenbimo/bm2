@@ -52,7 +52,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了多少还添脆弱);测试内的 sleep 是真实时序语义,不为速度压缩。
 
-**耗时的用例只手动跑(严格)**:e2e 与 soak 都是分钟级,任何无人值守的流程——pre-commit、pre-push(含打 tag 推送)、CI、发布——都**不执行**它们,只跑第 1、2、3 档。手动入口只有两个:`bash scripts/verify.sh --with-e2e`(仅 e2e)与 `--release`(e2e + soak)。
+**耗时的用例只手动跑(严格)**:e2e 与 soak 都是分钟级,任何无人值守的流程——pre-commit、pre-push(含打 tag 推送)、CI、发布——都**不执行**它们,只跑第 1、2、3 档。手动入口只有两个:`bash scripts/verify.sh --with-e2e`(仅 e2e)与 `--release`(e2e + soak)。**AI 助手同样不主动执行**:没有用户的明确指令,不得运行 e2e 与 soak,批次收尾的验证止于第 3 档。
 
 测试文件命名:`*_wbtest.mbt` 是白盒(测包内部实现,可直接调私有成员),`*_test.mbt` 是黑盒(测包的公开 API,用 `@包名.` 前缀调用);两者都放各包目录内,e2e 用例单独在 `scripts/e2e/`。
 

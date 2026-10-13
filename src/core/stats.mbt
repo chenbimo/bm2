@@ -1,16 +1,15 @@
 ///|
-/// Fold an RSS sample into the project's stats window.
+/// Fold an RSS sample into the project's stats window. A name that is not
+/// registered is not an error and not an entry: there is nothing to sample.
 fn Supervisor::record_stats_peak(
   self : Supervisor,
   app_name : String,
   kb : Int32,
 ) -> Unit {
-  match self.stats_window.get(app_name) {
-    Some(w) =>
-      if kb > w.peak_kb {
-        self.stats_window[app_name] = { ..w, peak_kb: kb, }
-      }
-    None => self.stats_window[app_name] = { peak_kb: kb, restarts: 0, }
+  if self.projects.get(app_name) is Some(project) {
+    if kb > project.stats.peak_kb {
+      project.stats = { ..project.stats, peak_kb: kb, }
+    }
   }
 }
 
@@ -20,9 +19,9 @@ fn Supervisor::record_stats_restart(
   self : Supervisor,
   app_name : String,
 ) -> Unit {
-  match self.stats_window.get(app_name) {
-    Some(w) => self.stats_window[app_name] = { ..w, restarts: w.restarts + 1, }
-    None => self.stats_window[app_name] = { peak_kb: 0, restarts: 1, }
+  if self.projects.get(app_name) is Some(project) {
+    let window = project.stats
+    project.stats = { ..window, restarts: window.restarts + 1, }
   }
 }
 
@@ -32,10 +31,12 @@ fn Supervisor::take_stats_window(
   self : Supervisor,
   app_name : String,
 ) -> StatsWindow {
-  let w = match self.stats_window.get(app_name) {
-    Some(w) => w
+  match self.projects.get(app_name) {
+    Some(project) => {
+      let taken = project.stats
+      project.stats = { peak_kb: 0, restarts: 0, }
+      taken
+    }
     None => { peak_kb: 0, restarts: 0, }
   }
-  self.stats_window[app_name] = { peak_kb: 0, restarts: 0, }
-  w
 }
