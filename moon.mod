@@ -20,6 +20,6 @@ keywords = [ "bun", "nodejs", "process-manager", "linux" ]
 
 import {
   "moonbit-community/toml@0.5.0",
-  "moonbitlang/x@0.5.1",
+  "moonbitlang/x@0.5.5",
   "moonbitlang/async@0.22.4",
 }
