@@ -283,6 +283,13 @@ OUT=$(bm2 reload extra 2>&1)
 check "reload extra arg rejected" 2 "$?"
 OUT=$(bm2 kill -y slow 2>&1)
 check "kill -y with app rejected" 2 "$?"
+OUT=$(bm2 kill slow 2>&1)
+check "kill with app rejected" 1 "$?"
+if echo "$OUT" | grep -q "kill no longer takes a project" && echo "$OUT" | grep -q "bm2 remove slow"; then
+  PASS=$((PASS + 1)); echo "PASS: kill with app points to stop/remove"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: kill with app points to stop/remove (got [$OUT])"
+fi
 mkdir -p "$ACC/noconfig"
 OUT=$(cd "$ACC/noconfig" && bm2 start 2>&1)
 check "start without config rejected" 1 "$?"
