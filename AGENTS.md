@@ -11,6 +11,13 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 - Windows 侧自动化调用统一走 `wsl -d Debian --cd /mnt/c/codes/moonbit/bm2 -- bash <脚本>`
 - **产品文案**:面向全球开发者,CLI 帮助/输出/错误与通知文案统一英文,不做 i18n;README 用单文件内嵌双语;事件日志与状态文件保持语言中立键
 
+## 依赖库的使用(严格遵守)
+
+- **判断依赖库的能力、边界与错误行为,一律读它的源码**:模块依赖在 `.mooncakes/<组织>/<包>/src/`,随编译器发布的 core 在 WSL 的 `/root/.moon/lib/core/`。凡是要下「某个 API 会不会抛错、支不支持某语义」这类结论,先读实现,并在结论里给出源码位置
+- **`.mbti` 只能当索引,或者干脆不读**:它不显示推断出来的错误类型——`@fs` 的 `.mbti` 里 `// Errors` 段是空的,而 `@fs.rename` 实际 `raise @os_error.OSError`。据此判断「失败即 abort」会得出完全相反的结论(已实证:轮转一度因此改用存在性探测,后全部回退为 try/catch)。拿不准时,读实现,或写一个临时探针用例跑一次
+- **新增依赖前先确认它还在维护**,并优先用 core 自带的那份(core 随编译器发布,不必进 `moon.mod`)
+- **测试专用依赖用 `import { ... } for "wbtest"` 声明**(`moon.pkg` 支持按目标声明依赖,可参考 `moonbitlang/core/json` 的写法):既避开 `unused_package` 告警,也不进发布产物
+
 ## 目录结构
 
 - `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
