@@ -36,6 +36,30 @@ fn check_summary(config : @config.Config) -> String {
   } else {
     buf.write_string("\nnotify: disabled")
   }
+  // Pre-flight the listener ports: otherwise the first sign of a clash is the app
+  // crashing on EADDRINUSE after a start. This project's own running instances
+  // show up here too, which is why the wording stays neutral.
+  let last_port = if config.exec_mode == "cluster" {
+    config.port
+  } else {
+    config.port + config.instances - 1
+  }
+  let held = []
+  for port in config.port..<(last_port + 1) {
+    match @proc.probe_reuseport(port) {
+      1 => held.push((port, "shared"))
+      2 => held.push((port, "exclusive"))
+      _ => ()
+    }
+  }
+  if held.is_empty() {
+    buf.write_string("\nports \{config.port}~\{last_port}: free")
+  } else {
+    for pair in held {
+      let (port, kind) = pair
+      buf.write_string("\nport \{port}: already held by a \{kind} listener")
+    }
+  }
   buf.to_string()
 }
 
