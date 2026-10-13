@@ -22,7 +22,7 @@ pub fn Supervisor::check_notify(self : Supervisor, now_mono : UInt64) -> Unit {
   self.last_notify_check_ms = now_mono
   for app_name in self.app_names() {
     let policy = self.project_policy(app_name)
-    match self.instances.get(app_name) {
+    match self.instances_of(app_name) {
       Some(arr) =>
         for inst in arr {
           let key = app_name + "/" + inst.instance_id.to_string()

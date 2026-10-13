@@ -53,7 +53,6 @@ pub extend SupervisorError with Show::{to_string, output}
 /// request handler, both of which run on the daemon's single thread — so
 /// no field here needs locking.
 pub struct Supervisor {
-  instances : Map[String, Array[Instance]]
   state_dir : String
   /// Runtime path used when a project does not pick `node`. Only tests
   /// override it (they drive the loop with /bin/sh); production keeps bun.
@@ -153,7 +152,6 @@ pub fn Supervisor::new(
     kind=Blocking(NOTIFY_INBOUND_CAPACITY),
   )
   {
-    instances: Map([]),
     state_dir,
     bun_path,
     memory_interval_ms,
@@ -203,13 +201,18 @@ pub fn Supervisor::register(
   }
   @fsx.mkdir_p("\{self.state_dir}/\{name}/logs", mode=0o700)
   // Instances are built once, on first registration; a re-registration only
-  // refreshes the config, and the loop below keeps the launch counters.
-  if !self.instances.contains(name) {
-    let arr = []
-    for id in 0..<config.instances {
-      arr.push(Instance::new(config, id))
+  // refreshes the config, and the rebuild below keeps the launch counters.
+  // They are computed before the entry below because the entry is what holds
+  // them: there is no moment where the array exists and the project does not.
+  let instances = match self.instances_of(name) {
+    Some(existing) => existing
+    None => {
+      let arr = []
+      for id in 0..<config.instances {
+        arr.push(Instance::new(config, id))
+      }
+      arr
     }
-    self.instances[name] = arr
   }
   // Registration preserves the stopped mark: recovery goes through here, and a
   // project the operator stopped has to stay stopped across a daemon restart.
@@ -220,6 +223,7 @@ pub fn Supervisor::register(
     restarting: false,
     removing: false,
     stopped: was_stopped,
+    instances,
   }
   @utils.discard(() => {
     save_project(self.state_dir, name, {
@@ -235,7 +239,7 @@ pub fn Supervisor::instance(
   app_name : String,
   instance_id : Int32,
 ) -> Instance raise SupervisorError {
-  match self.instances.get(app_name) {
+  match self.instances_of(app_name) {
     Some(arr) => arr[instance_id]
     None => raise UnknownApp(app_name)
   }
@@ -246,8 +250,8 @@ pub fn Supervisor::app_instances(
   self : Supervisor,
   app_name : String,
 ) -> Array[Instance] raise SupervisorError {
-  match self.instances.get(app_name) {
-    Some(arr) => arr
+  match self.projects.get(app_name) {
+    Some(project) => project.instances
     None => raise UnknownApp(app_name)
   }
 }
@@ -277,8 +281,9 @@ pub fn Supervisor::rotations(
 ///|
 pub fn Supervisor::snapshot(self : Supervisor) -> Array[Instance] {
   let result = []
-  for pair in self.instances.iter() {
-    let (_, arr) = pair
+  for pair in self.projects.iter() {
+    let (_, project) = pair
+    let arr = project.instances
     for inst in arr {
       result.push(inst)
     }
@@ -303,7 +308,7 @@ pub fn Supervisor::settled(self : Supervisor, app_name : String) -> Bool {
   if self.is_restarting(app_name) {
     return false
   }
-  match self.instances.get(app_name) {
+  match self.instances_of(app_name) {
     Some(arr) => {
       for inst in arr {
         match inst.status {
@@ -444,7 +449,7 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
       continue
     }
     let mut all_stopped = true
-    match self.instances.get(name) {
+    match self.instances_of(name) {
       Some(arr) =>
         for inst in arr {
           if inst.pid != 0 {
@@ -475,8 +480,9 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
 /// What the daemon reports about itself in a `list` answer.
 pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
   let mut instances = 0
-  for pair in self.instances.iter() {
-    let (_, arr) = pair
+  for pair in self.projects.iter() {
+    let (_, project) = pair
+    let arr = project.instances
     instances += arr.length()
   }
   let mut restarts = 0
@@ -518,7 +524,6 @@ pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
 /// cross-project leak — the name would keep answering with a dead project's
 /// numbers — and the test next to this function lists them all.
 pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
-  self.instances.remove(app_name)
   self.projects.remove(app_name)
   self.stats_window.remove(app_name)
   self.storm_hits.remove(app_name)
@@ -553,8 +558,9 @@ const REUSEPORT_PROBE_TIMEOUT_MS : UInt64 = 60000UL
 
 ///|
 fn Supervisor::check_deadlines(self : Supervisor, now : UInt64) -> Unit {
-  for pair in self.instances.iter() {
-    let (_, arr) = pair
+  for pair in self.projects.iter() {
+    let (_, project) = pair
+    let arr = project.instances
     for inst in arr {
       if inst.kill_deadline_ms != 0UL && now >= inst.kill_deadline_ms {
         inst.kill_deadline_ms = 0UL
@@ -568,8 +574,9 @@ fn Supervisor::check_deadlines(self : Supervisor, now : UInt64) -> Unit {
 
 ///|
 fn Supervisor::check_restarts(self : Supervisor, now : UInt64) -> Unit {
-  for pair in self.instances.iter() {
-    let (name, arr) = pair
+  for pair in self.projects.iter() {
+    let (name, project) = pair
+    let arr = project.instances
     // A project stopped on purpose is never brought back by supervision; only
     // `bm2 start` clears the mark. Checked before anything else in this pass so
     // no scheduling below can resurrect it.
@@ -605,7 +612,7 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
       continue
     }
     let mut all_stopped = true
-    match self.instances.get(name) {
+    match self.instances_of(name) {
       Some(arr) =>
         for inst in arr {
           if inst.pid != 0 {
@@ -641,7 +648,7 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
 /// structural changes (instances count, ports, script) take effect here.
 fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
   let app = self.app_config(app_name)
-  let old = self.instances.get(app_name)
+  let old = self.instances_of(app_name)
   let arr = []
   for id in 0..<app.instances {
     let inst = Instance::new(app, id)
@@ -669,7 +676,9 @@ fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
       }
     None => ()
   }
-  self.instances[app_name] = arr
+  if self.projects.get(app_name) is Some(project) {
+    project.instances = arr
+  }
   for inst in arr {
     // One instance's spawn failure must not abort the loop: the failure
     // is already marked and retried with backoff by mark_spawn_failed,
@@ -924,6 +933,20 @@ fn signal_name(sig : Int32) -> String {
 fn Supervisor::config_of(self : Supervisor, name : String) -> @config.Config? {
   match self.projects.get(name) {
     Some(project) => Some(project.config)
+    None => None
+  }
+}
+
+///|
+/// A project's instances, or None when the name is not registered. The counterpart
+/// of `app_instances` for callers that treat "not registered" as a normal case,
+/// and now the one place instances are read from.
+fn Supervisor::instances_of(
+  self : Supervisor,
+  name : String,
+) -> Array[Instance]? {
+  match self.projects.get(name) {
+    Some(project) => Some(project.instances)
     None => None
   }
 }

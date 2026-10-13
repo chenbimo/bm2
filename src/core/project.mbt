@@ -15,6 +15,10 @@ pub(all) struct Project {
   /// Canonical config file this project was registered from. Canonical so that
   /// the same file reached through a symlink or `..` compares equal.
   config_path : String
+  /// The project's instances. Rebuilt in place when the instance count or the
+  /// config generation changes; the instance records themselves are mutated
+  /// through the array, which is why this is the one mutable field here.
+  mut instances : Array[Instance]
   /// A full restart is in flight: the old generation is stopping.
   mut restarting : Bool
   /// Retiring: the state is released once every instance has stopped.

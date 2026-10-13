@@ -97,7 +97,7 @@ pub fn Supervisor::notify_project(
   signature : String,
 ) -> Unit {
   let now = @utils.now_ms()
-  let instances = match self.instances.get(app_name) {
+  let instances = match self.instances_of(app_name) {
     Some(arr) => arr.length()
     None => 0
   }
@@ -144,7 +144,7 @@ pub fn Supervisor::notify_daemon_started(
 ///|
 /// Online instance count of one project, for the daemon start notice.
 pub fn Supervisor::online_count(self : Supervisor, app_name : String) -> Int32 {
-  match self.instances.get(app_name) {
+  match self.instances_of(app_name) {
     Some(arr) => arr.filter(fn(inst) { inst.status is Online }).length()
     None => 0
   }
@@ -241,7 +241,7 @@ fn Supervisor::build_report(
   let lines = []
   let mut online = 0
   let mut other = 0
-  match self.instances.get(app_name) {
+  match self.instances_of(app_name) {
     Some(arr) =>
       for inst in arr {
         if inst.status is Online {

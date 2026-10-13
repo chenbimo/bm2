@@ -40,8 +40,9 @@ fn Supervisor::check_reuseport(self : Supervisor, now : UInt64) -> Unit {
     return
   }
   self.last_reuseport_probe_ms = now
-  for pair in self.instances.iter() {
-    let (name, arr) = pair
+  for pair in self.projects.iter() {
+    let (name, project) = pair
+    let arr = project.instances
     let app = match self.config_of(name) {
       Some(app) => app
       None => continue
@@ -119,7 +120,7 @@ fn Supervisor::stop_for_reuseport(
   if self.projects.get(app.name) is Some(project) {
     project.restarting = false
   }
-  match self.instances.get(app.name) {
+  match self.instances_of(app.name) {
     Some(arr) =>
       for inst in arr {
         inst.reuseport = ReuseExclusive
@@ -137,8 +138,9 @@ fn Supervisor::stop_for_reuseport(
 
 ///|
 fn Supervisor::check_memory(self : Supervisor) -> Unit {
-  for pair in self.instances.iter() {
-    let (name, arr) = pair
+  for pair in self.projects.iter() {
+    let (name, project) = pair
+    let arr = project.instances
     let app = match self.config_of(name) {
       Some(app) => app
       None => continue

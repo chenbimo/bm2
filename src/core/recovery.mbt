@@ -59,8 +59,9 @@ pub fn Supervisor::load_projects(self : Supervisor) -> Unit {
 /// when the pid is gone; mark pid_conflict (never signal the process)
 /// when a different program occupies the pid.
 pub fn Supervisor::recover(self : Supervisor) -> Unit {
-  for pair in self.instances.iter() {
-    let (name, arr) = pair
+  for pair in self.projects.iter() {
+    let (name, project) = pair
+    let arr = project.instances
     for inst in arr {
       let path = state_path(self.state_dir, name, inst.instance_id)
       if !@fs.path_exists(path) {

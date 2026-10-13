@@ -4,8 +4,9 @@
 /// (ECHILD), so their exit is detected with the pidfd readability check
 /// and recorded as an unknown exit.
 fn Supervisor::reap(self : Supervisor) -> Unit {
-  for pair in self.instances.iter() {
-    let (name, arr) = pair
+  for pair in self.projects.iter() {
+    let (name, project) = pair
+    let arr = project.instances
     // Both maps are written together, so a missing config means the
     // project is mid-removal and has nothing left to supervise.
     let app = match self.config_of(name) {

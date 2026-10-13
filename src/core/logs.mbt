@@ -19,8 +19,9 @@ const LOG_CHECK_INTERVAL_MS : UInt64 = 10000UL
 /// accept.
 fn Supervisor::publish_rotation(self : Supervisor) -> Unit {
   let jobs : Array[@log.RotateJob] = []
-  for pair in self.instances.iter() {
-    let (name, arr) = pair
+  for pair in self.projects.iter() {
+    let (name, project) = pair
+    let arr = project.instances
     // The project owns its rotation policy. A project registered before the
     // `[logs]` table existed, or one that omits it, gets the built-in policy.
     let policy = match self.config_of(name) {
