@@ -112,8 +112,11 @@ pub fn Supervisor::start_app(
   // Starting a project is also how a stopped one resumes: clearing the mark is
   // what puts it back under supervision, and the persisted copy has to follow, or
   // the next daemon restart would stop it again.
-  let was_stopped = self.stopped.contains(app_name)
-  self.stopped.remove(app_name)
+  let was_stopped = self.is_stopped(app_name)
+  match self.projects.get(app_name) {
+    Some(project) => project.stopped = false
+    None => ()
+  }
   if was_stopped {
     match self.config_paths.get(app_name) {
       Some(path) =>
@@ -239,7 +242,10 @@ pub fn Supervisor::pause_app(
   app_name : String,
 ) -> Unit raise {
   self.stop_app(app_name)
-  self.stopped[app_name] = ()
+  match self.projects.get(app_name) {
+    Some(project) => project.stopped = true
+    None => ()
+  }
   match self.config_paths.get(app_name) {
     Some(path) =>
       @utils.discard(() => {

@@ -45,7 +45,10 @@ pub fn Supervisor::load_projects(self : Supervisor) -> Unit {
     // Registered but not started: the mark is what keeps supervision from
     // bringing a project the operator stopped back to life.
     if info.stopped {
-      self.stopped[entry] = ()
+      match self.projects.get(entry) {
+        Some(project) => project.stopped = true
+        None => ()
+      }
     }
   }
 }

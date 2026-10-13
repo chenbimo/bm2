@@ -87,10 +87,11 @@ pub struct Supervisor {
   /// off it — so the same name may only ever be re-registered from the same file.
   /// Keeping it here makes that a pure in-memory check inside the tick.
   config_paths : Map[String, String]
-  /// Projects stopped on purpose. Supervision skips them entirely: only `bm2 start`
-  /// clears the mark, and it is persisted with the project so a daemon restart
-  /// does not bring a stopped project back.
-  stopped : Map[String, Unit]
+  /// Every registered project, by name. The per-project state that used to be one
+  /// map per concern lives in this value instead: adding a field is adding a
+  /// field, not a new map plus a new cleanup obligation every place that forgets
+  /// a project.
+  projects : Map[String, Project]
   /// When this daemon started, on the monotonic clock: the uptime it reports is
   /// a duration, so a system time change cannot distort it.
   started_mono_ms : UInt64
@@ -174,7 +175,7 @@ pub fn Supervisor::new(
     rotations: @aqueue.Queue::Queue(kind=Blocking(1)),
     reaping: [],
     config_paths: Map([]),
-    stopped: Map([]),
+    projects: Map([]),
     started_mono_ms: @proc.monotonic_ms(),
     commands_applied: 0UL,
     notify: Notifier::new(state_dir, @proc.hostname(), outbound),
@@ -226,12 +227,19 @@ pub fn Supervisor::register(
   self.pending_restart.remove(name)
   self.pending_remove.remove(name)
   self.config_paths[name] = canonical
-  // The stopped mark belongs to supervision, not to the registration: a project
-  // recovered at startup is registered again without losing it.
+  // Registration preserves the stopped mark: recovery goes through here, and a
+  // project the operator stopped has to stay stopped across a daemon restart.
+  let was_stopped = self.is_stopped(name)
+  self.projects[name] = {
+    config_path: canonical,
+    restarting: false,
+    removing: false,
+    stopped: was_stopped,
+  }
   @utils.discard(() => {
     save_project(self.state_dir, name, {
       config_path: canonical,
-      stopped: self.stopped.contains(name),
+      stopped: was_stopped,
     })
   })
 }
@@ -519,7 +527,7 @@ pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
   self.pending_restart.remove(app_name)
   self.pending_remove.remove(app_name)
   self.config_paths.remove(app_name)
-  self.stopped.remove(app_name)
+  self.projects.remove(app_name)
   self.stats_window.remove(app_name)
   self.storm_hits.remove(app_name)
   drop_app_keys(self.start_probe_done, app_name)
@@ -573,7 +581,7 @@ fn Supervisor::check_restarts(self : Supervisor, now : UInt64) -> Unit {
     // A project stopped on purpose is never brought back by supervision; only
     // `bm2 start` clears the mark. Checked before anything else in this pass so
     // no scheduling below can resurrect it.
-    if self.stopped.contains(name) {
+    if self.is_stopped(name) {
       continue
     }
     let app = match self.apps.get(name) {
@@ -618,7 +626,7 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
   }
   for name in ready {
     self.pending_restart.remove(name)
-    if self.stopped.contains(name) {
+    if self.is_stopped(name) {
       continue
     }
     // spawn_instance marks its own failures; nothing to do here.
@@ -812,6 +820,16 @@ fn Supervisor::check_reaps(self : Supervisor) -> Unit {
     }
   }
   self.reaping = keep
+}
+
+///|
+/// Whether a project is stopped on purpose. A name with no entry is not a
+/// registered project at all, and cannot be stopped.
+fn Supervisor::is_stopped(self : Supervisor, name : String) -> Bool {
+  match self.projects.get(name) {
+    Some(project) => project.stopped
+    None => false
+  }
 }
 
 ///|

@@ -93,7 +93,10 @@ fn Supervisor::cmd_remove(
       } noraise {
         _ => ()
       }
-      self.stopped.remove(name)
+      match self.projects.get(name) {
+        Some(project) => project.stopped = false
+        None => ()
+      }
       @protocol.Response::ok("removing", self.infos_of([name]))
     }
   }
@@ -268,7 +271,7 @@ fn Supervisor::infos_of(
         // purpose is the opposite — it stays in the registry and has to stay
         // visible, which is the whole point of `bm2 stop`. Only a project being
         // retired (`bm2 remove`) keeps its instances out of the listing.
-        if !(inst.status is Status::Stopped) || self.stopped.contains(name) {
+        if !(inst.status is Status::Stopped) || self.is_stopped(name) {
           infos.push(instance_info_of(inst, now_mono))
         }
       }

@@ -383,7 +383,10 @@ test "a forgotten project leaves nothing behind" {
   // The probe map is keyed by `app/instance`, which is what `drop_app_keys`
   // matches on — the real convention, so this asserts the real cleanup.
   sv.start_probe_done[name + "/0"] = 1UL
-  sv.stopped[name] = ()
+  match sv.projects.get(name) {
+    Some(project) => project.stopped = true
+    None => fail("expected the registered project")
+  }
   assert_true(sv.config_paths.contains(name))
   sv.forget_app(name)
   // Every map keyed by the project name: the daemon's own nine, then the four the
@@ -393,7 +396,7 @@ test "a forgotten project leaves nothing behind" {
   assert_false(sv.pending_restart.contains(name))
   assert_false(sv.pending_remove.contains(name))
   assert_false(sv.config_paths.contains(name))
-  assert_false(sv.stopped.contains(name))
+  assert_false(sv.projects.contains(name))
   assert_false(sv.stats_window.contains(name))
   assert_false(sv.storm_hits.contains(name))
   assert_false(sv.start_probe_done.contains(name + "/0"))
