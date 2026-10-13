@@ -1,10 +1,13 @@
 ///|
-/// `${VAR}` expansion for the notification credential fields: a bm2.toml that
-/// goes into a repository carries placeholders, the real endpoint and secret
-/// live in the environment of whichever process parses the config (the CLI
+/// `${VAR}` expansion for bm2.toml string values: a config that goes into a
+/// repository carries placeholders, while the real endpoint, secret or path
+/// lives in the environment of whichever process parses the config (the CLI
 /// for `bm2 start` / `bm2 notify`, the daemon for supervised reporting).
-/// Only [notify] goes through this — script paths and ports have no business
-/// depending on the shell.
+///
+/// It runs over the whole document — every string, at any depth, once before
+/// field extraction — so no field has to know that expansion exists. The
+/// notification credentials are what it was written for, and are still what
+/// needs it most.
 
 ///|
 /// Expand `${VAR}` references against the process environment. A variable
