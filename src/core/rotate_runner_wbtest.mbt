@@ -102,3 +102,18 @@ async test "copytruncate rotation empties the file in place" {
     @utf8.decode_lossy(@fsx.read_small(path + ".1")).contains("content\n"),
   )
 }
+
+///|
+/// A rotation that cannot finish has to report why rather than take the rotation
+/// task down with it: that task is the only thing bounding log growth, so it has
+/// to outlive one bad log file. A directory where a log should be is the cheapest
+/// deterministic failure — reading it raises, and the failure travels back as a
+/// value.
+async test "a rotation that cannot copy reports the reason" {
+  let path = "/tmp/bm2-wbtest-log-blocked/app.log"
+  @fsx.mkdir_p(path)
+  match @log.maybe_rotate_async(path, 1, copytruncate=true) {
+    Failed(reason) => assert_true(reason.length() > 0)
+    _ => fail("expected the rotation to report a failure")
+  }
+}

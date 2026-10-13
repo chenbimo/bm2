@@ -4,6 +4,10 @@
 /// every delivery and every accept behind it. So the expensive half lives here,
 /// where each filesystem call awaits, and the supervision task only publishes
 /// which files it wants swept.
+///
+/// Failures are values, not aborts: the async filesystem raises `OSError`, so a
+/// rotation that cannot finish reports why instead of taking the rotation task
+/// down with it.
 
 ///|
 /// How many archived generations a rotation keeps (`path.1` .. `path.10`).
@@ -23,34 +27,37 @@ pub(all) enum RotateOutcome {
 }
 
 ///|
-/// Size of a file in bytes, None when it is not there. The async filesystem
-/// reports errors by aborting rather than raising, so existence is checked
-/// instead of caught — the caller's question is only "is there anything to
-/// rotate".
+/// Size of a file in bytes, None when it is missing or unreadable. Rotation
+/// sweeps instances that have never written a line, so "not there" is a normal
+/// answer rather than an error worth reporting.
 async fn size_of(path : String) -> Int64? {
-  if @fs.exists(path) {
-    Some(@fs.file_size(path))
-  } else {
-    None
+  try @fs.file_size(path) catch {
+    _ => None
+  } noraise {
+    size => Some(size)
   }
 }
 
 ///|
-/// Drop one generation, ignoring a path that is not there. Log rotation runs
-/// over instances that have never written a line, so a missing file must be a
-/// no-op and not a failure the operator has to read about.
+/// Drop one generation, ignoring a path that is not there: dropping the oldest
+/// is best-effort in the chain, exactly as the C version treated it.
 async fn remove_quietly(path : String) -> Unit {
-  if @fs.exists(path) {
-    @fs.remove(path)
+  try @fs.remove(path) catch {
+    _ => ()
+  } noraise {
+    _ => ()
   }
 }
 
 ///|
-/// Rename one generation, ignoring a source that is not there. `replace` keeps
-/// rename(2) semantics: an existing destination is overwritten.
-async fn rename_quietly(src : String, dst : String) -> Unit {
-  if @fs.exists(src) {
-    @fs.rename(src, dst, replace=true)
+/// Shift one generation. A missing source is the normal case, and any other
+/// failure only leaves a gap in the chain, so neither earns a log line: the
+/// final rename or copy is what reports a failure.
+async fn rename_generation(src : String, dst : String) -> Unit {
+  try @fs.rename(src, dst, replace=true) catch {
+    _ => ()
+  } noraise {
+    _ => ()
   }
 }
 
@@ -61,7 +68,10 @@ async fn shift_chain(path : String) -> Unit {
   remove_quietly(path + "." + ROTATE_GENERATIONS.to_string())
   let mut i = ROTATE_GENERATIONS - 1
   while i >= 1 {
-    rename_quietly(path + "." + i.to_string(), path + "." + (i + 1).to_string())
+    rename_generation(
+      path + "." + i.to_string(),
+      path + "." + (i + 1).to_string(),
+    )
     i -= 1
   }
 }
@@ -90,7 +100,9 @@ async fn copy_truncate(path : String) -> Unit {
 
 ///|
 /// Rotate `path` once it exceeds `max_bytes`: copytruncate for logs held open
-/// by an app process, rename for logs the daemon writes itself.
+/// by an app process, rename for logs the daemon writes itself. A missing file
+/// is not an error, and a rotation that does fail reports the reason as a value
+/// rather than raising it into the task that called.
 pub async fn maybe_rotate_async(
   path : String,
   max_bytes : Int64,
@@ -102,12 +114,17 @@ pub async fn maybe_rotate_async(
       if size <= max_bytes {
         Skipped
       } else {
-        if copytruncate {
-          copy_truncate(path)
-        } else {
-          rename_rotate(path)
+        try {
+          if copytruncate {
+            copy_truncate(path)
+          } else {
+            rename_rotate(path)
+          }
+        } catch {
+          e => Failed(e.to_string())
+        } noraise {
+          _ => Rotated
         }
-        Rotated
       }
   }
 }
