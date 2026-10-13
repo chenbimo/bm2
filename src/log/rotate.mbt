@@ -17,6 +17,11 @@ pub(all) struct RotateJob {
   /// True when an app process holds the file open, so the content is copied out
   /// and the original emptied in place (copytruncate). False when the daemon
   /// writes the log itself, where a rename is enough.
+  ///
+  /// Copytruncate loses whatever the app writes between the copy and the
+  /// truncate. That is the price of rotating a file we hold no descriptor for,
+  /// not a defect to fix by renaming: after a rename the app keeps writing to
+  /// the old inode and the new file stays empty for good.
   copytruncate : Bool
   /// Rotate once the file is larger than this.
   max_bytes : Int64

@@ -3,6 +3,12 @@
 /// a way an older peer cannot read, so version skew between a freshly
 /// installed CLI and a still-running daemon is reported as such instead of
 /// surfacing as an unexplained decode failure.
+///
+/// A change the old peer *can* parse still needs a bump when its meaning
+/// moved: `force` was added this way, and a daemon that predates it would
+/// ignore the field, answer a forced retire with a graceful stop, and let the
+/// caller believe it succeeded. That silent case is the dangerous one — a
+/// decode failure at least announces itself.
 pub const PROTOCOL_VERSION : Int32 = 4
 
 ///|
