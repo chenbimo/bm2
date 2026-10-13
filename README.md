@@ -36,7 +36,9 @@ bm2 由命令行工具和后台守护进程组成，命令行通过本机 TCP + 
 **进程托管**
 
 - 一个 `bm2.toml` 配置**一个项目**（单个应用，一个或多个独立实例，上限 1024）。
-- 命令：`start`、`kill`、`list`、`check`、`reload`、`upgrade`、`version`、`notify`。
+- 命令：`start`、`stop`、`remove`、`clean`、`kill`、`list`、`check`、`reload`、`upgrade`、`version`、`notify`。
+- `stop` 停下但留在册（`start` 可恢复），`remove` 退役并交还名字（日志默认保留，`-f` 连状态目录一起清），`clean` 扫掉已无主的历史目录。
+- `kill` 只管守护进程本身：无参时杀掉全部应用并退出，需要 `-y` 确认。
 - 优雅停止：SIGTERM 宽限期后 SIGKILL；`start` 总是对其项目执行一次完整重启。
 
 **监督与自愈**

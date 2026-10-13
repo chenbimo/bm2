@@ -78,6 +78,13 @@ async fn run() -> Int32 {
         about="Send a test message to notification targets",
         positionals=[optional_name("Test only this target")],
       ),
+      @argparse.Command(
+        "clean",
+        about="Remove ownerless project directories from the state dir",
+        flags=[
+          @argparse.FlagArg("dry-run", about="Only list what would be removed"),
+        ],
+      ),
       @argparse.Command("upgrade", about="Upgrade bm2 and apply it seamlessly"),
       @argparse.Command("version", about="Show version"),
     ],
@@ -99,6 +106,7 @@ async fn run() -> Int32 {
     }
   }
   let json_flag = sub.flags.get("json") is Some(true)
+  let dry_run_flag = sub.flags.get("dry-run") is Some(true)
   let confirmed = sub.flags.get("all") is Some(true)
   let force_flag = sub.flags.get("force") is Some(true)
   let app_arg : String? = match sub.values.get("name") {
@@ -110,6 +118,7 @@ async fn run() -> Int32 {
       }
   }
   match command {
+    "clean" => return cmd_clean(state_dir, dry_run_flag)
     "upgrade" => return cmd_upgrade(state_dir)
     "version" => {
       println("bm2 " + VERSION)
@@ -377,4 +386,53 @@ fn purge_project(state_dir : String, name : String) -> Unit {
   })
   @utils.discard(() => @fs.remove_dir(logs))
   @utils.discard(() => @fs.remove_dir(root))
+}
+
+///|
+/// Sweep the state directory for ownerless projects. A directory without a
+/// `project.json` is a project nobody claims any more: it was retired
+/// (`bm2 remove` keeps logs on purpose) or its project directory was deleted
+/// without unregistering. The daemon's own files sit at the top level, so only
+/// directories are considered, and a registered project is never touched — the
+/// test is deliberately conservative, because deleting the logs of a project that
+/// is still in service is the one mistake this command must not be able to make.
+fn cmd_clean(state_dir : String, dry_run : Bool) -> Int32 {
+  let entries = try @fs.read_dir(state_dir) catch {
+    _ => return 0
+  } noraise {
+    found => found
+  }
+  let mut swept = 0
+  for entry in entries {
+    let root = state_dir + "/" + entry
+    let is_dir = try @fs.is_dir(root) catch {
+      _ => false
+    } noraise {
+      it => it
+    }
+    if !is_dir || @fs.path_exists(root + "/project.json") {
+      continue
+    }
+    swept += 1
+    if dry_run {
+      println("would remove " + root)
+    } else {
+      purge_project(state_dir, entry)
+      // `purge_project` only sweeps what bm2 writes. Anything else in there is
+      // not ours, so the directory stays and the operator is told why.
+      if @fs.path_exists(root) {
+        @proc.eprintln(
+          "bm2: left " + root + " in place: it holds files bm2 did not write",
+        )
+      } else {
+        println("removed " + root)
+      }
+    }
+  }
+  if dry_run {
+    println("\{swept} ownerless project directories listed, nothing removed")
+  } else {
+    println("\{swept} ownerless project directories removed")
+  }
+  0
 }
