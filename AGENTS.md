@@ -56,11 +56,11 @@ e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了�
 
 ## 发布
 
-发布(版本递增、构建产物、上传下载站、发 mooncakes)由 yicode-tech 仓库的 `scripts/famoonbit` 承担,本仓库不保留发布脚本。
+发布不在本仓库进行:版本递增、构建产物、上传下载站与 mooncakes 发布都由外部发布工具承担。
 
-发布门禁:`bash scripts/verify.sh --release`(fmt / check / 单测 / 构建 / e2e / 长跑 soak)。推 tag 时 `pre-push` 自动跑这一档,不推 tag 的普通推送只跑快档。
+本仓库的发布门禁是 `bash scripts/verify.sh --release`(fmt / check / 单测 / 构建 / e2e / 长跑 soak)。推 tag 时 `pre-push` 自动跑这一档,不推 tag 的普通推送只跑快档。
 
-版本号在发布时由 famoonbit 同步写入 `moon.mod` 与 CLI 的 `VERSION` 常量,两者必须一致(verify.sh 与 pre-commit 校验)。
+版本号由发布流程同步写入 `moon.mod` 与 CLI 的 `VERSION` 常量,两者必须一致(verify.sh 与 pre-commit 校验)。
 
 ## 提交格式(严格遵守)
 
@@ -68,7 +68,7 @@ e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了�
 [项目名](类型) 提交内容
 ```
 
-- **项目名**:代码与脚本用 `bm2`;仓库级配置(`.githooks`、`.github`、`README`、本文件、`LICENSE`)用 `root`
+- **项目名**:一律 `bm2`。单仓库单项目,没有第二个项目名
 - **类型**:`feat` / `fix` / `docs` / `refactor` / `test` / `chore`
 - **提交内容**:一句话说明,中文,结尾不加句号
 
@@ -76,7 +76,7 @@ e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了�
 
 ```text
 [bm2](feat) 新增 reload 命令
-[root](docs) 补充单模块结构说明
+[bm2](docs) 补充单模块结构说明
 ```
 
 Merge / Revert 提交豁免(git 生成首行,格式不适用)。提交格式由 `commit-msg` 钩子强制校验。

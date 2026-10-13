@@ -1,5 +1,5 @@
 #!/bin/bash
-# Enforce the workspace commit-message convention (see AGENTS.md):
+# Enforce the repository commit-message convention (see AGENTS.md):
 #
 #   [项目名](类型) 提交内容
 #
@@ -25,14 +25,14 @@ case "$first" in
     ;;
 esac
 
-# 单模块仓库:项目名只有 bm2(代码与脚本)和 root(仓库级配置)。
-if ! printf '%s' "$first" | grep -qE "^\[(bm2|root)\]\((feat|fix|docs|refactor|test|chore)\) [^ ].*$"; then
+# 单仓库单项目:项目名只有 bm2。
+if ! printf '%s' "$first" | grep -qE "^\[bm2\]\((feat|fix|docs|refactor|test|chore)\) [^ ].*$"; then
   cat <<EOF
-commit-msg: 提交说明不符合工作区约定(见根目录 AGENTS.md)。
+commit-msg: 提交说明不符合仓库约定(见根目录 AGENTS.md)。
 
   实际首行: $first
   要求格式: [项目名](类型) 提交内容
-    项目名: bm2(代码与脚本)或 root(仓库级配置)
+    项目名: bm2
     类型:   feat | fix | docs | refactor | test | chore
   示例:    [bm2](feat) 新增 reload 命令
 
