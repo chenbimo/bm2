@@ -115,3 +115,6 @@ extern "C" fn c_disk_free_kb(path : Bytes) -> Int64 = "proc_disk_free_kb"
 ///|
 #borrow(data)
 extern "C" fn c_write_fd(fd : Int32, data : Bytes) -> Int32 = "proc_write_fd"
+
+///|
+extern "C" fn c_kill(pid : Int32, sig : Int32) -> Int32 = "proc_kill"

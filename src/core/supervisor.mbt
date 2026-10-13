@@ -664,7 +664,9 @@ fn Supervisor::spawn_instance(
   // is treated as a spawn failure: an unmanaged process is unacceptable.
   let pidfd = try @proc.pidfd_open(pid) catch {
     e => {
-      @utils.discard(() => @proc.kill_group(pid, @proc.SIGKILL))
+      // Group first, pid after: the child has not called setsid() yet at this
+      // instant, so its group may not exist while its pid always does.
+      @proc.kill_fresh(pid, @proc.SIGKILL)
       // Hand the killed child to the tick's reaper: a failed spawn must leave no
       // zombie, but waiting for it here would block this tick for up to half a
       // second — on the one path where the process is already misbehaving.

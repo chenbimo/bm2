@@ -163,6 +163,13 @@ int32_t proc_kill_pg(int32_t pgid, int32_t sig) {
   return kill(-(pid_t)pgid, sig) == 0 ? 0 : -errno;
 }
 
+/* Kill a single pid. A freshly forked child may not have called setsid() yet, so
+ * signalling only its group can miss while the pid is already there. */
+MOONBIT_FFI_EXPORT
+int32_t proc_kill(int32_t pid, int32_t sig) {
+  return kill((pid_t)pid, sig) == 0 ? 0 : -errno;
+}
+
 MOONBIT_FFI_EXPORT
 int32_t proc_kill0(int32_t pid) {
   return kill((pid_t)pid, 0) == 0 ? 0 : -errno;

@@ -214,3 +214,34 @@ test "disk_free_kb/root_is_positive" {
 test "disk_free_kb/missing_path_is_none" {
   assert_eq(@proc.disk_free_kb("/nonexistent-bm2-probe"), None)
 }
+
+///|
+/// A freshly spawned child is killed even though it has not called setsid() yet:
+/// at that instant the group signal can miss, the pid signal cannot.
+test "kill_fresh reaches a child that has not built its group yet" {
+  let dir = "/tmp/bm2-kill-fresh-test-\{@proc.get_pid()}"
+  @fsx.mkdir_p(dir)
+  let pid = @proc.spawn({
+    bun_path: "/bin/sh",
+    script: "-c\u{0}sleep 30",
+    cwd: dir,
+    out_log: dir + "/kill.out.log",
+    err_log: dir + "/kill.err.log",
+    env_blob: @proc.instance_env_blob("testapp", 3, 4002),
+  })
+  // No settling delay on purpose: that window is the whole point of the fix.
+  @proc.kill_fresh(pid, @proc.SIGKILL)
+  let mut exit = None
+  for _ in 0..<50 {
+    match @proc.wait_child(pid, nohang=true) {
+      Some(reaped) => {
+        exit = Some(reaped)
+        break
+      }
+      None => @proc.sleep_ms(20)
+    }
+  }
+  assert_eq(exit, Some((pid, @proc.ChildExit::Signaled(@proc.SIGKILL))))
+  // Best-effort cleanup never raises, even with nothing left to signal.
+  @proc.kill_fresh(pid, @proc.SIGKILL)
+}
