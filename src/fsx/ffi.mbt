@@ -61,3 +61,7 @@ extern "C" fn c_read_small(path : Bytes, buf : Bytes, cap : Int32) -> Int32 = "f
 ///|
 #borrow(path)
 extern "C" fn c_dir_owner(path : Bytes) -> Int32 = "fsx_dir_owner"
+
+///|
+#borrow(path, buf)
+extern "C" fn c_realpath(path : Bytes, buf : Bytes, cap : Int32) -> Int32 = "fsx_realpath"

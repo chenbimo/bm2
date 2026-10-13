@@ -77,3 +77,22 @@ pub fn file_size(path : String) -> Int64? {
     Some(size)
   }
 }
+
+///|
+/// The canonical form of a path: symlinks resolved, `.` and `..` folded. None
+/// when it cannot be resolved (the file is missing, or a permission problem), so
+/// a caller can fall back to the spelling it had.
+///
+/// This is how the daemon decides whether two registrations name the same
+/// project: the same config file reached through a symlink or a relative path has
+/// to compare equal, or a legitimate `bm2 start` would look like a name conflict.
+pub fn realpath(path : String) -> String? {
+  let cap : Int32 = 4096
+  let buf = Bytes::make(cap, b'\x00')
+  let len = c_realpath(cstr(path), buf, cap)
+  if len < 0 {
+    None
+  } else {
+    Some(@utf8.decode_lossy(buf[:len]))
+  }
+}

@@ -3,6 +3,8 @@ pub(all) suberror SupervisorError {
   UnknownApp(String)
   Conflict(String)
   PortConflict(String)
+  /// A name is already registered by a different config file: (name, owner).
+  NameTaken(String, String)
   IoError(String)
   RuntimeRejected(String)
 }
@@ -17,6 +19,15 @@ pub impl Show for SupervisorError with fn output(self, logger) {
     Conflict(name) => {
       logger.write_string("operation already in progress for app: ")
       logger.write_string(name)
+    }
+    NameTaken(name, owner) => {
+      logger.write_string("app ")
+      logger.write_string(name)
+      logger.write_string(" is already registered by ")
+      logger.write_string(owner)
+      logger.write_string(
+        "; rename the project in bm2.toml, or retire the other one first",
+      )
     }
     PortConflict(message) => {
       logger.write_string("port conflict: ")
@@ -71,6 +82,11 @@ pub struct Supervisor {
   /// the instance reaper cannot see it, and waiting for it in place would hold
   /// the tick. Bounded by `ORPHAN_REAP_LIMIT`.
   mut reaping : Array[(Int32, UInt64)]
+  /// Canonical config file of every registered project, keyed by name. A name is
+  /// the project's identity — state dir, logs, supervision and policy all hang
+  /// off it — so the same name may only ever be re-registered from the same file.
+  /// Keeping it here makes that a pure in-memory check inside the tick.
+  config_paths : Map[String, String]
   /// When this daemon started, on the monotonic clock: the uptime it reports is
   /// a duration, so a system time change cannot distort it.
   started_mono_ms : UInt64
@@ -153,6 +169,7 @@ pub fn Supervisor::new(
     commands: @aqueue.Queue::Queue(kind=Blocking(COMMAND_QUEUE_CAPACITY)),
     rotations: @aqueue.Queue::Queue(kind=Blocking(1)),
     reaping: [],
+    config_paths: Map([]),
     started_mono_ms: @proc.monotonic_ms(),
     commands_applied: 0UL,
     notify: Notifier::new(state_dir, @proc.hostname(), outbound),
@@ -178,6 +195,17 @@ pub fn Supervisor::register(
 ) -> Unit raise {
   let name = config.name
   self.reject_port_conflict(config)
+  // Canonicalize before comparing: the same config file reached through a
+  // symlink, a relative path or `..` is the same project, and only a genuinely
+  // different file may not take the name over.
+  let canonical = match @fsx.realpath(config_path) {
+    Some(real) => real
+    None => config_path
+  }
+  match self.config_paths.get(name) {
+    Some(owner) if owner != canonical => raise NameTaken(name, owner)
+    _ => ()
+  }
   @fsx.mkdir_p("\{self.state_dir}/\{name}/logs", mode=0o700)
   match self.instances.get(name) {
     Some(_) => self.apps[name] = config
@@ -192,7 +220,10 @@ pub fn Supervisor::register(
   }
   self.pending_restart.remove(name)
   self.pending_remove.remove(name)
-  @utils.discard(() => save_project(self.state_dir, name, { config_path, }))
+  self.config_paths[name] = canonical
+  @utils.discard(() => {
+    save_project(self.state_dir, name, { config_path: canonical, })
+  })
 }
 
 ///|

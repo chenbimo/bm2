@@ -59,3 +59,19 @@ test "file_size reports bytes and missing files" {
   assert_eq(file_size(path), Some(5L))
   assert_eq(file_size(path + "/none"), None)
 }
+
+///|
+/// The daemon compares config paths to decide whether two registrations name the
+/// same project, so the comparison has to survive spelling differences.
+test "realpath canonicalizes, and reports what it cannot resolve" {
+  let dir = "/tmp/fsx-test-realpath"
+  mkdir_p(dir + "/sub")
+  write_atomic(dir + "/bm2.toml", @utf8.encode("name = \"app\"\n"))
+  let canonical = realpath(dir + "/bm2.toml")
+  assert_true(canonical is Some(_))
+  // The same file spelled with a redundant `.`, and through `..`: one answer.
+  assert_eq(realpath(dir + "/./bm2.toml"), canonical)
+  assert_eq(realpath(dir + "/sub/../bm2.toml"), canonical)
+  // A path that does not exist has no canonical form.
+  assert_eq(realpath(dir + "/nope.toml"), None)
+}

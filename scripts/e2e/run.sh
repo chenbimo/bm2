@@ -306,11 +306,23 @@ if echo "$OUT" | grep -q "port conflict"; then
 else
   FAIL=$((FAIL + 1)); echo "FAIL: port conflict message (got [$OUT])"
 fi
-# Same-name project in another directory updates the running project.
+# A different directory claiming the same name is refused: the name is the
+# project's identity (state dir, logs, policy), and the message names the file
+# that owns it.
 write_project slow2 slow 4261 slow.ts 1 1000
-(cd "$ACC/slow2" && bm2 start >/dev/null)
-check "same name updates existing project" "1" "$(bm2 list slow | grep -c '^slow ')"
-check "updated instance on 4261" "slow slow-0 production 4261 0" "$(wait_http 4261 "slow slow-0 production 4261 0")"
+OUT=$(cd "$ACC/slow2" && bm2 start 2>&1)
+check "same name from another directory rejected" 1 "$?"
+if echo "$OUT" | grep -q "already registered by $ACC/slow/bm2.toml"; then
+  PASS=$((PASS + 1)); echo "PASS: name owner reported"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: name owner reported (got [$OUT])"
+fi
+check "the owner keeps its instances" "3" "$(bm2 list slow | grep -c '^slow ')"
+# The same directory starting again is the update path, and still works: it
+# exits cleanly and the instances keep running under the refreshed config.
+(cd "$ACC/slow" && bm2 start >/dev/null 2>&1)
+check "same directory restart still updates" "0" "$?"
+check "owner still online after the update" "3" "$(bm2 list slow | grep -c ' online')"
 bm2 kill slow
 
 echo "===== T. long stop_timeout must not split the daemon ====="

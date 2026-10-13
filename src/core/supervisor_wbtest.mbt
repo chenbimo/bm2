@@ -332,3 +332,38 @@ test "check_reaps drops what it cannot reap, and the list stays bounded" {
   }
   assert_eq(sv.reaping.length(), ORPHAN_REAP_LIMIT)
 }
+
+///|
+/// A project's name is its identity: state dir, logs, supervision, policy. So the
+/// same name may not be re-registered from a different config file — which would
+/// put this project's policy in charge of another project's state — while the
+/// same project re-running `start` must keep working, however its path is spelled.
+test "a name may not be re-registered from a different config file" {
+  let root = "/tmp/bm2-wbtest-name-\{@proc.get_pid()}"
+  let sv = wb_setup(root, 4460)
+  let first = root + "/a/bm2.toml"
+  let second = root + "/b/bm2.toml"
+  @fsx.mkdir_p(root + "/a")
+  @fsx.mkdir_p(root + "/b")
+  @fsx.write_atomic(first, @utf8.encode("name = \"cfg\"\n"))
+  @fsx.write_atomic(second, @utf8.encode("name = \"cfg\"\n"))
+  let config = wb_config("other", root + "/a", 4470)
+  sv.register(config, first)
+  // Same file, one redundant `.` segment: still the same project.
+  sv.register(config, root + "/a/./bm2.toml")
+  // A different file claiming the name is refused, naming the owner.
+  let conflict = try {
+    sv.register(config, second)
+    ""
+  } catch {
+    e => e.to_string()
+  } noraise {
+    _ => ""
+  }
+  let owner = match @fsx.realpath(first) {
+    Some(real) => real
+    None => first
+  }
+  assert_true(conflict.contains("other"))
+  assert_true(conflict.contains(owner))
+}

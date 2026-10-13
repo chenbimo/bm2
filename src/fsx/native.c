@@ -216,3 +216,19 @@ int32_t fsx_dir_owner(moonbit_bytes_t path) {
   if (!S_ISDIR(st.st_mode)) return -ENOTDIR;
   return (int32_t)st.st_uid;
 }
+
+/* Resolve a path to its canonical form (symlinks, "." and ".." folded) into the
+ * caller's buffer. Returns the length written, or -errno.
+ *
+ * Project identity is a name plus the config file that registered it, and the
+ * same file reached through a symlink, a relative path or ".." has to compare
+ * equal — so both sides of that comparison are canonicalized through here. */
+MOONBIT_FFI_EXPORT
+int32_t fsx_realpath(moonbit_bytes_t path, moonbit_bytes_t buf, int32_t cap) {
+  char resolved[4096];
+  if (realpath((char *)path, resolved) == NULL) return -errno;
+  size_t len = strlen(resolved);
+  if (len > (size_t)cap) return -ENAMETOOLONG;
+  memcpy(buf, resolved, len);
+  return (int32_t)len;
+}
