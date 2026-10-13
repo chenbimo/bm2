@@ -8,7 +8,7 @@ fn Supervisor::reap(self : Supervisor) -> Unit {
     let (name, arr) = pair
     // Both maps are written together, so a missing config means the
     // project is mid-removal and has nothing left to supervise.
-    let app = match self.apps.get(name) {
+    let app = match self.config_of(name) {
       Some(app) => app
       None => continue
     }

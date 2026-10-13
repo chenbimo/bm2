@@ -10,6 +10,8 @@
 /// What stays on `Supervisor` is daemon-level: the state directory, the interval
 /// gates, the control and rotation queues, the notify subsystem.
 pub(all) struct Project {
+  /// The project's configuration, as last registered.
+  config : @config.Config
   /// Canonical config file this project was registered from. Canonical so that
   /// the same file reached through a symlink or `..` compares equal.
   config_path : String

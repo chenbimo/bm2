@@ -53,7 +53,6 @@ pub extend SupervisorError with Show::{to_string, output}
 /// request handler, both of which run on the daemon's single thread — so
 /// no field here needs locking.
 pub struct Supervisor {
-  apps : Map[String, @config.Config]
   instances : Map[String, Array[Instance]]
   state_dir : String
   /// Runtime path used when a project does not pick `node`. Only tests
@@ -154,7 +153,6 @@ pub fn Supervisor::new(
     kind=Blocking(NOTIFY_INBOUND_CAPACITY),
   )
   {
-    apps: Map([]),
     instances: Map([]),
     state_dir,
     bun_path,
@@ -204,21 +202,20 @@ pub fn Supervisor::register(
     _ => ()
   }
   @fsx.mkdir_p("\{self.state_dir}/\{name}/logs", mode=0o700)
-  match self.instances.get(name) {
-    Some(_) => self.apps[name] = config
-    None => {
-      let arr = []
-      for id in 0..<config.instances {
-        arr.push(Instance::new(config, id))
-      }
-      self.apps[name] = config
-      self.instances[name] = arr
+  // Instances are built once, on first registration; a re-registration only
+  // refreshes the config, and the loop below keeps the launch counters.
+  if !self.instances.contains(name) {
+    let arr = []
+    for id in 0..<config.instances {
+      arr.push(Instance::new(config, id))
     }
+    self.instances[name] = arr
   }
   // Registration preserves the stopped mark: recovery goes through here, and a
   // project the operator stopped has to stay stopped across a daemon restart.
   let was_stopped = self.is_stopped(name)
   self.projects[name] = {
+    config,
     config_path: canonical,
     restarting: false,
     removing: false,
@@ -292,7 +289,7 @@ pub fn Supervisor::snapshot(self : Supervisor) -> Array[Instance] {
 ///|
 pub fn Supervisor::app_names(self : Supervisor) -> Array[String] {
   let names = []
-  for pair in self.apps.iter() {
+  for pair in self.projects.iter() {
     let (name, _) = pair
     names.push(name)
   }
@@ -329,7 +326,7 @@ pub async fn Supervisor::wait_settled(
 ) -> Bool {
   let mut timeout = 0
   for name in names {
-    match self.apps.get(name) {
+    match self.config_of(name) {
       Some(app) =>
         if app.stop_timeout_ms > timeout {
           timeout = app.stop_timeout_ms
@@ -521,7 +518,6 @@ pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
 /// cross-project leak — the name would keep answering with a dead project's
 /// numbers — and the test next to this function lists them all.
 pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
-  self.apps.remove(app_name)
   self.instances.remove(app_name)
   self.projects.remove(app_name)
   self.stats_window.remove(app_name)
@@ -539,8 +535,8 @@ pub fn Supervisor::app_config(
   self : Supervisor,
   app_name : String,
 ) -> @config.Config raise SupervisorError {
-  match self.apps.get(app_name) {
-    Some(app) => app
+  match self.projects.get(app_name) {
+    Some(project) => project.config
     None => raise UnknownApp(app_name)
   }
 }
@@ -580,7 +576,7 @@ fn Supervisor::check_restarts(self : Supervisor, now : UInt64) -> Unit {
     if self.is_stopped(name) {
       continue
     }
-    let app = match self.apps.get(name) {
+    let app = match self.config_of(name) {
       Some(app) => app
       None => continue
     }
@@ -855,7 +851,7 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
   self.write_crash(inst, "spawn_failed")
   self.record_storm_hit(inst.app_name, @utils.now_ms())
   self.record_stats_restart(inst.app_name)
-  let app = match self.apps.get(inst.app_name) {
+  let app = match self.config_of(inst.app_name) {
     Some(app) => app
     None => return
   }
@@ -918,5 +914,16 @@ fn signal_name(sig : Int32) -> String {
     6 => "SIGABRT"
     11 => "SIGSEGV"
     _ => "SIG\{sig}"
+  }
+}
+
+///|
+/// A project's config, or None when the name is not registered. The counterpart of
+/// `app_config` for callers that treat "not registered" as a normal case rather
+/// than an error, and now the one place the config is read from.
+fn Supervisor::config_of(self : Supervisor, name : String) -> @config.Config? {
+  match self.projects.get(name) {
+    Some(project) => Some(project.config)
+    None => None
   }
 }

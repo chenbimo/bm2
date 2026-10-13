@@ -11,7 +11,7 @@ fn Supervisor::project_policy(
   self : Supervisor,
   app_name : String,
 ) -> @config.NotifyConfig {
-  match self.apps.get(app_name) {
+  match self.config_of(app_name) {
     Some(app) => app.notify
     None => @config.NotifyConfig::disabled()
   }
@@ -207,7 +207,7 @@ fn Supervisor::report_line(
     line = line + " · " + reason
   }
   if inst.restart_count > 0 {
-    match self.apps.get(inst.app_name) {
+    match self.config_of(inst.app_name) {
       Some(app) =>
         line = line +
           " · " +
@@ -259,7 +259,7 @@ fn Supervisor::build_report(
   let fields : Array[(String, String)] = [("host", self.notify.host)]
   fields.push(("online", online.to_string()))
   fields.push(("abnormal", other.to_string()))
-  match self.apps.get(app_name) {
+  match self.config_of(app_name) {
     Some(config) => {
       fields.push(("mode", config.exec_mode))
       fields.push(("port", config.port.to_string()))

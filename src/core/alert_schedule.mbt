@@ -192,7 +192,7 @@ pub fn Supervisor::notify_memory_pressure(
   if policy.threshold_rss_percent <= 0 {
     return
   }
-  let limit_kb = match self.apps.get(inst.app_name) {
+  let limit_kb = match self.config_of(inst.app_name) {
     Some(app) => app.max_memory_mb.to_int64() * 1024L
     None => 0L
   }

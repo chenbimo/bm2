@@ -391,7 +391,6 @@ test "a forgotten project leaves nothing behind" {
   sv.forget_app(name)
   // Every map keyed by the project name: the daemon's own nine, then the four the
   // notify side keeps.
-  assert_false(sv.apps.contains(name))
   assert_false(sv.instances.contains(name))
   assert_false(sv.projects.contains(name))
   assert_false(sv.stats_window.contains(name))

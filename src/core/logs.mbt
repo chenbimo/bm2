@@ -23,7 +23,7 @@ fn Supervisor::publish_rotation(self : Supervisor) -> Unit {
     let (name, arr) = pair
     // The project owns its rotation policy. A project registered before the
     // `[logs]` table existed, or one that omits it, gets the built-in policy.
-    let policy = match self.apps.get(name) {
+    let policy = match self.config_of(name) {
       Some(app) => app.logs
       None => @config.LogsConfig::builtin()
     }
@@ -97,7 +97,7 @@ fn Supervisor::write_crash(
   }
   if reason == "memory_limit" {
     buf.write_string(" rssMb=" + (inst.last_rss_kb / 1024).to_string())
-    let limit = match self.apps.get(inst.app_name) {
+    let limit = match self.config_of(inst.app_name) {
       Some(app) => app.max_memory_mb.to_string()
       None => "-"
     }

@@ -11,8 +11,9 @@ fn Supervisor::reject_port_conflict(
   } else {
     config.port + config.instances - 1
   }
-  for pair in self.apps.iter() {
-    let (_, other) = pair
+  for pair in self.projects.iter() {
+    let (_, project) = pair
+    let other = project.config
     let other_end = if other.exec_mode == "cluster" {
       other.port
     } else {
@@ -41,7 +42,7 @@ fn Supervisor::check_reuseport(self : Supervisor, now : UInt64) -> Unit {
   self.last_reuseport_probe_ms = now
   for pair in self.instances.iter() {
     let (name, arr) = pair
-    let app = match self.apps.get(name) {
+    let app = match self.config_of(name) {
       Some(app) => app
       None => continue
     }
@@ -138,7 +139,7 @@ fn Supervisor::stop_for_reuseport(
 fn Supervisor::check_memory(self : Supervisor) -> Unit {
   for pair in self.instances.iter() {
     let (name, arr) = pair
-    let app = match self.apps.get(name) {
+    let app = match self.config_of(name) {
       Some(app) => app
       None => continue
     }
