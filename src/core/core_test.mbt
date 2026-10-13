@@ -572,10 +572,18 @@ test "protocol request and response round-trip" {
 /// is optional so a peer that predates versioning still decodes, and every
 /// answer carries this binary's revision.
 test "protocol version is carried and skew is reported" {
-  assert_eq(@protocol.Response::ok("ok", []).protocol, Some(1))
-  assert_eq(@protocol.Response::error("boom").protocol, Some(1))
-  assert_eq(@protocol.protocol_problem(Some(1)), None)
-  assert_true(@protocol.protocol_problem(Some(2)) is Some(_))
+  assert_eq(
+    @protocol.Response::ok("ok", []).protocol,
+    Some(@protocol.PROTOCOL_VERSION),
+  )
+  assert_eq(
+    @protocol.Response::error("boom").protocol,
+    Some(@protocol.PROTOCOL_VERSION),
+  )
+  assert_eq(@protocol.protocol_problem(Some(@protocol.PROTOCOL_VERSION)), None)
+  assert_true(
+    @protocol.protocol_problem(Some(@protocol.PROTOCOL_VERSION + 1)) is Some(_),
+  )
   assert_true(@protocol.protocol_problem(None) is Some(_))
   // A request without the field (an older CLI) still decodes.
   let legacy = @protocol.decode_request(@utf8.encode("{\"command\":\"list\"}"))

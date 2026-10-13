@@ -87,6 +87,10 @@ pub struct Supervisor {
   /// off it — so the same name may only ever be re-registered from the same file.
   /// Keeping it here makes that a pure in-memory check inside the tick.
   config_paths : Map[String, String]
+  /// Projects stopped on purpose. Supervision skips them entirely: only `bm2 start`
+  /// clears the mark, and it is persisted with the project so a daemon restart
+  /// does not bring a stopped project back.
+  stopped : Map[String, Unit]
   /// When this daemon started, on the monotonic clock: the uptime it reports is
   /// a duration, so a system time change cannot distort it.
   started_mono_ms : UInt64
@@ -170,6 +174,7 @@ pub fn Supervisor::new(
     rotations: @aqueue.Queue::Queue(kind=Blocking(1)),
     reaping: [],
     config_paths: Map([]),
+    stopped: Map([]),
     started_mono_ms: @proc.monotonic_ms(),
     commands_applied: 0UL,
     notify: Notifier::new(state_dir, @proc.hostname(), outbound),
@@ -221,8 +226,13 @@ pub fn Supervisor::register(
   self.pending_restart.remove(name)
   self.pending_remove.remove(name)
   self.config_paths[name] = canonical
+  // The stopped mark belongs to supervision, not to the registration: a project
+  // recovered at startup is registered again without losing it.
   @utils.discard(() => {
-    save_project(self.state_dir, name, { config_path: canonical, })
+    save_project(self.state_dir, name, {
+      config_path: canonical,
+      stopped: self.stopped.contains(name),
+    })
   })
 }
 
@@ -548,6 +558,12 @@ fn Supervisor::check_deadlines(self : Supervisor, now : UInt64) -> Unit {
 fn Supervisor::check_restarts(self : Supervisor, now : UInt64) -> Unit {
   for pair in self.instances.iter() {
     let (name, arr) = pair
+    // A project stopped on purpose is never brought back by supervision; only
+    // `bm2 start` clears the mark. Checked before anything else in this pass so
+    // no scheduling below can resurrect it.
+    if self.stopped.contains(name) {
+      continue
+    }
     let app = match self.apps.get(name) {
       Some(app) => app
       None => continue
@@ -590,6 +606,9 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
   }
   for name in ready {
     self.pending_restart.remove(name)
+    if self.stopped.contains(name) {
+      continue
+    }
     // spawn_instance marks its own failures; nothing to do here.
     try self.spawn_fresh(name) catch {
       _ => ()

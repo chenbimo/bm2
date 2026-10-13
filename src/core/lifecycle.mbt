@@ -109,6 +109,23 @@ pub fn Supervisor::start_app(
   app_name : String,
 ) -> Unit raise {
   let insts = self.app_instances(app_name)
+  // Starting a project is also how a stopped one resumes: clearing the mark is
+  // what puts it back under supervision, and the persisted copy has to follow, or
+  // the next daemon restart would stop it again.
+  let was_stopped = self.stopped.contains(app_name)
+  self.stopped.remove(app_name)
+  if was_stopped {
+    match self.config_paths.get(app_name) {
+      Some(path) =>
+        @utils.discard(() => {
+          save_project(self.state_dir, app_name, {
+            config_path: path,
+            stopped: false,
+          })
+        })
+      None => ()
+    }
+  }
   if self.pending_restart.contains(app_name) {
     raise Conflict(app_name)
   }
@@ -183,5 +200,29 @@ pub fn Supervisor::kill_app(self : Supervisor, app_name : String) -> Unit raise 
       inst.exit_intent = Stop
       self.mark_stopped(inst)
     }
+  }
+}
+
+///|
+/// Stop a project on purpose: `stop_app` takes the instances down politely and
+/// marks them stopped, and the mark recorded here is what keeps supervision from
+/// bringing them back. It is persisted with the project, so a stopped project
+/// stays stopped across a daemon restart — which is the whole difference between
+/// `stop` and a pause until the next reload. Only `bm2 start` clears it.
+pub fn Supervisor::pause_app(
+  self : Supervisor,
+  app_name : String,
+) -> Unit raise {
+  self.stop_app(app_name)
+  self.stopped[app_name] = ()
+  match self.config_paths.get(app_name) {
+    Some(path) =>
+      @utils.discard(() => {
+        save_project(self.state_dir, app_name, {
+          config_path: path,
+          stopped: true,
+        })
+      })
+    None => ()
   }
 }

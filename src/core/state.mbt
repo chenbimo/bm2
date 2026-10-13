@@ -101,6 +101,10 @@ pub fn state_path(
 /// the project is killed and fully stopped.
 pub(all) struct ProjectInfo {
   config_path : String
+  /// Stopped on purpose: still registered and supervised, but never started. It
+  /// is persisted, which is what makes `bm2 stop` a real stop rather than a pause
+  /// until the next daemon restart.
+  stopped : Bool
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|

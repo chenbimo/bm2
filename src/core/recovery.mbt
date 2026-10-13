@@ -42,6 +42,11 @@ pub fn Supervisor::load_projects(self : Supervisor) -> Unit {
     } noraise {
       _ => ()
     }
+    // Registered but not started: the mark is what keeps supervision from
+    // bringing a project the operator stopped back to life.
+    if info.stopped {
+      self.stopped[entry] = ()
+    }
   }
 }
 

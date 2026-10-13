@@ -3,7 +3,7 @@
 /// a way an older peer cannot read, so version skew between a freshly
 /// installed CLI and a still-running daemon is reported as such instead of
 /// surfacing as an unexplained decode failure.
-pub const PROTOCOL_VERSION : Int32 = 1
+pub const PROTOCOL_VERSION : Int32 = 2
 
 ///|
 /// One CLI request. The field is optional so a peer predating versioning

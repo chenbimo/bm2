@@ -31,6 +31,11 @@ async fn run() -> Int32 {
         about="Register and start the project in the current directory",
       ),
       @argparse.Command(
+        "stop",
+        about="Stop a project, leaving it registered and stopped",
+        positionals=[optional_name("Project to stop")],
+      ),
+      @argparse.Command(
         "kill",
         about="Stop and unregister a project",
         flags=[

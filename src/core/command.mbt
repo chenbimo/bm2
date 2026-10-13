@@ -48,6 +48,24 @@ pub fn Command::new(request : @protocol.Request) -> Command {
 }
 
 ///|
+/// Stop a project without retiring it: it stays registered and listed, and stays
+/// stopped until `bm2 start` puts it back. `kill` unregisters, which is why this
+/// is a verb of its own rather than a flag on that one.
+fn Supervisor::cmd_stop(self : Supervisor, app : String?) -> @protocol.Response {
+  match app {
+    None => @protocol.Response::error("stop requires a project name")
+    Some(name) => {
+      try self.pause_app(name) catch {
+        e => return @protocol.Response::error(e.to_string())
+      } noraise {
+        _ => ()
+      }
+      @protocol.Response::ok("stopped", self.infos_of([name]))
+    }
+  }
+}
+
+///|
 /// The queue control requests arrive on. `tick` drains it, so a command is
 /// applied within one tick of arriving.
 pub fn Supervisor::commands(self : Supervisor) -> @aqueue.Queue[Command] {
@@ -81,6 +99,7 @@ pub fn Supervisor::handle_command(self : Supervisor, command : Command) -> Unit 
   let req = command.request
   let (response, exit) = match req.command {
     "list" => (self.cmd_list(req.app), ExitMode::Stay)
+    "stop" => (self.cmd_stop(req.app), ExitMode::Stay)
     "start" => (self.cmd_start(req), ExitMode::Stay)
     "kill" => self.cmd_kill(req.app)
     "reload" => (@protocol.Response::ok("reloading", []), ExitMode::Detach)
