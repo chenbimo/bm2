@@ -347,6 +347,65 @@ sleep 5
 check "stubborn online after full restart" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $6}')"
 bm2 remove -f stubborn
 
+echo "===== V. stop, remove, clean ====="
+write_project v1 vapp 4491 slow.ts 1 1000
+(cd "$ACC/v1" && bm2 start >/dev/null)
+check "vapp online before stop" "online" "$(bm2 list vapp | sed -n '2p' | awk '{print $6}')"
+bm2 stop vapp
+check "stop exits cleanly" "0" "$?"
+# Stopped but registered: still listed, with nothing online.
+check "a stopped app stays registered" "1" "$(bm2 list vapp | grep -c '^vapp ')"
+check "nothing online after a stop" "0" "$(bm2 list vapp | grep -c ' online')"
+# The stop has to survive a daemon swap, or it is only a pause.
+bm2 reload >/dev/null
+sleep 2
+check "still stopped after the daemon reloaded" "0" "$(bm2 list vapp | grep -c ' online')"
+# And start is how it comes back.
+(cd "$ACC/v1" && bm2 start >/dev/null)
+sleep 2
+check "start resumes a stopped project" "1" "$(bm2 list vapp | grep -c ' online')"
+# Retiring frees the name and keeps the logs.
+bm2 remove vapp
+check "remove exits cleanly" "0" "$?"
+check "a retired project leaves the registry" "0" "$(bm2 list vapp | grep -c '^vapp ')"
+if [ -d "$state_dir/vapp/logs" ]; then
+  PASS=$((PASS + 1)); echo "PASS: remove keeps the logs"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: remove keeps the logs"
+fi
+# clean reports the ownerless directory first, and must not touch it.
+OUT=$(bm2 clean --dry-run 2>&1)
+if echo "$OUT" | grep -q "$state_dir/vapp"; then
+  PASS=$((PASS + 1)); echo "PASS: clean --dry-run lists the ownerless directory"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: clean --dry-run lists the ownerless directory (got [$OUT])"
+fi
+if [ -d "$state_dir/vapp" ]; then
+  PASS=$((PASS + 1)); echo "PASS: clean --dry-run deletes nothing"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: clean --dry-run deleted something"
+fi
+bm2 clean >/dev/null
+if [ -d "$state_dir/vapp" ]; then
+  FAIL=$((FAIL + 1)); echo "FAIL: clean removes the ownerless directory"
+else
+  PASS=$((PASS + 1)); echo "PASS: clean removes the ownerless directory"
+fi
+# The freed name can be registered again.
+(cd "$ACC/v1" && bm2 start >/dev/null)
+check "the freed name registers again" "1" "$(bm2 list vapp | grep -c '^vapp ')"
+# Forced removal takes the whole state directory with it.
+write_project v2 vapp2 4492 slow.ts 1 1000
+(cd "$ACC/v2" && bm2 start >/dev/null)
+sleep 2
+bm2 remove -f vapp2
+check "forced remove exits cleanly" "0" "$?"
+if [ -d "$state_dir/vapp2" ]; then
+  FAIL=$((FAIL + 1)); echo "FAIL: remove -f deletes the state directory"
+else
+  PASS=$((PASS + 1)); echo "PASS: remove -f deletes the state directory"
+fi
+
 echo "===== U. log rotation by size ====="
 write_project slowback slowback 4291 slow.ts 1 1000
 (cd "$ACC/slowback" && bm2 start >/dev/null)

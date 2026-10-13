@@ -106,7 +106,8 @@ async fn run() -> Int32 {
     }
   }
   let json_flag = sub.flags.get("json") is Some(true)
-  let dry_run_flag = sub.flags.get("dry-run") is Some(true)
+  let dry_run_flag = sub.flags.get("dry-run") is Some(true) ||
+    sub.flags.get("dry_run") is Some(true)
   let confirmed = sub.flags.get("all") is Some(true)
   let force_flag = sub.flags.get("force") is Some(true)
   let app_arg : String? = match sub.values.get("name") {
@@ -379,12 +380,42 @@ fn purge_project(state_dir : String, name : String) -> Unit {
   let logs = root + "/logs"
   // The read is inside `discard`: a missing `logs/` is the normal case for a
   // project that never wrote anything, and the removals below then find nothing.
-  @utils.discard(() => {
-    for entry in @fs.read_dir(logs) {
-      @utils.discard(() => @fs.remove_file(logs + "/" + entry))
-    }
-  })
+  if @fs.path_exists(logs) {
+    @utils.discard(() => {
+      for entry in @fs.read_dir(logs) {
+        // Whether the directory lists bare names or joined paths is an x/fs
+        // detail; accept either rather than depend on it.
+        let path = if entry.has_prefix("/") {
+          entry
+        } else {
+          logs + "/" + entry
+        }
+        @utils.discard(() => @fs.remove_file(path))
+      }
+    })
+  }
   @utils.discard(() => @fs.remove_dir(logs))
+  // The state files at the top level are ours as well: the daemon removes
+  // `project.json` when it finalizes a removal, but the per-instance files are
+  // not its business to unlink, so they are still here. Anything else in the
+  // directory is not ours and stays — which is also why the final `remove_dir`
+  // can still fail, and that failure is the honest outcome.
+  if @fs.path_exists(root) {
+    @utils.discard(() => {
+      for entry in @fs.read_dir(root) {
+        let ours = entry == "project.json" ||
+          (entry.has_prefix(name + "-") && entry.has_suffix(".json"))
+        if ours {
+          let path = if entry.has_prefix("/") {
+            entry
+          } else {
+            root + "/" + entry
+          }
+          @utils.discard(() => @fs.remove_file(path))
+        }
+      }
+    })
+  }
   @utils.discard(() => @fs.remove_dir(root))
 }
 

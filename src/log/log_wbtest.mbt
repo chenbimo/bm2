@@ -12,6 +12,9 @@ test "plain prefixes the iso timestamp" {
 ///|
 test "event writes jsonl with ts, event and caller fields" {
   let path = "/tmp/log-test/events.jsonl"
+  // Start from nothing: this file is shared across runs and every run appends to
+  // it, so without this the assertions below could read a line from an older run.
+  @utils.discard(() => @fsx.unlink(path))
   event(path, "spawn_failed", [("app", @utils.jstr("api")), ("pid", "42")])
   let line = @utf8.decode_lossy(@fsx.read_small(path))
   assert_true(line.has_prefix("{\"ts\":\"20"))

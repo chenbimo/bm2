@@ -263,7 +263,12 @@ fn Supervisor::infos_of(
   for name in names {
     try {
       for inst in self.app_instances(name) {
-        if !(inst.status is Status::Stopped) {
+        // A stopped instance is normally hidden by the listing: during a restart
+        // it is a transient state between two generations. A project stopped on
+        // purpose is the opposite — it stays in the registry and has to stay
+        // visible, which is the whole point of `bm2 stop`. Only a project being
+        // retired (`bm2 remove`) keeps its instances out of the listing.
+        if !(inst.status is Status::Stopped) || self.stopped.contains(name) {
           infos.push(instance_info_of(inst, now_mono))
         }
       }
