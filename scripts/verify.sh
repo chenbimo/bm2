@@ -8,6 +8,11 @@
 # step runs them. Run them by hand, when the change warrants it.
 set -euo pipefail
 
+# The output a machine reads — the status columns, the e2e comparisons — is English
+# by contract, so the gate pins it: a host whose locale is Chinese must not change
+# what these assertions see. A person overrides it per command with BM2_LANG.
+export BM2_LANG=en
+
 WITH_E2E=0
 WITH_SOAK=0
 for arg in "$@"; do
