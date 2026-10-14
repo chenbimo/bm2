@@ -19,6 +19,9 @@ fn opt_bool(
 }
 
 ///|
+/// An optional boolean. A quoted string is accepted when it spells one, for the
+/// same reason integers take one: `${VAR}` expands inside strings, so a flag
+/// driven by a `.env` file arrives quoted.
 fn opt_bool_opt(
   table : Map[String, @toml.TomlValue],
   key : String,
@@ -27,6 +30,15 @@ fn opt_bool_opt(
   match table.get(key) {
     None => None
     Some(@toml.TomlBoolean(value)) => Some(value)
+    Some(@toml.TomlString(text)) =>
+      match text {
+        "true" => Some(true)
+        "false" => Some(false)
+        _ =>
+          raise ConfigError::InvalidField(
+            "\{ctx}.\{key} must be a boolean, but is \"\{text}\"",
+          )
+      }
     Some(_) =>
       raise ConfigError::InvalidField("\{ctx}.\{key} must be a boolean")
   }

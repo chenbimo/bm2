@@ -193,6 +193,69 @@ test ".env files: absent files are not an error" {
 }
 
 ///|
+/// 数字字段也吃占位符:展开发生在字段解析之前,而 TOML 没有不带引号的占位符写法,
+/// 所以从环境来的数字必然是带引号的字符串。
+test "numeric fields take a quoted placeholder" {
+  let files : Array[(String, String)] = [
+    (".env.production", "APP_PORT=4391\nAPP_MEM=1024\n"),
+  ]
+  let dir = env_dir("num", files)
+  let config = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = "1"
+      #|port = "${APP_PORT}"
+      #|max_memory_mb = "${APP_MEM}"
+      #|
+    ),
+    dir,
+  )
+  assert_eq(config.port, 4391)
+  assert_eq(config.max_memory_mb, 1024)
+  assert_eq(config.instances, 1)
+  cleanup_env_dir(dir, files)
+}
+
+///|
+/// 引号里的东西不是数字时,报错要点名字段和实际拿到的值。
+test "a quoted number that is not a number is rejected" {
+  let message = parse_error(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|port = "4391x"
+      #|
+    ),
+  )
+  assert_true(message.contains("root.port must be an integer"))
+  assert_true(message.contains("4391x"))
+}
+
+///|
+/// 布尔字段同理。
+test "boolean fields take a quoted placeholder" {
+  let files : Array[(String, String)] = [
+    (".env.production", "NOTIFY_ON=true\n"),
+  ]
+  let dir = env_dir("bool", files)
+  let config = @config.parse(
+    VALID_DOC + "\n[notify]\nenabled = \"${NOTIFY_ON}\"\n",
+    dir,
+  )
+  assert_true(config.notify.enabled)
+  cleanup_env_dir(dir, files)
+}
+
+///|
+/// 布尔字段写了个不是布尔的字符串也一样点名。
+test "a quoted non-boolean is rejected" {
+  let message = parse_error(VALID_DOC + "\n[notify]\nenabled = \"maybe\"\n")
+  assert_true(message.contains("notify.enabled must be a boolean"))
+}
+
+///|
 test "rejects invalid toml document" {
   let message = parse_error("name = [unclosed")
   assert_true(message.contains("InvalidDocument"))

@@ -224,6 +224,11 @@ fn opt_int(
 }
 
 ///|
+/// An integer field. A quoted string is accepted when it *is* an integer, and
+/// that is the only way a value from the environment can get here: `${VAR}`
+/// expansion runs over strings, and TOML has no unquoted placeholder spelling,
+/// so `port = "${APP_PORT}"` arrives as the string "3000". Rejecting it would
+/// mean ports and limits could never come from a `.env` file.
 fn req_int(
   table : Map[String, @toml.TomlValue],
   key : String,
@@ -236,10 +241,38 @@ fn req_int(
       }
       value.to_int()
     }
+    Some(@toml.TomlString(text)) => parse_int_text(text, key, ctx)
     Some(_) =>
       raise ConfigError::InvalidField("\{ctx}.\{key} must be an integer")
     None => raise ConfigError::InvalidField("\{ctx}.\{key} is required")
   }
+}
+
+///|
+/// A string that has to spell a non-negative integer. Whitespace is not
+/// trimmed: a value with a stray space was written by hand, and guessing at it
+/// would hide the typo instead of showing it.
+fn parse_int_text(
+  text : String,
+  key : String,
+  ctx : String,
+) -> Int32 raise ConfigError {
+  guard text.length() > 0 else {
+    raise ConfigError::InvalidField("\{ctx}.\{key} must be an integer")
+  }
+  let mut value : Int64 = 0L
+  for code in text {
+    guard code >= '0' && code <= '9' else {
+      raise ConfigError::InvalidField(
+        "\{ctx}.\{key} must be an integer, but is \"\{text}\"",
+      )
+    }
+    value = value * 10L + (code.to_int() - '0'.to_int()).to_int64()
+    guard value <= 2147483647L else {
+      raise ConfigError::InvalidField("\{ctx}.\{key} is out of range")
+    }
+  }
+  value.to_int()
 }
 
 ///|
