@@ -93,7 +93,7 @@ async fn run() -> Int32 {
   // The daemon takes no arguments: registered projects live under the
   // state dir and are loaded on startup (see load_projects).
   if @env.args().length() != 1 {
-    @proc.eprintln("usage: bm2d")
+    @proc.eprintln(@i18n.bm2d_usage(@i18n.resolve_env()))
     return 2
   }
   let state_dir = @core.resolve_state_dir()
@@ -103,7 +103,7 @@ async fn run() -> Int32 {
   // permanent lock behind.
   let _lock_fd = try @fsx.lock_exclusive(state_dir + "/bm2d.lock") catch {
     _ => {
-      @proc.eprintln("bm2d: another daemon is already running")
+      @proc.eprintln(@i18n.bm2d_already_running(@i18n.resolve_env()))
       return 1
     }
   } noraise {
@@ -154,7 +154,7 @@ async fn run() -> Int32 {
   let port = server.addr.port()
   let token = try @ipc.generate_token() catch {
     _ => {
-      @proc.eprintln("bm2d: cannot generate the access token")
+      @proc.eprintln(@i18n.bm2d_no_token(@i18n.resolve_env()))
       server.close()
       return 2
     }
@@ -170,7 +170,7 @@ async fn run() -> Int32 {
     written => written
   }
   if !ok {
-    @proc.eprintln("bm2d: cannot write the control-plane file")
+    @proc.eprintln(@i18n.bm2d_no_control_file(@i18n.resolve_env()))
     server.close()
     return 2
   }
@@ -362,7 +362,11 @@ async fn serve_conn(
           dispatch(commands, outbound, probe, req)
         }
       }
-    None => (@protocol.Response::error("invalid request"), @core.ExitMode::Stay)
+    None =>
+      (
+        @protocol.Response::error(@i18n.invalid_request(@i18n.resolve_env())),
+        @core.ExitMode::Stay,
+      )
   }
   let sent = try {
     @ipc.write_response(conn, response)
@@ -420,7 +424,9 @@ async fn dispatch(
   }
   if !queued {
     return (
-      @protocol.Response::error("too many control requests in flight"),
+      @protocol.Response::error(
+        @i18n.too_many_requests(@i18n.of_request(req.lang)),
+      ),
       @core.ExitMode::Stay,
     )
   }
@@ -589,7 +595,10 @@ async fn cmd_notify(
 ) -> @protocol.Response {
   let config_path = match req.config_path {
     Some(path) => path
-    None => return @protocol.Response::error("notify requires a config path")
+    None =>
+      return @protocol.Response::error(
+        @i18n.notify_requires_config(@i18n.of_request(req.lang)),
+      )
   }
   let config = try @config.load(config_path) catch {
     e => return @protocol.Response::error(e.to_string())
@@ -597,6 +606,10 @@ async fn cmd_notify(
     loaded => loaded
   }
   let policy = config.notify
+  // Everything about this delivery belongs to the project that configured it: its
+  // notify language already follows the project's `lang`, so answering in the
+  // terminal's language instead would put a third language on one screen.
+  let lang = @i18n.of_request(Some(policy.lang))
   let mut has_endpoint = false
   for report in policy.reports {
     if report.targets.length() > 0 {
@@ -605,9 +618,7 @@ async fn cmd_notify(
   }
   if !policy.enabled || !has_endpoint {
     return @protocol.Response::error(
-      "project " +
-      config.name +
-      " has no notifications enabled: set [notify].enabled = true and add at least one [[notify.report.target]] in bm2.toml",
+      @i18n.notify_not_enabled(lang, config.name),
     )
   }
   let endpoints = []
@@ -622,8 +633,8 @@ async fn cmd_notify(
   if endpoints.is_empty() {
     return @protocol.Response::error(
       match req.notify_target {
-        Some(name) => "unknown notification target: " + name
-        None => "no notification targets configured"
+        Some(name) => @i18n.unknown_notify_target(lang, name)
+        None => @i18n.no_notify_targets(lang)
       },
     )
   }
@@ -637,15 +648,13 @@ async fn cmd_notify(
   let results = match wait_notify_results(reply, test_wait_budget_ms(policy)) {
     Some(results) => results
     None =>
-      return @protocol.Response::error(
-        "the notify task did not report a result within the delivery timeout",
-      )
+      return @protocol.Response::error(@i18n.notify_delivery_timeout(lang))
   }
   if results.length() == 0 {
     return @protocol.Response::error(
       match req.notify_target {
-        Some(name) => "unknown notification target: " + name
-        None => "no notification targets configured"
+        Some(name) => @i18n.unknown_notify_target(lang, name)
+        None => @i18n.no_notify_targets(lang)
       },
     )
   }
@@ -654,10 +663,10 @@ async fn cmd_notify(
   for pair in results {
     let (name, failure) = pair
     match failure {
-      None => lines.push(name + ": sent")
+      None => lines.push(@i18n.notify_target_sent(lang, name))
       Some(reason) => {
         failed += 1
-        lines.push(name + ": failed - " + reason)
+        lines.push(@i18n.notify_target_failed(lang, name, reason))
       }
     }
   }

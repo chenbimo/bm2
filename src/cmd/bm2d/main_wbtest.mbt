@@ -122,6 +122,7 @@ fn request(protocol : Int32?, command : String) -> @protocol.Request {
     config_path: None,
     notify_target: None,
     force: None,
+    lang: None,
   }
 }
 
