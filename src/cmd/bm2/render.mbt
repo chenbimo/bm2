@@ -4,8 +4,13 @@ fn print_list(instances : Array[@protocol.InstanceInfo]) -> Unit {
     println("no instances")
     return
   }
+  // MODE is how the project was started (development / production); EXEC is how
+  // its instances share the port (cluster / fork). Two different facts that both
+  // answer "how is this running", and the column called MODE used to hold the
+  // second one, so neither could be read off the table.
   let header = [
-    "NAME", "ID", "PID", "PORT", "MODE", "STATUS", "TIMES", "MEMORY", "UPTIME", "CWD",
+    "NAME", "ID", "PID", "PORT", "MODE", "EXEC", "STATUS", "TIMES", "MEMORY", "UPTIME",
+    "CWD",
   ]
   let rows = []
   for info in instances {
@@ -25,6 +30,7 @@ fn print_list(instances : Array[@protocol.InstanceInfo]) -> Unit {
       info.instance_id.to_string(),
       pid,
       info.port.to_string(),
+      info.mode,
       info.exec_mode,
       info.status,
       info.times.to_string(),
@@ -33,9 +39,12 @@ fn print_list(instances : Array[@protocol.InstanceInfo]) -> Unit {
       info.cwd,
     ])
   }
-  let widths = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  for i in 0..<header.length() {
-    widths[i] = header[i].length()
+  // Widths come from the header instead of a hand-counted literal: adding a
+  // column used to mean remembering to grow this array too, and forgetting it
+  // shifted every width silently.
+  let widths : Array[Int32] = []
+  for name in header {
+    widths.push(name.length())
   }
   for row in rows {
     for i in 0..<row.length() {
