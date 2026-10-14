@@ -295,24 +295,24 @@ OUT=$(cd "$ACC/noconfig" && bm2 serve 2>&1)
 check "serve without config rejected" 1 "$?"
 check "serve without config message" "bm2: InvalidDocument: cannot read config file: $ACC/noconfig/bm2.toml" "$OUT"
 rm -rf "$ACC/noconfig"
-# 环境变量只来自 `.env` 文件,动词决定模式。端口由 `${APP_PORT}` 取,而它分别写在两份
-# 模式文件里 —— slow.ts 又把 NODE_ENV 回显在响应体里,一次验收三件事:模式选中了哪份
-# 文件、${VAR} 拿到了值、NODE_ENV 跟着模式走。
+# 环境变量只来自 `.env` 文件,动词决定模式。夹具把 NODE_ENV 和 mode 文件里的变量一起
+# 回显在响应体里;端口本身就是个 `${VAR}` 数字占位符 —— 一次验收三件事:模式选中了
+# 哪份文件、占位符与扫描出的变量都到了应用里、NODE_ENV 跟着模式走。
 mkdir -p "$ACC/withenv"
-cp "$fixtures/slow.ts" "$ACC/withenv/"
-printf 'name = "withenv"\nscript = "slow.ts"\ninstances = 1\nport = ${APP_PORT}\n' > "$ACC/withenv/bm2.toml"
-printf 'SHARED=base\n' > "$ACC/withenv/.env"
-printf 'APP_PORT=4281\n' > "$ACC/withenv/.env.production"
-printf 'APP_PORT=4282\n' > "$ACC/withenv/.env.development"
+printf 'Bun.serve({\n  port: Number(process.env.BM2_APP_PORT ?? 3000),\n  fetch() {\n    return new Response(`envapp ${process.env.NODE_ENV} ${process.env.APP_ENV ?? "-"} ${process.env.BM2_APP_INSTANCE}`);\n  },\n});\n' > "$ACC/withenv/envapp.ts"
+printf 'name = "withenv"\nscript = "envapp.ts"\ninstances = 1\nport = "${APP_PORT}"\nexec_mode = "fork"\n' > "$ACC/withenv/bm2.toml"
+printf 'APP_PORT=4281\nAPP_ENV=prod\n' > "$ACC/withenv/.env.production"
+printf 'APP_PORT=4282\nAPP_ENV=dev\n' > "$ACC/withenv/.env.development"
 (cd "$ACC/withenv" && bm2 serve >/dev/null 2>&1)
-check "serve reads .env.production" "slow withenv-0 production 4281 0" "$(wait_http 4281 'slow withenv-0 production 4281 0')"
+check "serve reads .env.production" "envapp production prod 0" "$(wait_http 4281 'envapp production prod 0')"
 bm2 stop withenv >/dev/null 2>&1
-# dev 是前台会话,脚本里用 --no-follow 让它跟 serve 一样发完请求就返回。同时把实例数
-# 写成 2,验证 dev 只跑一个。
-printf 'name = "withenv"\nscript = "slow.ts"\ninstances = 2\nport = ${APP_PORT}\n' > "$ACC/withenv/bm2.toml"
+# dev 是前台会话,脚本里用 --no-follow 让它跟 serve 一样发完请求就返回。实例数改成 2,
+# 验证 dev 只跑一个。
+printf 'name = "withenv"\nscript = "envapp.ts"\ninstances = 2\nport = "${APP_PORT}"\nexec_mode = "fork"\n' > "$ACC/withenv/bm2.toml"
 (cd "$ACC/withenv" && bm2 dev --no-follow >/dev/null 2>&1)
-check "dev reads .env.development" "slow withenv-0 development 4282 0" "$(wait_http 4282 'slow withenv-0 development 4282 0')"
+check "dev reads .env.development" "envapp development dev 0" "$(wait_http 4282 'envapp development dev 0')"
 check "dev runs a single instance" "1" "$(bm2 list withenv | grep -c '^withenv ')"
+check "dev mode in json" "1" "$(bm2 list withenv --json | grep -c '\"mode\":\"development\"')"
 bm2 stop withenv >/dev/null 2>&1
 # `[env]` 退场了:它现在就是个普通未知字段。
 printf 'name = "withenv"\nscript = "slow.ts"\ninstances = 1\nport = 4281\n\n[env]\nAPP_ENV = "production"\n' > "$ACC/withenv/bm2.toml"

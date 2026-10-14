@@ -64,13 +64,22 @@ bun 自己也会自动加载这些文件。bm2 先读一遍再注入，是为了
 
 ```toml
 name = "api"
-script = "src/index.ts"
+script = "${APP_ENTRY}"
 instances = 2
-port = ${APP_PORT}
+port = 3000
 
 [notify]
 mail_url = "smtp://${MYSQL_HOST}:25"
 ```
+
+占位符只能写在**引号里**，这是 TOML 的语法决定的。数字字段（`port`、`max_memory_mb`）和布尔字段（`enabled`）同样可以，写成带引号的占位符，展开之后按字段类型解析。
+
+```toml
+port = "${APP_PORT}"
+max_memory_mb = "${APP_MEM_MB}"
+```
+
+展开后的值必须真的能当作那个字段的类型用，否则在解析时就报错并点名——`port = "${APP_PORT}"` 而 `APP_PORT=abc` 不会带着一个坏端口进入托管。
 
 同一个值既解析进配置，也注入给应用，所以应用和管理者不可能对同一个名字读出不同的值。两边都找不到该变量时报错并点名它，绝不静默变成空值——空 URL 不该变成一次投递尝试。
 
