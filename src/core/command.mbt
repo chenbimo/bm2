@@ -48,19 +48,61 @@ pub fn Command::new(request : @protocol.Request) -> Command {
 }
 
 ///|
+/// The language a message about a project is written in.
+///
+/// The project's own `lang` wins when it states one: a message *about* a project
+/// belongs to that project, and a server in one country with an operator in
+/// another is a normal arrangement. Otherwise it follows the caller, and nothing
+/// anywhere means English.
+fn Supervisor::lang_for(
+  self : Supervisor,
+  app : String?,
+  req : @protocol.Request,
+) -> @i18n.Lang {
+  match app {
+    Some(name) =>
+      match self.config_of(name) {
+        Some(config) =>
+          match config.lang {
+            Some(lang) => lang
+            None => request_lang(req)
+          }
+        None => request_lang(req)
+      }
+    None => request_lang(req)
+  }
+}
+
+///|
+/// The language the caller asked for, or English. An unknown name is English too:
+/// the request came over a socket, so it cannot be trusted to name one of our
+/// languages, and the worst case is a message in the default language rather than
+/// a failed command.
+fn request_lang(req : @protocol.Request) -> @i18n.Lang {
+  match req.lang {
+    Some(name) => @i18n.Lang::from_name(name).unwrap_or(@i18n.Lang::En)
+    None => @i18n.Lang::En
+  }
+}
+
+///|
 /// Stop a project without retiring it: it stays registered and listed, and stays
 /// stopped until `bm2 start` puts it back. `kill` unregisters, which is why this
 /// is a verb of its own rather than a flag on that one.
-fn Supervisor::cmd_stop(self : Supervisor, app : String?) -> @protocol.Response {
-  match app {
-    None => @protocol.Response::error("stop requires a project name")
+fn Supervisor::cmd_stop(
+  self : Supervisor,
+  req : @protocol.Request,
+) -> @protocol.Response {
+  let lang = self.lang_for(req.app, req)
+  match req.app {
+    None => @protocol.Response::error(@i18n.stop_requires_name(lang))
     Some(name) => {
       try self.pause_app(name) catch {
         e => return @protocol.Response::error(e.to_string())
       } noraise {
         _ => ()
       }
-      @protocol.Response::ok("stopped", self.infos_of([name]))
+      @protocol.Response::ok(@i18n.stopped(lang), self.infos_of([name]))
     }
   }
 }
@@ -73,11 +115,11 @@ fn Supervisor::cmd_stop(self : Supervisor, app : String?) -> @protocol.Response 
 /// gone).
 fn Supervisor::cmd_remove(
   self : Supervisor,
-  app : String?,
-  force : Bool?,
+  req : @protocol.Request,
 ) -> @protocol.Response {
-  match app {
-    None => @protocol.Response::error("remove requires a project name")
+  let lang = self.lang_for(req.app, req)
+  match req.app {
+    None => @protocol.Response::error(@i18n.remove_requires_name(lang))
     Some(name) => {
       // An unknown name is an error, not a no-op: silently "removing" something
       // that was never registered would hide a typo.
@@ -88,7 +130,7 @@ fn Supervisor::cmd_remove(
       }
       // Hard with `-f`, graceful (SIGTERM, with the usual escalation) without it.
       // `check_removals` finalizes once every instance has stopped.
-      try self.remove_app(name, force=force.unwrap_or(false)) catch {
+      try self.remove_app(name, force=req.force.unwrap_or(false)) catch {
         e => return @protocol.Response::error(e.to_string())
       } noraise {
         _ => ()
@@ -96,7 +138,7 @@ fn Supervisor::cmd_remove(
       if self.projects.get(name) is Some(project) {
         project.stopped = false
       }
-      @protocol.Response::ok("removing", self.infos_of([name]))
+      @protocol.Response::ok(@i18n.removing(lang), self.infos_of([name]))
     }
   }
 }
@@ -135,17 +177,23 @@ pub fn Supervisor::handle_command(self : Supervisor, command : Command) -> Unit 
   let req = command.request
   let (response, exit) = match req.command {
     "list" => (self.cmd_list(req.app), ExitMode::Stay)
-    "stop" => (self.cmd_stop(req.app), ExitMode::Stay)
-    "remove" => (self.cmd_remove(req.app, req.force), ExitMode::Stay)
+    "stop" => (self.cmd_stop(req), ExitMode::Stay)
+    "remove" => (self.cmd_remove(req), ExitMode::Stay)
     "kill" => cmd_kill(req.app)
-    "reload" => (@protocol.Response::ok("reloading", []), ExitMode::Detach)
+    "reload" =>
+      (
+        @protocol.Response::ok(@i18n.reloading(request_lang(req)), []),
+        ExitMode::Detach,
+      )
     other =>
       match @config.Mode::of_command(other) {
         // The two start verbs: one supervision, two environments.
         Some(mode) => (self.cmd_start(req, mode), ExitMode::Stay)
         None =>
           (
-            @protocol.Response::error("unknown command: " + other),
+            @protocol.Response::error(
+              @i18n.unknown_command(request_lang(req), other),
+            ),
             ExitMode::Stay,
           )
       }
@@ -200,7 +248,10 @@ fn Supervisor::cmd_start(
 ) -> @protocol.Response {
   let config_path = match req.config_path {
     Some(path) => path
-    None => return @protocol.Response::error("start requires a config path")
+    None =>
+      return @protocol.Response::error(
+        @i18n.start_requires_config_path(request_lang(req)),
+      )
   }
   let config = try @config.load(config_path, mode~) catch {
     e => return @protocol.Response::error(e.to_string())
@@ -221,7 +272,8 @@ fn Supervisor::cmd_start(
   } noraise {
     _ => ()
   }
-  @protocol.Response::ok("started", self.infos_of([name]))
+  let lang = self.lang_for(Some(name), req)
+  @protocol.Response::ok(@i18n.started(lang), self.infos_of([name]))
 }
 
 ///|

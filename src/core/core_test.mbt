@@ -24,6 +24,7 @@ fn app_config(
   {
     name,
     mode: @config.Mode::Production,
+    lang: None,
     logs: @config.LogsConfig::builtin(),
     cwd,
     script,
@@ -553,12 +554,14 @@ test "protocol request and response round-trip" {
     config_path: Some("/srv/blog/bm2.toml"),
     notify_target: None,
     force: None,
+    lang: None,
   }
   assert_eq(@protocol.decode_request(@protocol.encode_request(req)), req)
   let bare : @protocol.Request = {
     protocol: Some(@protocol.PROTOCOL_VERSION),
     command: "kill",
     force: None,
+    lang: None,
     app: None,
     config_path: None,
     notify_target: None,

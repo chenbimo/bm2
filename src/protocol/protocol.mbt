@@ -15,7 +15,11 @@
 /// `unknown command` for both verbs, which is loud and would be survivable on
 /// its own, but its listing also decodes as a row with no mode — so the two
 /// sides are made to agree about the whole protocol instead.
-pub const PROTOCOL_VERSION : Int32 = 5
+///
+/// Version 6 added `lang`. A daemon that predates it would ignore the field and
+/// answer in English while the CLI printed Chinese: one screen, two languages,
+/// and nothing to announce it. That is the silent case again.
+pub const PROTOCOL_VERSION : Int32 = 6
 
 ///|
 /// One CLI request. The field is optional so a peer predating versioning
@@ -32,6 +36,10 @@ pub(all) struct Request {
   /// `remove`: retire the project without waiting for a graceful stop, and let
   /// the caller purge its state directory afterwards.
   force : Bool?
+  /// The language the CLI resolved for this request, so the daemon answers in the
+  /// language the answer will be read in. Optional, and absent means English —
+  /// which is what an unset locale means too, and what every test asserts.
+  lang : String?
 } derive(ToJson, FromJson, Debug, Eq)
 
 ///|

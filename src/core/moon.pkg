@@ -3,6 +3,7 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
   "chensuiyi/bm2/config",
+  "chensuiyi/bm2/i18n",
   "chensuiyi/bm2/notify",
   "chensuiyi/bm2/fsx",
   "chensuiyi/bm2/log",
