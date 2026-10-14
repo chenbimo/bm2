@@ -1,21 +1,14 @@
 ///|
 /// `${VAR}` expansion for bm2.toml string values: a config that goes into a
 /// repository carries placeholders, while the real endpoint, secret or path
-/// lives in the environment of whichever process parses the config (the CLI
-/// for `bm2 start` / `bm2 notify`, the daemon for supervised reporting).
+/// lives in the project's own `.env` files (scanned by the config loader),
+/// with the process environment of whichever process parses the config as
+/// the fallback.
 ///
 /// It runs over the whole document — every string, at any depth, once before
 /// field extraction — so no field has to know that expansion exists. The
 /// notification credentials are what it was written for, and are still what
 /// needs it most.
-
-///|
-/// Expand `${VAR}` references against the process environment. A variable
-/// that is not set is a hard error naming the variable, never a silent empty
-/// value — an empty URL must not turn into a delivery attempt.
-pub fn expand_env(value : String, ctx : String) -> String raise ConfigError {
-  expand_with(value, ctx, fn(name) { @env.get_env_var(name) })
-}
 
 ///|
 /// The expansion itself, with the environment lookup injected so tests can
@@ -99,16 +92,23 @@ fn valid_env_name(name : String) -> Bool {
 /// Recursively expand ${VAR} across an entire parsed TOML tree: every
 /// string value, at any depth, in any table. Done once before field
 /// extraction, so no field ever needs to know about expansion.
+///
+/// Where a value comes from is the caller's decision, passed in as `lookup`:
+/// the config loader resolves against the project's own .env files first and
+/// the process environment second. A variable that is neither is a hard error
+/// naming it, never a silent empty value — an empty URL must not turn into a
+/// delivery attempt.
 pub fn expand_toml_tree(
   value : @toml.TomlValue,
   path : String,
+  lookup : (String) -> String?,
 ) -> @toml.TomlValue raise ConfigError {
   match value {
-    @toml.TomlString(text) => @toml.TomlString(expand_env(text, path))
+    @toml.TomlString(text) => @toml.TomlString(expand_with(text, path, lookup))
     @toml.TomlArray(items) => {
       let out : Array[@toml.TomlValue] = []
       for i, item in items {
-        out.push(expand_toml_tree(item, "\{path}[\{i}]"))
+        out.push(expand_toml_tree(item, "\{path}[\{i}]", lookup))
       }
       @toml.TomlArray(out)
     }
@@ -117,7 +117,7 @@ pub fn expand_toml_tree(
       for pair in section.iter() {
         let (key, item) = pair
         let child_path = if path == "" { key } else { "\{path}.\{key}" }
-        out[key] = expand_toml_tree(item, child_path)
+        out[key] = expand_toml_tree(item, child_path, lookup)
       }
       @toml.TomlTable(out)
     }

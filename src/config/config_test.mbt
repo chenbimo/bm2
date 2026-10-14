@@ -65,49 +65,116 @@ test "rejects unknown top-level field" {
 }
 
 ///|
-/// The [env] table injects application environment; values must be strings
-/// and keys must look like environment variables.
-test "parses the env table and enforces its shape" {
+/// 造一份临时项目目录并写入给定的 .env 文件。(先清一次,重复跑不会撞 already exists。)
+fn env_dir(name : String, files : Array[(String, String)]) -> String raise {
+  let dir = "/tmp/bm2-env-" + name
+  cleanup_env_dir(dir, files)
+  @fs.create_dir(dir)
+  for pair in files {
+    @fs.write_string_to_file(dir + "/" + pair.0, pair.1)
+  }
+  dir
+}
+
+///|
+fn cleanup_env_dir(dir : String, files : Array[(String, String)]) -> Unit {
+  for pair in files {
+    try @fs.remove_file(dir + "/" + pair.0) catch {
+      _ => ()
+    } noraise {
+      _ => ()
+    }
+  }
+  try @fs.remove_dir(dir) catch {
+    _ => ()
+  } noraise {
+    _ => ()
+  }
+}
+
+///|
+/// 从注入数组里取一个键。顺序不保证,所以不能按下标读。
+fn injected(entries : Array[(String, String)], key : String) -> String {
+  let mut found = ""
+  for pair in entries {
+    if pair.0 == key {
+      found = pair.1
+    }
+  }
+  found
+}
+
+///|
+/// 扫描结果既是注入给实例的环境,也是 ${VAR} 的解析源——同一份 map,所以应用和
+/// 管理者不可能对同一个名字读出不同的值。
+test ".env files feed both the injected environment and placeholders" {
+  let files : Array[(String, String)] = [
+    (".env", "SHARED=base\n"),
+    (".env.production", "MYSQL_HOST=db.internal\n"),
+    (".env.local", "SHARED=local\n"),
+  ]
+  let dir = env_dir("scan", files)
   let config = @config.parse(
-    VALID_DOC +
-    "\n[env]\nAPP_ENV = \"production\"\nMYSQL_HOST = \"127.0.0.1\"\n\n",
-    BASE_DIR,
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|port = 3000
+      #|cwd = "/srv/${MYSQL_HOST}"
+      #|
+    ),
+    dir,
   )
+  // 三个文件合并:同名键后加载的覆盖先加载的。
   assert_eq(config.env.length(), 2)
-  assert_eq(config.env[0], ("APP_ENV", "production"))
-  assert_eq(config.env[1], ("MYSQL_HOST", "127.0.0.1"))
-  // A non-string value is rejected.
-  assert_true(
-    parse_error(
-      (
-        #|name = "blog"
-        #|script = "index.ts"
-        #|instances = 1
-        #|port = 3000
-        #|
-        #|[env]
-        #|REPLICAS = 3
-        #|
-      ),
-    ).contains("env.REPLICAS must be a string"),
+  assert_eq(injected(config.env, "SHARED"), "local")
+  assert_eq(injected(config.env, "MYSQL_HOST"), "db.internal")
+  // 同一个值也解析进了配置里的占位符。
+  assert_eq(config.cwd, "/srv/db.internal")
+  cleanup_env_dir(dir, files)
+}
+
+///|
+/// 模式决定带模式名的那两份文件。
+test ".env files: mode selects the mode-specific file" {
+  let files : Array[(String, String)] = [
+    (".env", "SHARED=base\n"),
+    (".env.production", "TARGET=prod\n"),
+    (".env.development", "TARGET=dev\n"),
+  ]
+  let dir = env_dir("mode", files)
+  let production = @config.parse(VALID_DOC, dir, mode=@config.Mode::Production)
+  let development = @config.parse(
+    VALID_DOC,
+    dir,
+    mode=@config.Mode::Development,
   )
-  // A malformed variable name is rejected.
-  assert_true(
-    parse_error(
-      (
-        #|name = "blog"
-        #|script = "index.ts"
-        #|instances = 1
-        #|port = 3000
-        #|
-        #|[env]
-        #|"A-B" = "x"
-        #|
-      ),
-    ).contains("has an invalid variable name"),
-  )
-  // Defaults to empty when absent.
-  let plain = @config.parse(VALID_DOC, BASE_DIR)
+  assert_eq(injected(production.env, "TARGET"), "prod")
+  assert_eq(injected(development.env, "TARGET"), "dev")
+  cleanup_env_dir(dir, files)
+}
+
+///|
+/// 坏文件是硬错误,而且要说出是哪个文件、哪一行——静默少一个变量最难查。
+test ".env files: a malformed file names the file and the line" {
+  let files : Array[(String, String)] = [(".env", "A=1\nB 2\n")]
+  let dir = env_dir("bad", files)
+  let message = try {
+    ignore(@config.parse(VALID_DOC, dir))
+    "no error"
+  } catch {
+    e => e.to_string()
+  } noraise {
+    _ => "no error"
+  }
+  assert_true(message.contains(dir + "/.env line 2"))
+  cleanup_env_dir(dir, files)
+}
+
+///|
+/// 一个 .env 文件都没有也是正常的:项目环境就是空的。
+test ".env files: absent files are not an error" {
+  let plain = @config.parse(VALID_DOC, "/tmp/bm2-env-absent")
   assert_eq(plain.env.length(), 0)
 }
 

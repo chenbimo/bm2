@@ -4,6 +4,11 @@
 /// among all registered projects.
 pub(all) struct Config {
   name : String
+  /// How this config was loaded: `serve` (production) or `dev` (development).
+  /// It selected which `.env` files were scanned and it is the value NODE_ENV
+  /// must equal, so it travels with the config rather than being re-derived
+  /// further down.
+  mode : Mode
   cwd : String
   script : String
   runtime : String
@@ -23,10 +28,12 @@ pub(all) struct Config {
   /// Kept per project because the logs are per project: one noisy app must not
   /// decide how long another one's history is.
   logs : LogsConfig
-  /// Application environment from the `[env]` table, injected into every
-  /// instance after the whitelist and before the reserved vars, so it beats
-  /// .env files (bun never overrides an existing variable) but never the
-  /// reserved BM2_*/NODE_ENV set.
+  /// The project environment, scanned from the `.env` files next to bm2.toml:
+  /// `.env`, `.env.<mode>`, `.env.local`, `.env.<mode>.local`, later wins.
+  ///
+  /// Injected into every instance after the whitelist and before the reserved
+  /// vars, and it is the same map that `${VAR}` in bm2.toml resolves against,
+  /// so the application and the manager can never disagree about a value.
   env : Array[(String, String)]
 } derive(Debug)
 

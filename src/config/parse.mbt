@@ -1,38 +1,19 @@
 ///|
-/// The `[env]` table: application environment injected into every instance.
-/// Values must be strings; keys follow environment-variable naming. bun and
-/// node never let a .env file override an existing variable, so these values
-/// beat whatever a project ships in its own env files.
-fn opt_env(
-  table : Map[String, @toml.TomlValue],
-) -> Array[(String, String)] raise ConfigError {
-  match table.get("env") {
-    None => []
-    Some(@toml.TomlTable(section)) => {
-      let entries : Array[(String, String)] = []
-      for pair in section.iter() {
-        let (key, value) = pair
-        guard value is @toml.TomlString(text) else {
-          raise ConfigError::InvalidField("env.\{key} must be a string")
-        }
-        guard valid_env_name(key) else {
-          raise ConfigError::InvalidField(
-            "env.\{key} has an invalid variable name",
-          )
-        }
-        entries.push((key, text))
-      }
-      entries
-    }
-    Some(_) => raise ConfigError::InvalidField("env must be a table")
+/// The scanned project environment, as the key/value array the injector takes.
+/// Injection only cares which keys exist; keys have no order dependency.
+fn env_entries(vars : Map[String, String]) -> Array[(String, String)] {
+  let out : Array[(String, String)] = []
+  for pair in vars.iter() {
+    out.push(pair)
   }
+  out
 }
 
 ///|
 let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "exec_mode", "instances", "port", "max_memory_mb",
   "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "notify",
-  "logs", "env",
+  "logs",
 ]
 
 ///|
@@ -62,13 +43,44 @@ const DEFAULT_LOG_MAX_SIZE_MB : Int32 = 10
 const DEFAULT_LOG_KEEP : Int32 = 0
 
 ///|
-/// Parse a bm2.toml document. `base_dir` is the config file's directory:
-/// an omitted `cwd` defaults to it. The resulting config is validated.
-pub fn parse(doc : String, base_dir : String) -> Config raise ConfigError {
+/// Parse a bm2.toml document. `base_dir` is the config file's directory: an
+/// omitted `cwd` defaults to it, and the project's `.env` files are looked up
+/// beside it.
+///
+/// `mode` decides which mode-specific env files load. `serve` means production
+/// and `dev` means development — the same action with a different environment —
+/// so production is what a plain service start assumes.
+pub fn parse(
+  doc : String,
+  base_dir : String,
+  mode~ : Mode = Production,
+) -> Config raise ConfigError {
+  // Scanned first: this one map feeds both the injection into instances and the
+  // ${VAR} expansion below, so an application and the manager that supervises it
+  // can never read different values for the same name.
+  let vars = scan_env_files(base_dir, mode)
+  // NODE_ENV belongs to the reserved set: bm2 decides it from the mode. A file
+  // may restate the same value (most `.env.production` files do) but not
+  // contradict it — otherwise "which environment am I in?" would depend on which
+  // file happened to be read last.
+  match vars.get("NODE_ENV") {
+    Some(found) if found != mode.as_string() =>
+      raise ConfigError::InvalidField(
+        "NODE_ENV is \{mode.as_string()} in this mode, but a .env file sets \{found}",
+      )
+    _ => ()
+  }
   let value = @toml.parse(doc) catch {
     e => raise ConfigError::InvalidDocument(e.to_string())
   }
-  let value = expand_toml_tree(value, "")
+  // Project environment first, process environment as the fallback: an operator
+  // can still override one value for a single run without editing a file.
+  let value = expand_toml_tree(value, "", fn(name) {
+    match vars.get(name) {
+      Some(found) => Some(found)
+      None => @env.get_env_var(name)
+    }
+  })
   guard value is @toml.TomlTable(table) else {
     raise ConfigError::InvalidDocument("bm2.toml root must be a table")
   }
@@ -108,7 +120,8 @@ pub fn parse(doc : String, base_dir : String) -> Config raise ConfigError {
     ),
     notify: opt_notify(table),
     logs: opt_logs(table),
-    env: opt_env(table),
+    mode,
+    env: env_entries(vars),
   }
   validate(config)
   config

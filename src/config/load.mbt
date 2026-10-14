@@ -1,8 +1,14 @@
 ///|
 /// Read, parse and validate the bm2.toml at path. Read failures are
 /// reported as InvalidDocument so callers deal with ConfigError only.
-/// An omitted `cwd` defaults to the config file's directory.
-pub fn load(path : String) -> Config raise ConfigError {
+/// An omitted `cwd` defaults to the config file's directory, and the
+/// project's `.env` files are looked up beside it. `mode` decides which of
+/// those files load: `serve` means production and `dev` means development, so
+/// production is what a caller that says nothing about mode gets.
+pub fn load(
+  path : String,
+  mode~ : Mode = Production,
+) -> Config raise ConfigError {
   let doc = try @fs.read_file_to_string(path) catch {
     _ => raise InvalidDocument("cannot read config file: " + path)
   } noraise {
@@ -20,5 +26,5 @@ pub fn load(path : String) -> Config raise ConfigError {
     "."
   }
   // parse validates the config before returning, so no second pass here.
-  parse(doc, base_dir)
+  parse(doc, base_dir, mode~)
 }
