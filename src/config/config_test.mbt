@@ -35,6 +35,20 @@ test "parses valid bm2.toml" {
 }
 
 ///|
+/// 开发模式永远单实例:配置里的实例数只在 serve 下生效。
+test "development mode runs a single instance" {
+  let development = @config.parse(
+    VALID_DOC,
+    BASE_DIR,
+    mode=@config.Mode::Development,
+  )
+  assert_eq(development.mode, @config.Mode::Development)
+  assert_eq(development.instances, 1)
+  // 同一份文档在生产模式下仍是 4 个:实例数没有被改写,只是开发模式不采用它。
+  assert_eq(@config.parse(VALID_DOC, BASE_DIR).instances, 4)
+}
+
+///|
 test "cwd defaults to the config directory" {
   let config = @config.parse(
     (

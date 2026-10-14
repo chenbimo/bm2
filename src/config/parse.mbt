@@ -1,4 +1,20 @@
 ///|
+/// The instance count that will actually run: development is always one.
+///
+/// A development session is one process on one port, so the configured count is
+/// not honored there. It is not dropped silently either — the mode is part of the
+/// project's identity, and `bm2 list --json` reports both the mode and the
+/// instance count that came out of it. The port range the config has to stay
+/// inside is checked against this number rather than the written one, because
+/// this is the layout that will exist.
+fn effective_instances(configured : Int32, mode : Mode) -> Int32 {
+  match mode {
+    Development => 1
+    Production => configured
+  }
+}
+
+///|
 /// The scanned project environment, as the key/value array the injector takes.
 /// Injection only cares which keys exist; keys have no order dependency.
 fn env_entries(vars : Map[String, String]) -> Array[(String, String)] {
@@ -91,7 +107,7 @@ pub fn parse(
     script: req_string(table, "script", "root"),
     runtime: opt_string(table, "runtime", "root", "bun"),
     exec_mode: opt_string(table, "exec_mode", "root", "cluster"),
-    instances: req_int(table, "instances", "root"),
+    instances: effective_instances(req_int(table, "instances", "root"), mode),
     port: req_int(table, "port", "root"),
     max_memory_mb: opt_int(
       table,
