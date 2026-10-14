@@ -307,8 +307,12 @@ printf 'APP_PORT=4282\n' > "$ACC/withenv/.env.development"
 (cd "$ACC/withenv" && bm2 serve >/dev/null 2>&1)
 check "serve reads .env.production" "slow withenv-0 production 4281 0" "$(wait_http 4281 'slow withenv-0 production 4281 0')"
 bm2 stop withenv >/dev/null 2>&1
-(cd "$ACC/withenv" && bm2 dev >/dev/null 2>&1)
+# dev 是前台会话,脚本里用 --no-follow 让它跟 serve 一样发完请求就返回。同时把实例数
+# 写成 2,验证 dev 只跑一个。
+printf 'name = "withenv"\nscript = "slow.ts"\ninstances = 2\nport = ${APP_PORT}\n' > "$ACC/withenv/bm2.toml"
+(cd "$ACC/withenv" && bm2 dev --no-follow >/dev/null 2>&1)
 check "dev reads .env.development" "slow withenv-0 development 4282 0" "$(wait_http 4282 'slow withenv-0 development 4282 0')"
+check "dev runs a single instance" "1" "$(bm2 list withenv | grep -c '^withenv ')"
 bm2 stop withenv >/dev/null 2>&1
 # `[env]` 退场了:它现在就是个普通未知字段。
 printf 'name = "withenv"\nscript = "slow.ts"\ninstances = 1\nport = 4281\n\n[env]\nAPP_ENV = "production"\n' > "$ACC/withenv/bm2.toml"

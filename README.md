@@ -35,7 +35,7 @@ port = 3000
 
 ```bash
 bm2 serve        # 生产模式：登记并启动（读 .env 与 .env.production）
-bm2 dev          # 开发模式：读 .env 与 .env.development
+bm2 dev          # 开发模式：单实例，前台跟随日志
 bm2 list         # 查看状态
 bm2 stop api     # 停下,留在册
 bm2 remove api   # 退役,交还名字(日志保留)
