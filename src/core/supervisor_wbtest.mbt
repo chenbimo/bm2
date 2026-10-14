@@ -3,6 +3,7 @@ fn wb_setup(root : String, port : Int32) -> Supervisor raise {
   @fsx.mkdir_p(root)
   let config : @config.Config = {
     name: "wbapp",
+    mode: @config.Mode::Production,
     cwd: root,
     script: "x.sh",
     runtime: "bun",
@@ -277,7 +278,7 @@ test "the tick reaps a killed child without waiting for it" {
     cwd: root,
     out_log: root + "/reap.out.log",
     err_log: root + "/reap.err.log",
-    env_blob: @proc.instance_env_blob("wbapp", 0, 4455),
+    env_blob: @proc.instance_env_blob("wbapp", 0, 4455, node_env="production"),
   })
   // The child calls setsid() after the fork, so its process group does not exist
   // yet at the instant spawn returns: let it settle before signalling the group.
@@ -303,7 +304,7 @@ test "the tick reaps a killed child without waiting for it" {
     cwd: root,
     out_log: root + "/reap-live.out.log",
     err_log: root + "/reap-live.err.log",
-    env_blob: @proc.instance_env_blob("wbapp", 1, 4456),
+    env_blob: @proc.instance_env_blob("wbapp", 1, 4456, node_env="production"),
   })
   sv.register_reap(live)
   sv.check_reaps()

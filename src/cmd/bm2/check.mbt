@@ -91,6 +91,19 @@ fn cmd_check() -> Int32 {
     }
     None => ()
   }
+  // A dev start reads a different set of .env files, so a verdict from the
+  // production view alone would not be a verdict: a project that passes as
+  // production can still fail as development.
+  try
+    ignore(@config.load(cwd + "/bm2.toml", mode=@config.Mode::Development))
+  catch {
+    e => {
+      @proc.eprintln("bm2: " + e.to_string())
+      return 1
+    }
+  } noraise {
+    _ => ()
+  }
   println(check_summary(config))
   0
 }

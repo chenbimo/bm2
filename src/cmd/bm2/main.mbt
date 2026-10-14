@@ -27,8 +27,12 @@ async fn run() -> Int32 {
     version=VERSION,
     subcommands=[
       @argparse.Command(
-        "start",
-        about="Register and start the project in the current directory",
+        "serve",
+        about="Register and start the project in production (.env, .env.production)",
+      ),
+      @argparse.Command(
+        "dev",
+        about="Register and start the project in development (.env, .env.development)",
       ),
       @argparse.Command(
         "stop",
@@ -110,6 +114,11 @@ async fn run() -> Int32 {
     sub.flags.get("dry_run") is Some(true)
   let confirmed = sub.flags.get("all") is Some(true)
   let force_flag = sub.flags.get("force") is Some(true)
+  // `dev` and `serve` are the two start verbs: one supervision, two
+  // environments. The verb travels as the command, so the daemon reads the mode
+  // from it, and this load uses the same mode — otherwise the local verdict
+  // could pass for a mode the daemon is not going to use.
+  let mode = @config.Mode::of_command(command)
   let app_arg : String? = match sub.values.get("name") {
     Some(names) if names.length() > 0 => Some(names[0])
     _ =>
@@ -153,9 +162,14 @@ async fn run() -> Int32 {
   let config_path = cwd + "/bm2.toml"
   // Only start needs a local bm2.toml: list/kill/reload address the
   // daemon's registered projects from any directory.
-  let config = try @config.load(config_path) catch {
+  let config = try {
+    match mode {
+      Some(mode) => @config.load(config_path, mode~)
+      None => @config.load(config_path)
+    }
+  } catch {
     e => {
-      if command == "start" {
+      if mode is Some(_) {
         @proc.eprintln("bm2: " + e.to_string())
         return 1
       }
@@ -164,11 +178,11 @@ async fn run() -> Int32 {
   } noraise {
     loaded => Some(loaded)
   }
-  // start forces a full config verdict before registering: parsing already
+  // A start verb forces a full config verdict before registering: parsing already
   // ran above, and the filesystem cross-check (script presence) must pass
   // too, otherwise the project would enter a pointless crash-retry loop
   // against a script that was never there.
-  if command == "start" {
+  if mode is Some(_) {
     match config {
       Some(cfg) =>
         match check_project(cfg, @fs.path_exists) {
@@ -183,7 +197,7 @@ async fn run() -> Int32 {
   }
   // start targets the project itself (single-app config); kill filters by
   // name; notify takes a notification target name; kill -y has no target.
-  let app : String? = if command == "start" {
+  let app : String? = if mode is Some(_) {
     match config {
       Some(cfg) => Some(cfg.name)
       None => None
@@ -221,8 +235,7 @@ async fn run() -> Int32 {
   // start carries the caller's config path so the daemon can register the
   // project; notify needs it to find the project's targets; other commands
   // leave it unset.
-  let request_config_path : String? = if command == "start" ||
-    command == "notify" {
+  let request_config_path : String? = if mode is Some(_) || command == "notify" {
     Some(config_path)
   } else {
     None
@@ -311,11 +324,11 @@ async fn run() -> Int32 {
         1
       }
     } else {
-      // start/kill <name> are async on the daemon side: poll `list` until
-      // the target settles so the user sees the final state, while the
+      // A start verb or a named kill is async on the daemon side: poll `list`
+      // until the target settles so the user sees the final state, while the
       // daemon loop never blocks on stop timeouts. kill -y only requests
       // the daemon shutdown and needs no polling.
-      let infos = if command == "start" || app is Some(_) {
+      let infos = if mode is Some(_) || app is Some(_) {
         poll_settled(state_dir, command, app, timeout_ms)
       } else {
         resp.instances

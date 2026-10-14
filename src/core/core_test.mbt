@@ -23,6 +23,7 @@ fn app_config(
 ) -> @config.Config {
   {
     name,
+    mode: @config.Mode::Production,
     logs: @config.LogsConfig::builtin(),
     cwd,
     script,

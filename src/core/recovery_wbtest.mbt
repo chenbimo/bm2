@@ -8,6 +8,7 @@
 fn wb_config(name : String, cwd : String, port : Int32) -> @config.Config {
   {
     name,
+    mode: @config.Mode::Production,
     cwd,
     script: "fixture.sh",
     runtime: "bun",
@@ -169,7 +170,12 @@ test "recover adopts a live instance that carries the reserved variables" {
     cwd: dir,
     out_log: dir + "/out.log",
     err_log: dir + "/err.log",
-    env_blob: @proc.instance_env_blob(config.name, 0, config.port),
+    env_blob: @proc.instance_env_blob(
+      config.name,
+      0,
+      config.port,
+      node_env="production",
+    ),
   })
   assert_true(wait_for_fingerprint(pid, config.name, 5000))
   let path = state_path(state_dir, "api", 0)

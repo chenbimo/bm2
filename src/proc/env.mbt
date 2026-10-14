@@ -3,13 +3,19 @@ let whitelist : Array[String] = ["PATH", "HOME", "TMPDIR"]
 
 ///|
 /// Minimal instance environment: whitelisted vars from the daemon's own
-/// environment plus the reserved app vars, encoded as a NUL-separated
-/// "KEY=VALUE" blob with a trailing extra NUL for spawn. Reserved vars
-/// are written last, so nothing can override them.
+/// environment, the project's own scanned vars, then the reserved app vars —
+/// encoded as a NUL-separated "KEY=VALUE" blob with a trailing extra NUL for
+/// spawn. Reserved vars are written last, so nothing can override them.
+///
+/// NODE_ENV is reserved rather than the application's to set: `bm2 serve` and
+/// `bm2 dev` mean production and development, and the config loader has already
+/// refused any `.env` file that claims otherwise. The value is passed in as a
+/// string so this layer stays free of config types.
 pub fn instance_env_blob(
   app_name : String,
   instance_id : Int32,
   port : Int32,
+  node_env~ : String,
   extra~ : Array[(String, String)] = [],
 ) -> Bytes {
   let reserved = [
@@ -17,7 +23,7 @@ pub fn instance_env_blob(
     ("BM2_INSTANCE_ID", instance_id.to_string()),
     ("BM2_APP_INSTANCE", instance_id.to_string()),
     ("BM2_APP_PORT", port.to_string()),
-    ("NODE_ENV", "production"),
+    ("NODE_ENV", node_env),
   ]
   build_blob(reserved, extra~)
 }

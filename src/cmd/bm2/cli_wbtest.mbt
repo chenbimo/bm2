@@ -2,6 +2,7 @@
 fn info(app : String, status : String) -> @protocol.InstanceInfo {
   {
     app_name: app,
+    mode: "production",
     cwd: "/srv/" + app,
     instance_id: 0,
     pid: 100,

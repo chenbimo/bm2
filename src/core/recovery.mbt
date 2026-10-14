@@ -16,7 +16,24 @@ pub fn Supervisor::load_projects(self : Supervisor) -> Unit {
     } noraise {
       loaded => loaded
     }
-    let config = try @config.load(info.config_path) catch {
+    // The mode decides which .env files load, so it comes back from the record
+    // rather than being assumed: an instance started as dev keeps reading the
+    // files it was started with, and a record without a readable mode is a
+    // project that cannot be brought back the way it ran.
+    let mode = match @config.Mode::from_string(info.mode) {
+      Some(mode) => mode
+      None => {
+        log_event(
+          self.state_dir,
+          "bm2d.events.jsonl",
+          "project_load_failed",
+          app=Some(entry),
+          detail="unknown mode: " + info.mode,
+        )
+        continue
+      }
+    }
+    let config = try @config.load(info.config_path, mode~) catch {
       e => {
         log_event(
           self.state_dir,

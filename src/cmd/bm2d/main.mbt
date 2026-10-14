@@ -444,14 +444,15 @@ async fn preflight_runtime(
   probe : RuntimeProbe,
   req : @protocol.Request,
 ) -> String? {
-  if req.command != "start" {
-    return None
+  let mode = match @config.Mode::of_command(req.command) {
+    Some(mode) => mode
+    None => return None
   }
   let path = match req.config_path {
     Some(path) => path
     None => return None
   }
-  let config = try @config.load(path) catch {
+  let config = try @config.load(path, mode~) catch {
     _ => return None
   } noraise {
     loaded => loaded

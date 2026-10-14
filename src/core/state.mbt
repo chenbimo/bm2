@@ -101,6 +101,11 @@ pub fn state_path(
 /// the project is killed and fully stopped.
 pub(all) struct ProjectInfo {
   config_path : String
+  /// The mode the project was started in. Persisted because a reloaded daemon
+  /// must scan the same `.env` files the running instances were started with:
+  /// re-deriving it would either need a command line the daemon does not keep,
+  /// or quietly move a dev project into production.
+  mode : String
   /// Stopped on purpose: still registered and supervised, but never started. It
   /// is persisted, which is what makes `bm2 stop` a real stop rather than a pause
   /// until the next daemon restart.

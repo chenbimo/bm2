@@ -206,6 +206,9 @@ pub fn Supervisor::register(
   // Registration preserves the stopped mark: recovery goes through here, and a
   // project the operator stopped has to stay stopped across a daemon restart.
   let was_stopped = self.is_stopped(name)
+  // Recorded with the registration: the mode is what a reloaded daemon has to
+  // bring back to scan the same .env files this start read from.
+  let mode = config.mode.as_string()
   // A re-registration refreshes the config and keeps the rolling state: the stats
   // window, the storm history and the probe marks belong to the project's life,
   // not to one registration of it.
@@ -233,6 +236,7 @@ pub fn Supervisor::register(
   @utils.discard(() => {
     save_project(self.state_dir, name, {
       config_path: canonical,
+      mode,
       stopped: was_stopped,
     })
   })
@@ -723,6 +727,7 @@ fn Supervisor::spawn_instance(
         app.name,
         inst.instance_id,
         inst.port,
+        node_env=app.mode.as_string(),
         extra=app.env,
       ),
     })

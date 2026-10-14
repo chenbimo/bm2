@@ -137,14 +137,18 @@ pub fn Supervisor::handle_command(self : Supervisor, command : Command) -> Unit 
     "list" => (self.cmd_list(req.app), ExitMode::Stay)
     "stop" => (self.cmd_stop(req.app), ExitMode::Stay)
     "remove" => (self.cmd_remove(req.app, req.force), ExitMode::Stay)
-    "start" => (self.cmd_start(req), ExitMode::Stay)
     "kill" => cmd_kill(req.app)
     "reload" => (@protocol.Response::ok("reloading", []), ExitMode::Detach)
-    _ =>
-      (
-        @protocol.Response::error("unknown command: " + req.command),
-        ExitMode::Stay,
-      )
+    other =>
+      match @config.Mode::of_command(other) {
+        // The two start verbs: one supervision, two environments.
+        Some(mode) => (self.cmd_start(req, mode), ExitMode::Stay)
+        None =>
+          (
+            @protocol.Response::error("unknown command: " + other),
+            ExitMode::Stay,
+          )
+      }
   }
   let answered = try command.reply.try_put({ response, exit, }) catch {
     _ => false
@@ -180,22 +184,25 @@ fn Supervisor::cmd_list(self : Supervisor, app : String?) -> @protocol.Response 
 }
 
 ///|
-/// Every start re-reads the config from the request's config path, so
-/// `bm2 start` always reflects the current bm2.toml, verifies the runtime meets
-/// the minimum version, then registers the project (updating it when it already
-/// runs) and starts it.
+/// `bm2 serve` and `bm2 dev` re-read the config from the request's config path,
+/// so a start always reflects the current bm2.toml and the current `.env` files.
+/// The verb's mode decides which of those files load, and it is what the
+/// instances get as NODE_ENV. The runtime verdict was already taken on the
+/// control side; registration updates a project that already runs, then it is
+/// started.
 ///
 /// The request answers immediately with the in-flight state: the CLI polls
 /// `list` for the terminal state, so a stop timeout never delays an answer.
 fn Supervisor::cmd_start(
   self : Supervisor,
   req : @protocol.Request,
+  mode : @config.Mode,
 ) -> @protocol.Response {
   let config_path = match req.config_path {
     Some(path) => path
     None => return @protocol.Response::error("start requires a config path")
   }
-  let config = try @config.load(config_path) catch {
+  let config = try @config.load(config_path, mode~) catch {
     e => return @protocol.Response::error(e.to_string())
   } noraise {
     loaded => loaded
@@ -263,6 +270,12 @@ fn Supervisor::infos_of(
   let now_mono = @proc.monotonic_ms()
   let infos = []
   for name in names {
+    // The mode is the project's, so the row asks the project for it. A name
+    // with no project behind it cannot be listed at all.
+    let mode = match self.config_of(name) {
+      Some(config) => config.mode.as_string()
+      None => continue
+    }
     try {
       for inst in self.app_instances(name) {
         // A stopped instance is normally hidden by the listing: during a restart
@@ -271,7 +284,7 @@ fn Supervisor::infos_of(
         // visible, which is the whole point of `bm2 stop`. Only a project being
         // retired (`bm2 remove`) keeps its instances out of the listing.
         if !(inst.status is Status::Stopped) || self.is_stopped(name) {
-          infos.push(instance_info_of(inst, now_mono))
+          infos.push(instance_info_of(inst, now_mono, mode))
         }
       }
     } catch {

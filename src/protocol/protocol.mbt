@@ -9,7 +9,13 @@
 /// ignore the field, answer a forced retire with a graceful stop, and let the
 /// caller believe it succeeded. That silent case is the dangerous one — a
 /// decode failure at least announces itself.
-pub const PROTOCOL_VERSION : Int32 = 4
+///
+/// Version 5 is the environment rework. `serve`/`dev` replaced `start`, and an
+/// instance row now carries the mode it runs in. An older daemon answers
+/// `unknown command` for both verbs, which is loud and would be survivable on
+/// its own, but its listing also decodes as a row with no mode — so the two
+/// sides are made to agree about the whole protocol instead.
+pub const PROTOCOL_VERSION : Int32 = 5
 
 ///|
 /// One CLI request. The field is optional so a peer predating versioning
@@ -43,6 +49,10 @@ pub extend Request with Eq::{not_equal, equal}
 ///|
 pub(all) struct InstanceInfo {
   app_name : String
+  /// The mode this instance's project was started in. It decided which `.env`
+  /// files were read and it is the instance's NODE_ENV. A project-level fact
+  /// repeated on every row, because the listing is what an operator reads.
+  mode : String
   cwd : String
   instance_id : Int32
   pid : Int32
