@@ -54,3 +54,25 @@ test "uniq_keeps_first" {
   assert_eq(uniq(["a", "b", "a", "c", "b"]), ["a", "b", "c"])
   assert_eq(uniq([3, 3, 3]), [3])
 }
+
+///|
+/// Display width is terminal columns, not code units: that difference is the whole
+/// reason this helper exists.
+test "display width counts terminal columns" {
+  assert_eq(display_width(""), 0)
+  assert_eq(display_width("abc"), 3)
+  assert_eq(display_width("名称"), 4)
+  assert_eq(display_width("运行时长"), 8)
+  assert_eq(display_width("api 实例 0"), 10)
+  assert_eq(display_width("端口 3020"), 9)
+  // Fullwidth forms live outside the CJK blocks.
+  assert_eq(display_width("）"), 2)
+}
+
+///|
+test "padding pads to the display width and never truncates" {
+  assert_eq(pad_to("名称", 6), "名称  ")
+  assert_eq(pad_to("abc", 8), "abc     ")
+  assert_eq(pad_to("名称", 4), "名称")
+  assert_eq(pad_to("aaaa", 2), "aaaa")
+}
