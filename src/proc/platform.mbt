@@ -144,3 +144,14 @@ pub fn exit(code : Int32) -> Unit {
 pub fn eprintln(text : String) -> Unit {
   ignore(c_write_fd(2, @utf8.encode(text + "\n")))
 }
+
+///|
+/// Write text to stdout as-is: no added newline, no stdio buffering.
+///
+/// `bm2 dev` follows a log file with this. Both conveniences that `println` adds
+/// would be wrong there — an invented newline misreports where the app's line
+/// ended, and a buffer that only flushes on newlines hides the last partial line
+/// of a process that is still running.
+pub fn print(text : String) -> Unit {
+  ignore(c_write_fd(1, @utf8.encode(text)))
+}

@@ -33,6 +33,12 @@ async fn run() -> Int32 {
       @argparse.Command(
         "dev",
         about="Register and start the project in development (.env, .env.development)",
+        flags=[
+          @argparse.FlagArg(
+            "no-follow",
+            about="Start and return instead of following the logs",
+          ),
+        ],
       ),
       @argparse.Command(
         "stop",
@@ -114,6 +120,8 @@ async fn run() -> Int32 {
     sub.flags.get("dry_run") is Some(true)
   let confirmed = sub.flags.get("all") is Some(true)
   let force_flag = sub.flags.get("force") is Some(true)
+  let no_follow_flag = sub.flags.get("no-follow") is Some(true) ||
+    sub.flags.get("no_follow") is Some(true)
   // `dev` and `serve` are the two start verbs: one supervision, two
   // environments. The verb travels as the command, so the daemon reads the mode
   // from it, and this load uses the same mode — otherwise the local verdict
@@ -342,6 +350,19 @@ async fn run() -> Int32 {
       )
       if app is Some(_) {
         print_list(infos)
+      }
+      // `bm2 dev` is a development session, not just a start: it follows the
+      // instance logs in this terminal until the user interrupts it. Following is
+      // a view, not a leash — the app keeps running, and the first line printed
+      // says how to stop it. `--no-follow` is for scripts and CI, where blocking
+      // on a terminal would be a hang.
+      if mode is Some(@config.Mode::Development) &&
+        !no_follow_flag &&
+        settled(infos, app) {
+        match app {
+          Some(name) => follow_logs(state_dir, name)
+          None => ()
+        }
       }
       0
     }
