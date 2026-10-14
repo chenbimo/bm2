@@ -461,3 +461,51 @@ MOONBIT_FFI_EXPORT
 int32_t proc_write_fd(int32_t fd, moonbit_bytes_t data) {
   return proc_write_all(fd, data, (size_t)Moonbit_array_length(data));
 }
+
+/* Ctrl+C and SIGTERM for a foreground command.
+ *
+ * The MoonBit runtime sets the process-wide disposition: SIGINT and SIGQUIT are
+ * ignored, SIGTERM is blocked. That is the right choice for a library whose
+ * embedder wants to decide, but it left bm2 with no way to receive an interrupt
+ * at all — `bm2 dev` had to be killed with SIGKILL. So the disposition is
+ * replaced and the mask is lifted here.
+ *
+ * The handler sets one flag and nothing else: printing or allocating from a
+ * handler is not async-signal-safe. A poller is how the flag gets noticed. */
+static volatile sig_atomic_t proc_interrupt_signal = 0;
+
+static void proc_on_interrupt(int sig) {
+  proc_interrupt_signal = sig;
+}
+
+MOONBIT_FFI_EXPORT
+int32_t proc_watch_interrupts(void) {
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = proc_on_interrupt;
+  sigemptyset(&sa.sa_mask);
+  /* No SA_RESTART: an interrupted sleep should come back early so the poller
+   * sees the flag instead of waiting out its whole interval. */
+  sa.sa_flags = 0;
+  if (sigaction(SIGINT, &sa, NULL) < 0) {
+    return -errno;
+  }
+  if (sigaction(SIGTERM, &sa, NULL) < 0) {
+    return -errno;
+  }
+  /* A handler is not enough on its own: an ignored or blocked signal is never
+   * delivered, so the runtime's mask has to be lifted as well. */
+  sigset_t set;
+  sigemptyset(&set);
+  sigaddset(&set, SIGINT);
+  sigaddset(&set, SIGTERM);
+  if (sigprocmask(SIG_UNBLOCK, &set, NULL) < 0) {
+    return -errno;
+  }
+  return 0;
+}
+
+MOONBIT_FFI_EXPORT
+int32_t proc_interrupted(void) {
+  return (int32_t)proc_interrupt_signal;
+}

@@ -97,6 +97,12 @@ extern "C" fn c_self_exe(buf : Bytes, cap : Int32) -> Int32 = "proc_self_exe"
 extern "C" fn c_exit(code : Int32) -> Unit = "proc_exit"
 
 ///|
+extern "C" fn c_watch_interrupts() -> Int32 = "proc_watch_interrupts"
+
+///|
+extern "C" fn c_interrupted() -> Int32 = "proc_interrupted"
+
+///|
 /// Monotonic milliseconds, the clock every interval and deadline is measured
 /// with. Never steps backwards, unlike the wall clock.
 extern "C" fn c_monotonic_ms() -> Int64 = "proc_monotonic_ms"

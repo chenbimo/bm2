@@ -5,6 +5,31 @@ pub const SIGTERM : Int32 = 15
 pub const SIGKILL : Int32 = 9
 
 ///|
+/// Ask for Ctrl+C and SIGTERM to be delivered to this process.
+///
+/// The MoonBit runtime sets the process-wide disposition for its own reasons -
+/// SIGINT ignored, SIGTERM blocked - which is right for a library an embedder
+/// wants to decide for. bm2 needs the opposite for a foreground command, so this
+/// replaces the disposition and lifts the mask. Without it a follow loop can only
+/// be stopped with SIGKILL.
+///
+/// The handler does nothing but set a flag, because nothing else is
+/// async-signal-safe. `interrupted` is how a polling loop notices.
+pub fn watch_interrupts() -> Unit raise ProcessError {
+  let rc = c_watch_interrupts()
+  if rc < 0 {
+    raise Failed(op="watch_interrupts", errno=-rc)
+  }
+}
+
+///|
+/// The signal that has arrived since `watch_interrupts`, or 0 for none. One
+/// process, one flag: the last signal wins, which is all a loop needs to know.
+pub fn interrupted() -> Int32 {
+  c_interrupted()
+}
+
+///|
 pub fn kill_group(pgid : Int32, sig : Int32) -> Unit raise ProcessError {
   let rc = c_kill_pg(pgid, sig)
   if rc < 0 {

@@ -12,6 +12,15 @@ async fn run() -> Int32 {
       return 1
     }
   }
+  // Take Ctrl+C and SIGTERM before anything that can take time. The MoonBit
+  // runtime leaves them ignored and blocked (see proc/signal.mbt), and the slow
+  // commands — `bm2 dev` above all — have to be interruptible. Failing here is
+  // worth one line and nothing more: the worst case is the old behavior.
+  try @proc.watch_interrupts() catch {
+    e => @proc.eprintln("bm2: cannot take interrupts: " + e.to_string())
+  } noraise {
+    _ => ()
+  }
   // 子命令注册:参数定义即文档,help 与错误提示由 core/argparse 自动渲染。
   let state_dir = @core.resolve_state_dir()
   let optional_name = fn(about : String) {
@@ -358,6 +367,7 @@ async fn run() -> Int32 {
       // on a terminal would be a hang.
       if mode is Some(@config.Mode::Development) &&
         !no_follow_flag &&
+        @proc.interrupted() == 0 &&
         settled(infos, app) {
         match app {
           Some(name) => follow_logs(state_dir, name)

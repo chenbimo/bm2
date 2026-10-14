@@ -23,8 +23,11 @@ const FOLLOW_CHECK_EVERY : Int32 = 25
 fn follow_logs(state_dir : String, name : String) -> Unit {
   let out_path = "\{state_dir}/\{name}/logs/\{name}-0.out.log"
   let err_path = "\{state_dir}/\{name}/logs/\{name}-0.error.log"
-  println(
-    "bm2 dev: following logs. ctrl-c stops following; the app keeps running ('bm2 stop \{name}')",
+  // Written with the unbuffered writer: stdout to a pipe or a file is fully
+  // buffered, so a session interrupted before the buffer flushed would lose the
+  // one line that says what this command is doing.
+  @proc.print(
+    "bm2 dev: following logs. ctrl-c stops following; the app keeps running ('bm2 stop \{name}')\n",
   )
   let mut out_seen = print_tail(out_path)
   let mut err_seen = print_tail(err_path)
@@ -34,9 +37,17 @@ fn follow_logs(state_dir : String, name : String) -> Unit {
     @proc.sleep_ms(FOLLOW_POLL_MS)
     out_seen = print_new(out_path, out_seen)
     err_seen = print_new(err_path, err_seen)
+    if @proc.interrupted() != 0 {
+      @proc.print(
+        "\nbm2 dev: stopped following (the app keeps running: 'bm2 stop \{name}')\n",
+      )
+      return
+    }
     round += 1
     if round % FOLLOW_CHECK_EVERY == 0 && !@fs.path_exists(marker) {
-      println("bm2 dev: \{name} is no longer registered; stopped following")
+      @proc.print(
+        "bm2 dev: \{name} is no longer registered; stopped following\n",
+      )
       return
     }
   }

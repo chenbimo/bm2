@@ -159,6 +159,11 @@ async fn poll_settled(
       Some(r) if !r.ok && command == "kill" => break
       _ => ()
     }
+    // Ctrl+C during the wait means "stop waiting", not "poll until the timeout":
+    // the caller prints the state it has and leaves the app as it found it.
+    if @proc.interrupted() != 0 {
+      break
+    }
     if @utils.now_ms() > deadline {
       break
     }
