@@ -173,13 +173,11 @@ pub fn Notifier::cpu_percent(
 /// A message for `bm2 notify`: proves a project's endpoints and credentials work
 /// without waiting for a real incident.
 pub fn test_message(now : UInt64, lang~ : String = "en") -> @notify.Message {
-  let (title, body) = if is_zh(lang) {
-    ("bm2 通知测试", "收到此消息说明通知目标配置正确。")
-  } else {
-    (
-      "bm2 notification test", "If you see this message, the notification target is configured correctly.",
-    )
-  }
+  let notify_lang = @i18n.of_request(Some(lang))
+  let (title, body) = (
+    @i18n.notify_test_title(notify_lang),
+    @i18n.notify_test_body(notify_lang),
+  )
   @notify.Message::new("lifecycle", "info", title, body, "notify-test", now)
 }
 

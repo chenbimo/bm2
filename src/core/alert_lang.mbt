@@ -6,14 +6,6 @@
 /// translated.
 
 ///|
-/// True for the Chinese copy. One place decides what counts as Chinese, so the
-/// rendering sites cannot drift apart — `[notify] lang` validation already
-/// restricts the value to "en" / "zh".
-fn is_zh(lang : String) -> Bool {
-  lang == "zh"
-}
-
-///|
 /// All notification messages bm2 can render.
 pub enum Bm2Msg {
   ProjectStarted(Int32, String, Int32)
@@ -39,13 +31,21 @@ pub enum Bm2Msg {
 }
 
 ///|
-/// Turn a message into (title, body) in the given language. Unknown
-/// languages fall back to English, matching the `[notify] lang` validation.
+/// Turn a message into (title, body) in the given language.
+///
+/// The language arrives as the string a config stores and is turned into a `Lang`
+/// once, here; the dispatch is then a `match` over it rather than a two-way test.
+/// That is deliberate: adding a language stops the build here until it has its own
+/// branch, instead of quietly serving English to whoever asked for it.
+///
+/// A name no build recognises falls back to English. It cannot come through a config
+/// — the field is validated against the same table — and answering in the wrong
+/// language still beats not answering at all.
 pub fn render_msg(lang : String, msg : Bm2Msg) -> (String, String) {
-  if is_zh(lang) {
-    render_zh(msg)
-  } else {
-    render_en(msg)
+  let language = @i18n.Lang::from_name(lang).unwrap_or(@i18n.Lang::En)
+  match language {
+    @i18n.Lang::En => render_en(msg)
+    @i18n.Lang::Zh => render_zh(msg)
   }
 }
 
@@ -248,16 +248,17 @@ pub fn crash_cause(
   detail : String,
   port_conflict : Bool,
 ) -> String {
-  let mut text = if is_zh(lang) {
-    "原因：\{reason}\{detail}"
-  } else {
-    "Cause: \{reason}\{detail}"
+  // Matched on `Lang`, not tested for being Chinese: the next language has to answer
+  // both sentences rather than inherit English by falling through an `else`.
+  let language = @i18n.Lang::from_name(lang).unwrap_or(@i18n.Lang::En)
+  let mut text = match language {
+    @i18n.Lang::En => "Cause: \{reason}\{detail}"
+    @i18n.Lang::Zh => "原因：\{reason}\{detail}"
   }
   if port_conflict {
-    let suffix = if is_zh(lang) {
-      "；端口已被其他进程独占"
-    } else {
-      "; the port is held exclusively by another process"
+    let suffix = match language {
+      @i18n.Lang::En => "; the port is held exclusively by another process"
+      @i18n.Lang::Zh => "；端口已被其他进程独占"
     }
     text = text + suffix
   }

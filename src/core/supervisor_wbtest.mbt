@@ -4,6 +4,7 @@ fn wb_setup(root : String, port : Int32) -> Supervisor raise {
   let config : @config.Config = {
     name: "wbapp",
     mode: @config.Mode::Production,
+    lang: None,
     cwd: root,
     script: "x.sh",
     runtime: "bun",
@@ -403,4 +404,82 @@ test "a forgotten project leaves nothing behind" {
   assert_false(notify.cpu_samples.contains(name))
   assert_false(notify.rss_peak.contains(name))
   assert_false(notify.rss_peak_daily.contains(name))
+}
+
+///|
+/// A message about a project is written in that project's language, whatever the
+/// caller's terminal says: one daemon serves several projects, and each of them
+/// owns its own voice. Without a project language the caller's stands, and with
+/// neither, English.
+test "a project's language wins over the caller's" {
+  let root = "/tmp/bm2-wbtest-lang-\{@proc.get_pid()}"
+  let sv = wb_setup(root, 4457)
+  // A second project that states its own language, registered beside the first.
+  let zh_config : @config.Config = {
+    name: "zhapp",
+    mode: @config.Mode::Production,
+    lang: Some(@i18n.Lang::Zh),
+    cwd: root,
+    script: "x.sh",
+    runtime: "bun",
+    exec_mode: "fork",
+    instances: 1,
+    port: 4458,
+    max_memory_mb: 512,
+    max_restarts: 2,
+    restart_delay_ms: 100,
+    min_uptime_ms: 60000,
+    stop_timeout_ms: 200,
+    notify: @config.NotifyConfig::disabled(),
+    logs: @config.LogsConfig::builtin(),
+    env: [],
+  }
+  sv.register(zh_config, root + "/zh.toml")
+  let ask = fn(name : String?, lang : String?) -> @protocol.Request {
+    {
+      protocol: Some(@protocol.PROTOCOL_VERSION),
+      command: "stop",
+      app: name,
+      config_path: None,
+      notify_target: None,
+      force: None,
+      lang,
+    }
+  }
+  // The project states one: it wins over a caller that asked for English.
+  assert_true(
+    sv.lang_for(Some("zhapp"), ask(Some("zhapp"), Some("en"))) is @i18n.Lang::Zh,
+  )
+  // The project is silent: the caller's language stands.
+  assert_true(
+    sv.lang_for(Some("wbapp"), ask(Some("wbapp"), Some("zh"))) is @i18n.Lang::Zh,
+  )
+  // Neither says anything: English.
+  assert_true(sv.lang_for(Some("wbapp"), ask(None, None)) is @i18n.Lang::En)
+  // A project that is not registered does not get to choose a language.
+  assert_true(sv.lang_for(Some("nosuch"), ask(None, None)) is @i18n.Lang::En)
+}
+
+///|
+/// Every language bm2 lists has to render actual copy.
+///
+/// The dispatch is a `match` on `Lang`, so a language that was never answered does
+/// not compile — that half is the compiler's job. This is the other half: a branch
+/// that exists but answers with an empty string, which compiles fine and would send
+/// a chat group a blank message.
+test "every supported language renders copy" {
+  for lang in @i18n.languages() {
+    let name = lang.name()
+    let (title, body) = render_msg(name, ProjectStarted(4, "cluster", 3020))
+    assert_true(title.length() > 0)
+    assert_true(body.length() > 0)
+    let (killed, _) = render_msg(name, ProjectKilled("api"))
+    assert_true(killed.length() > 0)
+    assert_true(
+      crash_cause(name, "signal", " (signal=SIGKILL)", true).length() > 0,
+    )
+    assert_true(
+      crash_cause(name, "signal", " (signal=SIGKILL)", false).length() > 0,
+    )
+  }
 }

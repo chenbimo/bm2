@@ -162,12 +162,14 @@ fn Supervisor::report_line(
   lang~ : String = "en",
   peak~ : Int32? = None,
 ) -> String {
-  let zh = is_zh(lang)
-  // Per-language field labels; the machine keys inside events stay neutral.
-  let (lb_port, lb_rss, lb_peak, lb_cpu, lb_uptime, lb_restarts) = if zh {
-    ("端口", "内存", "峰值", "CPU", "运行", "重启")
-  } else {
-    ("port", "RSS", "peak", "CPU", "uptime", "restarts")
+  // Matched on `Lang` rather than tested for being Chinese: a language added later
+  // has to answer with its own field labels, instead of silently taking the English
+  // ones. The machine keys inside events stay neutral either way.
+  let language = @i18n.Lang::from_name(lang).unwrap_or(@i18n.Lang::En)
+  let (lb_port, lb_rss, lb_peak, lb_cpu, lb_uptime, lb_restarts) = match
+    language {
+    @i18n.Lang::En => ("port", "RSS", "peak", "CPU", "uptime", "restarts")
+    @i18n.Lang::Zh => ("端口", "内存", "峰值", "CPU", "运行", "重启")
   }
   let mut line = inst.app_name +
     "/" +
