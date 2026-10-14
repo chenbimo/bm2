@@ -10,6 +10,7 @@ async fn request_detach(state_dir : String) -> Bool {
     config_path: None,
     notify_target: None,
     force: None,
+    lang: None,
   }
   match connect_daemon(state_dir) {
     Some(pair) =>
@@ -24,7 +25,7 @@ async fn request_detach(state_dir : String) -> Bool {
 ///|
 /// Apply a freshly installed binary without touching running apps: tell the old
 /// daemon to detach, wait it out, start the replacement, adopt the survivors.
-async fn apply_update(state_dir : String) -> Int32 {
+async fn apply_update(state_dir : String, lang : @i18n.Lang) -> Int32 {
   let running = match connect_daemon(state_dir) {
     Some((conn, _)) => {
       conn.close()
@@ -33,21 +34,21 @@ async fn apply_update(state_dir : String) -> Int32 {
     None => false
   }
   if !running {
-    println("updated")
+    println(@i18n.updated(lang, applied=false))
     return 0
   }
   // Ask first, then swap: `swap_daemon` waits for the old daemon to exit, and
   // nothing else ever asks it to — without this request every upgrade stalled
   // for the full wait and then told the operator to run `bm2 reload` by hand.
   if !request_detach(state_dir) {
-    println("updated; run 'bm2 reload' to apply")
+    println(@i18n.update_needs_reload(lang))
     return 0
   }
-  if swap_daemon(state_dir) {
-    println("updated and applied")
+  if swap_daemon(state_dir, lang) {
+    println(@i18n.updated(lang, applied=true))
     0
   } else {
-    println("updated; run 'bm2 reload' to apply")
+    println(@i18n.update_needs_reload(lang))
     0
   }
 }
@@ -57,11 +58,11 @@ async fn apply_update(state_dir : String) -> Int32 {
 /// the replacement which adopts the running apps. Shared by the `reload`
 /// command and the automatic apply after `upgrade`. True once the fresh
 /// daemon answers; failure reasons go to stderr.
-async fn swap_daemon(state_dir : String) -> Bool {
+async fn swap_daemon(state_dir : String, lang : @i18n.Lang) -> Bool {
   // The old daemon removes its control-plane file just before exiting;
   // wait for it, then start the fresh daemon which adopts the running apps.
   if !wait_daemon_exit(state_dir) {
-    @proc.eprintln("bm2: bm2d did not exit; swap aborted")
+    @proc.eprintln(@i18n.daemon_did_not_exit(lang))
     return false
   }
   @async.sleep(50)
@@ -85,7 +86,7 @@ async fn swap_daemon(state_dir : String) -> Bool {
       true
     }
     None => {
-      @proc.eprintln("bm2: bm2d did not start, see " + state_dir + "/bm2d.log")
+      @proc.eprintln(@i18n.daemon_did_not_start(lang, state_dir))
       false
     }
   }
@@ -133,6 +134,7 @@ async fn poll_settled(
     config_path: None,
     notify_target: None,
     force: None,
+    lang: None,
   }
   while true {
     @async.sleep(200)
@@ -235,7 +237,7 @@ async fn request_with_recovery(
     Some((alive, _)) => {
       alive.close()
       raise Unresponsive(
-        "bm2d is running but did not answer within \{timeout_ms}ms; try again in a moment",
+        @i18n.daemon_busy(@i18n.of_request(req.lang), timeout_ms),
       )
     }
     None => ()

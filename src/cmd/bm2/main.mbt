@@ -21,6 +21,9 @@ async fn run() -> Int32 {
   } noraise {
     _ => ()
   }
+  // Resolved once, from this process's environment, and sent with every request
+  // so the daemon answers in the language this terminal is printing in.
+  let lang = @i18n.resolve_env()
   // 子命令注册:参数定义即文档,help 与错误提示由 core/argparse 自动渲染。
   let state_dir = @core.resolve_state_dir()
   let optional_name = fn(about : String) {
@@ -32,80 +35,46 @@ async fn run() -> Int32 {
   }
   let cmd = @argparse.Command(
     "bm2",
-    about="Process manager for Bun / Node.js on Linux",
+    about=@i18n.help_root(lang),
     version=VERSION,
     subcommands=[
-      @argparse.Command(
-        "serve",
-        about="Register and start the project in production (.env, .env.production)",
-      ),
-      @argparse.Command(
-        "dev",
-        about="Register and start the project in development (.env, .env.development)",
-        flags=[
-          @argparse.FlagArg(
-            "no-follow",
-            about="Start and return instead of following the logs",
-          ),
-        ],
-      ),
-      @argparse.Command(
-        "stop",
-        about="Stop a project, leaving it registered and stopped",
-        positionals=[optional_name("Project to stop")],
-      ),
+      @argparse.Command("serve", about=@i18n.help_serve(lang)),
+      @argparse.Command("dev", about=@i18n.help_dev(lang), flags=[
+        @argparse.FlagArg("no-follow", about=@i18n.help_no_follow(lang)),
+      ]),
+      @argparse.Command("stop", about=@i18n.help_stop(lang), positionals=[
+        optional_name(@i18n.arg_project_to_stop(lang)),
+      ]),
       @argparse.Command(
         "remove",
-        about="Retire a project: stop it, free its name, keep its logs",
+        about=@i18n.help_remove(lang),
         flags=[
-          @argparse.FlagArg(
-            "force",
-            short='f',
-            about="Also delete its state directory, logs included",
-          ),
+          @argparse.FlagArg("force", short='f', about=@i18n.help_force(lang)),
         ],
-        positionals=[optional_name("Project to remove")],
+        positionals=[optional_name(@i18n.arg_project_to_remove(lang))],
       ),
       @argparse.Command(
         "kill",
-        about="Stop and unregister a project",
-        flags=[
-          @argparse.FlagArg(
-            "all",
-            short='y',
-            about="Stop bm2d and all apps (skip confirmation)",
-          ),
-        ],
-        positionals=[optional_name("Limit to this project")],
+        about=@i18n.help_kill(lang),
+        flags=[@argparse.FlagArg("all", short='y', about=@i18n.help_all(lang))],
+        positionals=[optional_name(@i18n.arg_limit_to_project(lang))],
       ),
       @argparse.Command(
         "list",
-        about="Show project status",
-        flags=[@argparse.FlagArg("json", about="Machine-readable JSON output")],
-        positionals=[optional_name("Limit to this project")],
+        about=@i18n.help_list(lang),
+        flags=[@argparse.FlagArg("json", about=@i18n.help_json(lang))],
+        positionals=[optional_name(@i18n.arg_limit_to_project(lang))],
       ),
-      @argparse.Command(
-        "check",
-        about="Validate the bm2.toml in the current directory",
-      ),
-      @argparse.Command(
-        "reload",
-        about="Restart the daemon with a new binary; apps keep running",
-      ),
-      @argparse.Command(
-        "notify",
-        about="Send a test message to notification targets",
-        positionals=[optional_name("Test only this target")],
-      ),
-      @argparse.Command(
-        "clean",
-        about="Remove ownerless project directories from the state dir",
-        flags=[
-          @argparse.FlagArg("dry-run", about="Only list what would be removed"),
-        ],
-      ),
-      @argparse.Command("upgrade", about="Upgrade bm2 and apply it seamlessly"),
-      @argparse.Command("version", about="Show version"),
+      @argparse.Command("check", about=@i18n.help_check(lang)),
+      @argparse.Command("reload", about=@i18n.help_reload(lang)),
+      @argparse.Command("notify", about=@i18n.help_notify(lang), positionals=[
+        optional_name(@i18n.arg_test_only_target(lang)),
+      ]),
+      @argparse.Command("clean", about=@i18n.help_clean(lang), flags=[
+        @argparse.FlagArg("dry-run", about=@i18n.help_dry_run(lang)),
+      ]),
+      @argparse.Command("upgrade", about=@i18n.help_upgrade(lang)),
+      @argparse.Command("version", about=@i18n.help_version(lang)),
     ],
   )
   let matches = try cmd.parse(env=Map([])) catch {
@@ -145,13 +114,13 @@ async fn run() -> Int32 {
       }
   }
   match command {
-    "clean" => return cmd_clean(state_dir, dry_run_flag)
-    "upgrade" => return cmd_upgrade(state_dir)
+    "clean" => return cmd_clean(state_dir, dry_run_flag, lang)
+    "upgrade" => return cmd_upgrade(state_dir, lang)
     "version" => {
       println("bm2 " + VERSION)
       return 0
     }
-    "check" => return cmd_check()
+    "check" => return cmd_check(lang)
     _ => ()
   }
   // `-y` 专属于"停止 bm2d 与全部应用";与项目名同时出现视为用法错误。
@@ -162,9 +131,7 @@ async fn run() -> Int32 {
   // Bare `kill` stops bm2d and all apps, so it requires the -y flag.
   match (command, app_arg) {
     ("kill", None) if !confirmed => {
-      @proc.eprintln(
-        "bm2: refusing to stop bm2d and all apps; use 'bm2 kill -y' to confirm",
-      )
+      @proc.eprintln("bm2: " + @i18n.kill_needs_confirmation(lang))
       return 1
     }
     _ => ()
@@ -172,7 +139,7 @@ async fn run() -> Int32 {
   let cwd = match @env.current_dir() {
     Some(dir) => dir
     None => {
-      @proc.eprintln("bm2: cannot determine current directory")
+      @proc.eprintln("bm2: " + @i18n.cannot_determine_cwd(lang))
       return 1
     }
   }
@@ -202,7 +169,7 @@ async fn run() -> Int32 {
   if mode is Some(_) {
     match config {
       Some(cfg) =>
-        match check_project(cfg, @fs.path_exists) {
+        match check_project(cfg, @fs.path_exists, lang) {
           Some(problem) => {
             @proc.eprintln("bm2: " + problem)
             return 1
@@ -248,6 +215,24 @@ async fn run() -> Int32 {
     }
     None => ()
   }
+  // A message about one project is written in that project's language, and a table
+  // printed beside it has to match: a screen that says "已停止" above an English
+  // table is two languages at once. So the project's language is used only when this
+  // command is about the project whose config this process loaded. A table of
+  // everything — or of some other project — stays in the operator's language,
+  // because no single project could own it.
+  let scoped_lang = match config {
+    Some(cfg) =>
+      if mode is Some(_) || app == Some(cfg.name) {
+        match cfg.lang {
+          Some(configured) => configured
+          None => lang
+        }
+      } else {
+        lang
+      }
+    None => lang
+  }
   @core.log_event(state_dir, "bm2.events.jsonl", "daemon_connecting")
   // start carries the caller's config path so the daemon can register the
   // project; notify needs it to find the project's targets; other commands
@@ -264,6 +249,7 @@ async fn run() -> Int32 {
     config_path: request_config_path,
     notify_target,
     force: Some(force_flag),
+    lang: Some(lang.name()),
   }
   let resp = try request_with_recovery(state_dir, req, timeout_ms) catch {
     NoDaemon => {
@@ -271,11 +257,11 @@ async fn run() -> Int32 {
         if json_flag {
           println("[]")
         } else {
-          println("no instances")
+          println(@i18n.no_instances(lang))
         }
         return 0
       }
-      @proc.eprintln("bm2: bm2d did not start, see " + state_dir + "/bm2d.log")
+      @proc.eprintln(@i18n.daemon_did_not_start(lang, state_dir))
       return 1
     }
     Unresponsive(message) => {
@@ -306,11 +292,11 @@ async fn run() -> Int32 {
         // exactly the shape it always had (scripts read it row by row).
         if app is None {
           match resp.daemon {
-            Some(info) => print_daemon(info)
+            Some(info) => print_daemon(info, lang)
             None => ()
           }
         }
-        print_list(resp.instances)
+        print_list(resp.instances, scoped_lang)
       }
       0
     } else if command == "remove" && force_flag {
@@ -322,20 +308,18 @@ async fn run() -> Int32 {
         Some(name) =>
           if wait_project_gone(state_dir, name) {
             purge_project(state_dir, name)
-            println("removed " + name)
+            println(@i18n.removed(lang, name))
             0
           } else {
-            @proc.eprintln(
-              "bm2: the project did not finish retiring within the wait; its files were kept",
-            )
+            @proc.eprintln(@i18n.retire_timeout(lang))
             1
           }
         None => 0
       }
     } else if command == "reload" {
       // Swap in a fresh bm2d; the running apps are adopted unchanged.
-      if swap_daemon(state_dir) {
-        println("reloaded")
+      if swap_daemon(state_dir, lang) {
+        println(@i18n.reloaded(lang))
         0
       } else {
         1
@@ -354,11 +338,11 @@ async fn run() -> Int32 {
         if settled(infos, app) {
           resp.message
         } else {
-          resp.message + " (timed out waiting)"
+          resp.message + @i18n.timed_out(scoped_lang)
         },
       )
       if app is Some(_) {
-        print_list(infos)
+        print_list(infos, scoped_lang)
       }
       // `bm2 dev` is a development session, not just a start: it follows the
       // instance logs in this terminal until the user interrupts it. Following is
@@ -370,7 +354,7 @@ async fn run() -> Int32 {
         @proc.interrupted() == 0 &&
         settled(infos, app) {
         match app {
-          Some(name) => follow_logs(state_dir, name)
+          Some(name) => follow_logs(state_dir, name, lang)
           None => ()
         }
       }
@@ -471,7 +455,7 @@ fn purge_project(state_dir : String, name : String) -> Unit {
 /// directories are considered, and a registered project is never touched — the
 /// test is deliberately conservative, because deleting the logs of a project that
 /// is still in service is the one mistake this command must not be able to make.
-fn cmd_clean(state_dir : String, dry_run : Bool) -> Int32 {
+fn cmd_clean(state_dir : String, dry_run : Bool, lang : @i18n.Lang) -> Int32 {
   let entries = try @fs.read_dir(state_dir) catch {
     _ => return 0
   } noraise {
@@ -490,24 +474,18 @@ fn cmd_clean(state_dir : String, dry_run : Bool) -> Int32 {
     }
     swept += 1
     if dry_run {
-      println("would remove " + root)
+      println(@i18n.would_remove(lang, root))
     } else {
       purge_project(state_dir, entry)
       // `purge_project` only sweeps what bm2 writes. Anything else in there is
       // not ours, so the directory stays and the operator is told why.
       if @fs.path_exists(root) {
-        @proc.eprintln(
-          "bm2: left " + root + " in place: it holds files bm2 did not write",
-        )
+        @proc.eprintln(@i18n.left_in_place(lang, root))
       } else {
-        println("removed " + root)
+        println(@i18n.removed(lang, root))
       }
     }
   }
-  if dry_run {
-    println("\{swept} ownerless project directories listed, nothing removed")
-  } else {
-    println("\{swept} ownerless project directories removed")
-  }
+  println(@i18n.ownerless_summary(lang, swept, dry_run))
   0
 }

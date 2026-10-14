@@ -5,6 +5,7 @@ fn check_config() -> @config.Config {
   {
     name: "api",
     mode: @config.Mode::Production,
+    lang: None,
     logs: @config.LogsConfig::builtin(),
     cwd: "/srv/api",
     script: "index.ts",
@@ -93,7 +94,7 @@ fn check_config() -> @config.Config {
 
 ///|
 test "check_summary counts reports, targets and periodic entries" {
-  let text = check_summary(check_config())
+  let text = check_summary(check_config(), @i18n.Lang::En)
   // Identity and layout first.
   assert_true(text.contains("project \"api\""))
   assert_true(text.contains("4 x cluster on port 3020"))
@@ -106,7 +107,7 @@ test "check_summary counts reports, targets and periodic entries" {
 test "check_summary says disabled without a notify section" {
   let config = check_config()
   let quiet = { ..config, notify: { ..config.notify, enabled: false, }, }
-  assert_true(check_summary(quiet).contains("notify: disabled"))
+  assert_true(check_summary(quiet, @i18n.Lang::En).contains("notify: disabled"))
 }
 
 ///|
@@ -118,10 +119,10 @@ test "check_project reports a missing script, nothing when present" {
     seen = path
     path.contains("index.ts")
   }
-  assert_true(check_project(config, probe) is None)
+  assert_true(check_project(config, probe, @i18n.Lang::En) is None)
   assert_true(seen == "/srv/api/index.ts")
   let missing = fn(_path : String) -> Bool { false }
-  match check_project(config, missing) {
+  match check_project(config, missing, @i18n.Lang::En) {
     Some(problem) => assert_true(problem.contains("script not found"))
     None => fail("expected the missing script to be reported")
   }

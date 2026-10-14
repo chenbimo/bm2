@@ -15,6 +15,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/argparse",
+  "chensuiyi/bm2/i18n",
 }
 
 pkgtype(kind: "executable")

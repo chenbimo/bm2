@@ -197,13 +197,14 @@ fn run_program(program : String, args_blob : String) -> Bool {
 pub async fn install_artifacts(
   picked : Array[UpdateArtifact],
   dir : String,
+  lang : @i18n.Lang,
 ) -> String? {
   let staged : Array[UpdateArtifact] = []
   for item in picked {
     let temp = dir + "/." + item.name + ".new"
     if !download_ok(item.url, temp) {
       remove_file(temp)
-      return Some("cannot download " + item.url)
+      return Some(@i18n.upgrade_download_failed(lang, item.url))
     }
     let actual = try sha256_hex(temp) catch {
       _ => ""
@@ -212,11 +213,11 @@ pub async fn install_artifacts(
     }
     if actual != item.sha256 {
       remove_file(temp)
-      return Some("checksum mismatch for " + item.name + "; update aborted")
+      return Some(@i18n.upgrade_checksum_mismatch(lang, item.name))
     }
     if !make_executable(temp) {
       remove_file(temp)
-      return Some("cannot mark " + item.name + " executable")
+      return Some(@i18n.upgrade_not_executable(lang, item.name))
     }
     staged.push(item)
   }
@@ -228,11 +229,11 @@ pub async fn install_artifacts(
     let had_old = @fs.path_exists(destination)
     if had_old && !move_file(destination, saved) {
       restore(dir, backed)
-      return Some("cannot replace " + item.name)
+      return Some(@i18n.upgrade_cannot_replace(lang, item.name))
     }
     if !move_file(dir + "/." + item.name + ".new", destination) {
       restore(dir, backed)
-      return Some("cannot replace " + item.name)
+      return Some(@i18n.upgrade_cannot_replace(lang, item.name))
     }
     if had_old {
       backed.push(item.name)
@@ -303,14 +304,14 @@ fn restore(dir : String, backed : Array[String]) -> Unit {
 /// published version with the running one, download this platform's binaries,
 /// verify their SHA256, swap them in place, then swap the daemon so the new
 /// binary takes over without touching the running apps.
-async fn cmd_upgrade(state_dir : String) -> Int32 {
+async fn cmd_upgrade(state_dir : String, lang : @i18n.Lang) -> Int32 {
   // One upgrade at a time: two of them would stage and swap the same files. The
   // lock is released when this process exits, so a crashed upgrade never blocks
   // the next one.
   @utils.discard(() => @fsx.mkdir_p(state_dir, mode=0o700))
   let _lock = try @fsx.lock_exclusive(state_dir + "/upgrade.lock") catch {
     _ => {
-      @proc.eprintln("bm2: another upgrade is already running")
+      @proc.eprintln(@i18n.upgrade_running(lang))
       return 1
     }
   } noraise {
@@ -331,32 +332,32 @@ async fn cmd_upgrade(state_dir : String) -> Int32 {
   let text = match fetched {
     Some(text) => text
     None => {
-      @proc.eprintln("bm2: cannot reach the release station " + base)
+      @proc.eprintln(@i18n.upgrade_unreachable(lang, base))
       return 1
     }
   }
   let (version, artifacts) = match parse_manifest(text) {
     Some(parsed) => parsed
     None => {
-      @proc.eprintln("bm2: cannot read the release manifest")
+      @proc.eprintln(@i18n.upgrade_bad_manifest(lang))
       return 1
     }
   }
   if @utils.compare(@utils.parse(version), @utils.parse(VERSION)) <= 0 {
-    println("bm2 is up to date (" + VERSION + ")")
+    println(@i18n.update_up_to_date(lang, VERSION))
     return 0
   }
-  println("new version " + version + " available (current " + VERSION + ")")
+  println(@i18n.update_available(lang, version, VERSION))
   let target = self_target()
   // bm2 与 bm2d 必须同批取到,缺一不可,否则会出现半更新。
   let picked = match pick_artifacts(artifacts, target, ["bm2", "bm2d"]) {
     Some(items) => items
     None => {
-      @proc.eprintln("bm2: no release for " + target + " yet")
+      @proc.eprintln(@i18n.upgrade_no_release(lang, target))
       return 1
     }
   }
-  match install_artifacts(picked, self_dir()) {
+  match install_artifacts(picked, self_dir(), lang) {
     Some(reason) => {
       @proc.eprintln("bm2: " + reason)
       return 1
@@ -365,5 +366,5 @@ async fn cmd_upgrade(state_dir : String) -> Int32 {
   }
   // Apply immediately when a daemon is running; a failed swap still
   // leaves the update installed, so only the message differs.
-  apply_update(state_dir)
+  apply_update(state_dir, lang)
 }

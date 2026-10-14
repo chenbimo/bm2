@@ -5,10 +5,11 @@
 fn check_project(
   config : @config.Config,
   path_exists : (String) -> Bool,
+  lang : @i18n.Lang,
 ) -> String? {
   let script_path = config.cwd + "/" + config.script
   if !path_exists(script_path) {
-    return Some("script not found: \{script_path}")
+    return Some(@i18n.check_script_missing(lang, script_path))
   }
   None
 }
@@ -16,10 +17,17 @@ fn check_project(
 ///|
 /// One-paragraph human summary of an already validated config: identity,
 /// instance layout, and a notify line with report/target/periodic counts.
-fn check_summary(config : @config.Config) -> String {
+fn check_summary(config : @config.Config, lang : @i18n.Lang) -> String {
   let buf = StringBuilder()
   buf.write_string(
-    "config ok: project \"\{config.name}\", \{config.instances} x \{config.exec_mode} on port \{config.port}, runtime \{config.runtime}",
+    @i18n.check_ok(
+      lang,
+      config.name,
+      config.instances,
+      config.exec_mode,
+      config.port,
+      config.runtime,
+    ),
   )
   if config.notify.enabled {
     let mut targets = 0
@@ -31,10 +39,16 @@ fn check_summary(config : @config.Config) -> String {
       }
     }
     buf.write_string(
-      "\nnotify: \{config.notify.reports.length()} report(s), \{targets} target(s), \{periodic} periodic",
+      "\n" +
+      @i18n.check_notify(
+        lang,
+        config.notify.reports.length(),
+        targets,
+        periodic,
+      ),
     )
   } else {
-    buf.write_string("\nnotify: disabled")
+    buf.write_string("\n" + @i18n.check_notify_disabled(lang))
   }
   // Pre-flight the listener ports: otherwise the first sign of a clash is the app
   // crashing on EADDRINUSE after a start. This project's own running instances
@@ -53,11 +67,16 @@ fn check_summary(config : @config.Config) -> String {
     }
   }
   if held.is_empty() {
-    buf.write_string("\nports \{config.port}~\{last_port}: free")
+    buf.write_string(
+      "\n" + @i18n.check_ports_free(lang, config.port, last_port),
+    )
   } else {
     for pair in held {
       let (port, kind) = pair
-      buf.write_string("\nport \{port}: already held by a \{kind} listener")
+      buf.write_string(
+        "\n" +
+        @i18n.check_port_held(lang, port, @i18n.port_holder_kind(lang, kind)),
+      )
     }
   }
   buf.to_string()
@@ -68,11 +87,11 @@ fn check_summary(config : @config.Config) -> String {
 /// touching the daemon, so a bad config is caught before a deploy. Purely
 /// local: parsing, field validation and ${VAR} expansion all run in-process
 /// via @config.load, then the filesystem gets the final word.
-fn cmd_check() -> Int32 {
+fn cmd_check(lang : @i18n.Lang) -> Int32 {
   let cwd = match @env.current_dir() {
     Some(dir) => dir
     None => {
-      @proc.eprintln("bm2: cannot determine current directory")
+      @proc.eprintln("bm2: " + @i18n.cannot_determine_cwd(lang))
       return 1
     }
   }
@@ -84,7 +103,13 @@ fn cmd_check() -> Int32 {
   } noraise {
     c => c
   }
-  match check_project(config, @fs.path_exists) {
+  // A config verdict is a verdict about this project, so the project's own language
+  // wins over the terminal's. Without one, the operator's stands.
+  let lang = match config.lang {
+    Some(configured) => configured
+    None => lang
+  }
+  match check_project(config, @fs.path_exists, lang) {
     Some(problem) => {
       @proc.eprintln("bm2: " + problem)
       return 1
@@ -104,6 +129,6 @@ fn cmd_check() -> Int32 {
   } noraise {
     _ => ()
   }
-  println(check_summary(config))
+  println(check_summary(config, lang))
   0
 }
