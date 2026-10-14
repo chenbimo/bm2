@@ -115,7 +115,7 @@ threshold_disk_mb = 1024
 mail_url = "smtps://smtp.example.com:465"
 mail_from = "bm2@example.com"
 mail_username = "bm2@example.com"
-mail_password = "${BM2_MAIL_PASSWORD}"
+mail_password = "__BM2_MAIL_PASSWORD__"
 
 # 即时上报：故障 → 主群 + 值班邮箱
 [[notify.report]]
@@ -125,7 +125,7 @@ min_level = "warn"
 
 [[notify.report.target]]
 platform = "feishu"
-url = "${BM2_MAIN_WEBHOOK_URL}"
+url = "__BM2_MAIN_WEBHOOK_URL__"
 
 [[notify.report.target]]
 platform = "email"
@@ -140,7 +140,7 @@ template = "health"
 
 [[notify.report.target]]
 platform = "feishu"
-url = "${BM2_REPORT_WEBHOOK_URL}"
+url = "__BM2_REPORT_WEBHOOK_URL__"
 
 # 周期上报：每日 8 点统计 → 报表群
 [[notify.report]]
@@ -150,7 +150,7 @@ template = "stats"
 
 [[notify.report.target]]
 platform = "feishu"
-url = "${BM2_STATS_WEBHOOK_URL}"
+url = "__BM2_STATS_WEBHOOK_URL__"
 ```
 
 ## 投递行为
