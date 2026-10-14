@@ -23,7 +23,7 @@ const http = require("node:http");
 http.createServer((req, res) => res.end("ok")).listen({ port: PORT, reusePort: true });
 ```
 
-开启 `reusePort` 是应用的责任，因为只有它知道自己的监听方式。bm2 在启动后实测这一点：如果没开，**整个项目会被停止**，所有实例进入 `errored`，原因记为 `reuseport_missing`。修正应用后重新 `bm2 start` 即可，注册不会丢。
+开启 `reusePort` 是应用的责任，因为只有它知道自己的监听方式。bm2 在启动后实测这一点：如果没开，**整个项目会被停止**，所有实例进入 `errored`，原因记为 `reuseport_missing`。修正应用后重新 `bm2 serve` 即可，注册不会丢。
 
 单个实例崩溃后自动重启并重新加入端口组，其余实例不受影响。`BM2_APP_INSTANCE === "0"` 的主实例判断在 cluster 模式下同样可用。
 

@@ -1,6 +1,6 @@
 # 通知
 
-bm2 可以把运行情况上报出去。配置属于**项目**，写在同一份 `bm2.toml` 的 `[notify]` 段，改动在下一次 `bm2 start` 时生效。每个项目只上报自己的事件、只发给自己配置的目标：一个项目不能替另一个项目上报，没写 `[notify]` 的项目则完全不上报。
+bm2 可以把运行情况上报出去。配置属于**项目**，写在同一份 `bm2.toml` 的 `[notify]` 段，改动在下一次 `bm2 serve` 时生效。每个项目只上报自己的事件、只发给自己配置的目标：一个项目不能替另一个项目上报，没写 `[notify]` 的项目则完全不上报。
 
 投递是内置的——HTTPS 与 SMTP 都在 bm2 内部实现，不需要装 `curl`，也没有一个必须保持可用的外部命令。
 
@@ -85,7 +85,7 @@ template = "stats"
 | 事件 | 级别 | 含义 |
 | --- | --- | --- |
 | `crash` | warn | 异常退出或启动失败，预算未耗尽，退避后重启 |
-| `errored` | error | 重启预算耗尽，需要人工 `bm2 start` |
+| `errored` | error | 重启预算耗尽，需要人工 `bm2 serve` |
 | `memory_limit` | warn | RSS 超上限，按异常重启处理 |
 | `oom_kill` | warn | SIGKILL 且内存逼近上限，判定为内核 OOM killer |
 | `reuseport_missing` | error | cluster 模式未开 `reusePort`，项目已被停止 |
