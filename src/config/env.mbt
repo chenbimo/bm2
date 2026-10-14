@@ -1,24 +1,32 @@
 ///|
-/// `${VAR}` expansion for bm2.toml string values: a config that goes into a
-/// repository carries placeholders, while the real endpoint, secret or path
-/// lives in the project's own `.env` files (scanned by the config loader),
-/// with the process environment of whichever process parses the config as
-/// the fallback.
+/// Environment placeholders in bm2.toml string values: `__NAME__`.
 ///
-/// It runs over the whole document — every string, at any depth, once before
-/// field extraction — so no field has to know that expansion exists. The
-/// notification credentials are what it was written for, and are still what
-/// needs it most.
+/// The marker lives inside a string because that is the only place TOML lets
+/// arbitrary text live. An unquoted `__NAME__` — like an unquoted `${NAME}` — is
+/// not a TOML value at all, so the file stops parsing and every editor, linter
+/// and highlighter says so. A config file has to be TOML first and bm2's config
+/// second.
+///
+/// Two underscores on each side is a shape that essentially never occurs by
+/// accident. `$` is the opposite: it is common in URLs and passwords, so a stray
+/// brace in a credential could be mistaken for a placeholder.
+///
+/// Expansion runs over the *parsed* string values, once, before field
+/// extraction. Parsing first is what keeps it honest: a comment mentioning
+/// `__PORT__` is not a string value and is never touched, and nothing this pass
+/// does can turn a valid document into an invalid one. A placeholder with no
+/// closing `__` is left as written — `a__b` is text, not a mistake — and an
+/// unknown variable is a hard error naming it, never a silent empty value.
 
 ///|
-/// The expansion itself, with the environment lookup injected so tests can
-/// drive it without touching the real process environment.
+/// Expand `__NAME__` against the environment. `ctx` is the config path of the
+/// value being expanded, so an error can say where it came from.
 pub fn expand_with(
   value : String,
   ctx : String,
   lookup : (String) -> String?,
 ) -> String raise ConfigError {
-  if !value.contains("${") {
+  if !value.contains("__") {
     return value
   }
   let chars : Array[Char] = []
@@ -29,24 +37,24 @@ pub fn expand_with(
   let buf = StringBuilder()
   let mut i = 0
   while i < n {
-    let c = chars[i]
-    if c == '$' && i + 1 < n && chars[i + 1] == '{' {
+    if chars[i] == '_' && i + 1 < n && chars[i + 1] == '_' {
+      // Read until the closing pair; a name may contain single underscores.
       let name = StringBuilder()
       let mut j = i + 2
       let mut closed = false
-      while j < n {
-        let nc = chars[j]
-        if nc == '}' {
+      while j + 1 < n {
+        if chars[j] == '_' && chars[j + 1] == '_' {
           closed = true
           break
         }
-        name.write_char(nc)
+        name.write_char(chars[j])
         j += 1
       }
       if !closed {
-        raise ConfigError::InvalidField(
-          "\{ctx} has an unterminated ${ reference",
-        )
+        // No closing pair: this is text that happens to contain underscores.
+        buf.write_char(chars[i])
+        i += 1
+        continue
       }
       let var_name = name.to_string()
       if !valid_env_name(var_name) {
@@ -55,15 +63,15 @@ pub fn expand_with(
         )
       }
       match lookup(var_name) {
-        Some(v) => buf.write_string(v)
+        Some(found) => buf.write_string(found)
         None =>
           raise ConfigError::InvalidField(
             "\{ctx} references environment variable \{var_name} which is not set",
           )
       }
-      i = j + 1
+      i = j + 2
     } else {
-      buf.write_char(c)
+      buf.write_char(chars[i])
       i += 1
     }
   }
@@ -71,33 +79,13 @@ pub fn expand_with(
 }
 
 ///|
-/// Environment variable names: letters, digits and underscores, not starting
-/// with a digit. Anything else is a config mistake, not a lookup miss.
-fn valid_env_name(name : String) -> Bool {
-  if name.is_empty() {
-    return false
-  }
-  for index, c in name {
-    let v = c.to_int()
-    let letter = (v >= 65 && v <= 90) || (v >= 97 && v <= 122) || v == 95
-    let ok = if index == 0 { letter } else { letter || (v >= 48 && v <= 57) }
-    if !ok {
-      return false
-    }
-  }
-  true
-}
-
-///|
-/// Recursively expand ${VAR} across an entire parsed TOML tree: every
-/// string value, at any depth, in any table. Done once before field
-/// extraction, so no field ever needs to know about expansion.
+/// Recursively expand `__NAME__` across a parsed TOML tree: every string value,
+/// at any depth, in any table. Done once before field extraction, so no field
+/// ever needs to know that expansion exists.
 ///
-/// Where a value comes from is the caller's decision, passed in as `lookup`:
-/// the config loader resolves against the project's own .env files first and
-/// the process environment second. A variable that is neither is a hard error
-/// naming it, never a silent empty value — an empty URL must not turn into a
-/// delivery attempt.
+/// Where a value comes from is the caller's decision, passed in as `lookup`: the
+/// config loader resolves against the project's own `.env` files first and the
+/// process environment second.
 pub fn expand_toml_tree(
   value : @toml.TomlValue,
   path : String,
@@ -123,4 +111,22 @@ pub fn expand_toml_tree(
     }
     other => other
   }
+}
+
+///|
+/// Environment variable names: letters, digits and underscores, not starting
+/// with a digit. Anything else is a config mistake, not a lookup miss.
+fn valid_env_name(name : String) -> Bool {
+  if name.is_empty() {
+    return false
+  }
+  for index, c in name {
+    let v = c.to_int()
+    let letter = (v >= 65 && v <= 90) || (v >= 97 && v <= 122) || v == 95
+    let ok = if index == 0 { letter } else { letter || (v >= 48 && v <= 57) }
+    if !ok {
+      return false
+    }
+  }
+  true
 }

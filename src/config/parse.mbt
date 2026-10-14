@@ -90,7 +90,9 @@ pub fn parse(
     e => raise ConfigError::InvalidDocument(e.to_string())
   }
   // Project environment first, process environment as the fallback: an operator
-  // can still override one value for a single run without editing a file.
+  // can still override one value for a single run without editing a file. This
+  // runs over the parsed string values, so a placeholder can never make the
+  // document itself unparseable.
   let value = expand_toml_tree(value, "", fn(name) {
     match vars.get(name) {
       Some(found) => Some(found)

@@ -365,65 +365,7 @@ test "new threshold fields parse, default off and validate their ranges" {
 }
 
 ///|
-test "expand_with resolves placeholders through the lookup" {
-  let vars = Map([("BM2_URL", "https://hook.example/abc"), ("BM2_PATH", "x")])
-  let lookup = fn(name : String) -> String? { vars.get(name) }
-  assert_eq(
-    @config.expand_with("${BM2_URL}", "t", lookup),
-    "https://hook.example/abc",
-  )
-  assert_eq(
-    @config.expand_with(
-      "https://hook.example/${BM2_PATH}?key=${BM2_URL}", "t", lookup,
-    ),
-    "https://hook.example/x?key=https://hook.example/abc",
-  )
-  assert_eq(
-    @config.expand_with("https://plain.example/hook", "t", lookup),
-    "https://plain.example/hook",
-  )
-  // A literal ${ with no closing brace is a config mistake, not a lookup.
-  try @config.expand_with("https://x/${oops", "t", lookup) catch {
-    _ => assert_true(true)
-  } noraise {
-    _ => assert_true(false)
-  }
-}
-
-///|
-test "expand_with rejects unset variables and bad names" {
-  fn expand_error(value : String) -> String {
-    try
-      @config.expand_with(value, "t", fn(_name : String) -> String? { None })
-    catch {
-      e => e.to_string()
-    } noraise {
-      _ => "no-error"
-    }
-  }
-  let message = expand_error("${BM2_SECRET_URL}")
-  assert_true(message.contains("BM2_SECRET_URL"))
-  assert_true(message.contains("which is not set"))
-  assert_false(message.contains("https://"))
-  // Names must look like environment variables.
-  fn rejects(value : String) -> Bool {
-    try
-      @config.expand_with(value, "t", fn(_name : String) -> String? {
-        Some("x")
-      })
-    catch {
-      _ => true
-    } noraise {
-      _ => false
-    }
-  }
-  assert_true(rejects("${}"))
-  assert_true(rejects("${9BAD}"))
-  assert_true(rejects("${A-B}"))
-}
-
-///|
-test "parse expands ${VAR} anywhere in the notify tree" {
+test "parse expands __VAR__ anywhere in the notify tree" {
   @env.set_env_var("BM2_TEST_HOOK", "https://hook.example/from-env")
   @env.set_env_var("BM2_TEST_KEY", "sign-key")
   @env.set_env_var("BM2_TEST_MAIL", "smtps://smtp.example.com:465")
@@ -432,15 +374,15 @@ test "parse expands ${VAR} anywhere in the notify tree" {
       (
         #|[notify]
         #|enabled = true
-        #|mail_url = "${BM2_TEST_MAIL}"
+        #|mail_url = "__BM2_TEST_MAIL__"
         #|
         #|[[notify.report]]
         #|name = "t"
         #|
         #|[[notify.report.target]]
         #|platform = "feishu"
-        #|url = "${BM2_TEST_HOOK}"
-        #|secret = "${BM2_TEST_KEY}"
+        #|url = "__BM2_TEST_HOOK__"
+        #|secret = "__BM2_TEST_KEY__"
       ),
     ),
     "/srv/yicode",
@@ -455,7 +397,7 @@ test "parse expands ${VAR} anywhere in the notify tree" {
   // With the variable gone the same config fails, naming the variable.
   assert_true(
     notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"${BM2_TEST_HOOK}\"\n",
+      "[notify]\n\n[[notify.report]]\nname = \"t\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"__BM2_TEST_HOOK__\"\n",
     ).contains("BM2_TEST_HOOK which is not set"),
   )
 }

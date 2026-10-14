@@ -119,7 +119,7 @@ fn injected(entries : Array[(String, String)], key : String) -> String {
 }
 
 ///|
-/// 扫描结果既是注入给实例的环境,也是 ${VAR} 的解析源——同一份 map,所以应用和
+/// 扫描结果既是注入给实例的环境,也是 `__VAR__` 的解析源——同一份 map,所以应用和
 /// 管理者不可能对同一个名字读出不同的值。
 test ".env files feed both the injected environment and placeholders" {
   let files : Array[(String, String)] = [
@@ -134,7 +134,7 @@ test ".env files feed both the injected environment and placeholders" {
       #|script = "index.ts"
       #|instances = 1
       #|port = 3000
-      #|cwd = "/srv/${MYSQL_HOST}"
+      #|cwd = "/srv/__MYSQL_HOST__"
       #|
     ),
     dir,
@@ -205,8 +205,8 @@ test "numeric fields take a quoted placeholder" {
       #|name = "blog"
       #|script = "index.ts"
       #|instances = "1"
-      #|port = "${APP_PORT}"
-      #|max_memory_mb = "${APP_MEM}"
+      #|port = "__APP_PORT__"
+      #|max_memory_mb = "__APP_MEM__"
       #|
     ),
     dir,
@@ -215,6 +215,38 @@ test "numeric fields take a quoted placeholder" {
   assert_eq(config.max_memory_mb, 1024)
   assert_eq(config.instances, 1)
   cleanup_env_dir(dir, files)
+}
+
+///|
+/// 不带引号的标记不是合法 TOML。这条用例把这个边界钉下来:标记只能待在引号里。
+test "an unquoted marker is a parse error, not a feature" {
+  let message = parse_error(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|port = __APP_PORT__
+      #|
+    ),
+  )
+  assert_true(message.contains("InvalidDocument"))
+}
+
+///|
+/// 注释不是字符串值,里面的标记永远不动,也不会因为变量没设而报错。
+test "markers in comments are not placeholders" {
+  let config = @config.parse(
+    (
+      #|name = "blog"
+      #|script = "index.ts"
+      #|instances = 1
+      #|port = 3000
+      #|# 端口见 __NOT_SET_ANYWHERE__
+      #|
+    ),
+    BASE_DIR,
+  )
+  assert_eq(config.port, 3000)
 }
 
 ///|
@@ -241,7 +273,7 @@ test "boolean fields take a quoted placeholder" {
   ]
   let dir = env_dir("bool", files)
   let config = @config.parse(
-    VALID_DOC + "\n[notify]\nenabled = \"${NOTIFY_ON}\"\n",
+    VALID_DOC + "\n[notify]\nenabled = \"__NOTIFY_ON__\"\n",
     dir,
   )
   assert_true(config.notify.enabled)
