@@ -2,4 +2,5 @@ import {
   "moonbit-community/toml",
   "moonbitlang/x/fs",
   "moonbitlang/core/env",
+  "chensuiyi/bm2/i18n",
 }

@@ -403,6 +403,36 @@ test "parse expands __VAR__ anywhere in the notify tree" {
 }
 
 ///|
+/// The notification copy language is the project's unless the project says
+/// otherwise for notify alone: notices are part of the project's voice, so one
+/// language in bm2.toml is enough to make them Chinese.
+test "notify copy follows the project language until told otherwise" {
+  let inherits = @config.parse(
+    project_doc(
+      (
+        #|lang = "zh"
+        #|[notify]
+        #|enabled = true
+      ),
+    ),
+    "/srv/yicode",
+  )
+  assert_eq(inherits.notify.lang, "zh")
+  let overrides = @config.parse(
+    project_doc(
+      (
+        #|lang = "zh"
+        #|[notify]
+        #|enabled = true
+        #|lang = "en"
+      ),
+    ),
+    "/srv/yicode",
+  )
+  assert_eq(overrides.notify.lang, "en")
+}
+
+///|
 test "notify lang is a closed set defaulting to en" {
   let config = @config.parse(
     project_doc(
@@ -427,7 +457,22 @@ test "notify lang is a closed set defaulting to en" {
   assert_eq(plain.notify.lang, "en")
   assert_true(
     notify_error("[notify]\nlang = \"fr\"\n").contains(
-      "notify.lang has unknown value fr",
+      "notify.lang is not supported: fr",
     ),
+  )
+}
+
+///|
+/// A language bm2 does not speak is refused, and the refusal quotes the value so a
+/// typo is visible. It deliberately does not list what is supported: that roster
+/// would be a second place to maintain, and it would have to be updated the day a
+/// language is added — which is the one moment nobody wants a message to lie.
+test "an unsupported language is refused by name" {
+  let notify_msg = notify_error("[notify]\nlang = \"fr\"\n")
+  assert_true(notify_msg.contains("notify.lang is not supported: fr"))
+  assert_true(
+    parse_error(
+      "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\nlang = \"zh_CN\"\n",
+    ).contains("root.lang is not supported: zh_CN"),
   )
 }

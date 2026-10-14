@@ -29,7 +29,7 @@ fn env_entries(vars : Map[String, String]) -> Array[(String, String)] {
 let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "exec_mode", "instances", "port", "max_memory_mb",
   "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "notify",
-  "logs",
+  "logs", "lang",
 ]
 
 ///|
@@ -136,9 +136,10 @@ pub fn parse(
       "root",
       DEFAULT_STOP_TIMEOUT_MS,
     ),
-    notify: opt_notify(table),
+    notify: opt_notify(table, default_lang=project_lang_name(table)),
     logs: opt_logs(table),
     mode,
+    lang: opt_project_lang(table),
     env: env_entries(vars),
   }
   validate(config)
@@ -150,11 +151,26 @@ pub fn parse(
 /// nothing.
 fn opt_notify(
   table : Map[String, @toml.TomlValue],
+  default_lang~ : String,
 ) -> NotifyConfig raise ConfigError {
   match table.get("notify") {
     None => NotifyConfig::disabled()
-    Some(@toml.TomlTable(section)) => parse_notify_section(section)
+    Some(@toml.TomlTable(section)) =>
+      parse_notify_section(section, default_lang~)
     Some(_) => raise ConfigError::InvalidField("notify must be a table")
+  }
+}
+
+///|
+/// The language notification copy defaults to: the project's `lang`. Notices are
+/// part of the project's voice, so a project that says `lang = "zh"` gets Chinese
+/// notices; `[notify] lang` can still name a different one for the chat group.
+fn project_lang_name(
+  table : Map[String, @toml.TomlValue],
+) -> String raise ConfigError {
+  match opt_project_lang(table) {
+    Some(lang) => lang.name()
+    None => "en"
   }
 }
 
@@ -247,6 +263,24 @@ fn req_int(
     Some(_) =>
       raise ConfigError::InvalidField("\{ctx}.\{key} must be an integer")
     None => raise ConfigError::InvalidField("\{ctx}.\{key} is required")
+  }
+}
+
+///|
+/// The project's language, when it states one. An unknown name is refused rather
+/// than downgraded to English: a config that asks for a language bm2 does not
+/// speak is a mistake the operator wants to hear about.
+fn opt_project_lang(
+  table : Map[String, @toml.TomlValue],
+) -> @i18n.Lang? raise ConfigError {
+  match opt_string_opt(table, "lang", "root") {
+    None => None
+    Some(name) =>
+      match @i18n.Lang::from_name(name) {
+        Some(lang) => Some(lang)
+        None =>
+          raise ConfigError::InvalidField("root.lang is not supported: \{name}")
+      }
   }
 }
 

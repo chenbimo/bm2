@@ -141,11 +141,12 @@ let notifyTemplates : Array[String] = ["health", "stats"]
 /// Parse the `[notify]` table of a project config.
 pub fn parse_notify_section(
   table : Map[String, @toml.TomlValue],
+  default_lang~ : String,
 ) -> NotifyConfig raise ConfigError {
   reject_unknown_keys(table, notifyKeys, "notify")
   let config : NotifyConfig = {
     enabled: opt_bool(table, "enabled", "notify", false),
-    lang: opt_lang(table),
+    lang: opt_lang(table, default=default_lang),
     timeout_ms: opt_int(table, "timeout_ms", "notify", 5000),
     dedupe_window_s: opt_int(table, "dedupe_window_s", "notify", 3600),
     max_per_minute: opt_int(table, "max_per_minute", "notify", 30),
@@ -168,18 +169,28 @@ pub fn parse_notify_section(
 }
 
 ///|
-/// Notification copy language, a closed set: "en" (default) or "zh".
-fn opt_lang(table : Map[String, @toml.TomlValue]) -> String raise ConfigError {
+/// Notification copy language: whatever `@i18n` speaks. The set is not spelled out
+/// here on purpose — this decides whether the value is one bm2 knows, and the
+/// refusal names the set the same place the rest of the program does.
+///
+/// The default is the project's own language rather than a constant: notification
+/// copy is part of the project, so a project that says `lang = "zh"` gets Chinese
+/// notices without a second knob. `[notify] lang` still overrides it, because a
+/// chat group and a terminal can want different languages.
+fn opt_lang(
+  table : Map[String, @toml.TomlValue],
+  default~ : String,
+) -> String raise ConfigError {
   match opt_string_opt(table, "lang", "notify") {
     Some(value) =>
-      if value == "en" || value == "zh" {
-        value
-      } else {
-        raise ConfigError::InvalidField(
-          "notify.lang has unknown value \{value}",
-        )
+      match @i18n.Lang::from_name(value) {
+        Some(_) => value
+        None =>
+          raise ConfigError::InvalidField(
+            "notify.lang is not supported: \{value}",
+          )
       }
-    None => "en"
+    None => default
   }
 }
 

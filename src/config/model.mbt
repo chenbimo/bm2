@@ -9,6 +9,14 @@ pub(all) struct Config {
   /// must equal, so it travels with the config rather than being re-derived
   /// further down.
   mode : Mode
+  /// The language this project's own copy is written in, when it states one.
+  ///
+  /// None means "follow whoever is looking": the operator's environment for what
+  /// is printed to a terminal, this daemon's environment for lines it writes on
+  /// its own (its log). It is per project because a project is what a message is
+  /// about — and because a server in one country and an operator in another is a
+  /// normal arrangement.
+  lang : @i18n.Lang?
   cwd : String
   script : String
   runtime : String
