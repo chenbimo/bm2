@@ -1,42 +1,36 @@
 #!/bin/bash
-# The fast gate on every commit: `moon fmt` (auto-fixed and re-staged) plus the
-# strict type/warning check. The slow half — unit tests, native builds, the e2e
-# run — belongs to scripts/pre-push.sh.
+# 生成物 · 禁改。源:moonbit/scripts/static/scripts/devkit/pre-commit.sh
 #
-# Runs inside WSL via scripts/hook-dispatch.sh.
+# 每次提交的快门:生成物完整性 + `moon fmt`(自动修复并重暂存)+ 严格 check +
+# 项目声明的校验器。慢的一档(测试、构建、慢测试)属于 pre-push。
+#
+# 在 WSL 内由 scripts/devkit/hook-dispatch.sh 调起。
 set -euo pipefail
 
-# The hook may run from Windows git through WSL as any user; probe the
-# well-known toolchain locations instead of trusting $HOME.
-if ! command -v moon > /dev/null 2>&1; then
-  for candidate in /root/.moon/bin /home/*/.moon/bin "$HOME/.moon/bin"; do
-    if [ -x "$candidate/moon" ]; then
-      export PATH="$candidate:$PATH"
-      break
-    fi
-  done
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+cd "$root"
+
+source "$root/scripts/devkit/lib/common.sh"
+source "$root/scripts/devkit/lib/checks.sh"
+source "$root/scripts/devkit/lib/manifest.sh"
+
+devkit_integrity_check "$root"
+
+devkit_load_conf "$root"
+
+# 只有源码改动才需要编译门;钩子、CI、文档的改动不需要。
+staged=$(git diff --cached --name-only --diff-filter=d)
+if [ -z "$staged" ] || ! printf '%s\n' "$staged" | grep -qE "^(${DEVKIT_SRC}|moon\.mod$)"; then
+  echo "pre-commit: no module sources staged, nothing to check"
+  exit 0
 fi
 
-root=$(pwd)
-[ -f "$root/moon.mod" ] || {
-  echo "pre-commit: no moon.mod here; run from the repository root"
-  exit 1
-}
+devkit_ensure_moon
 
 # Per-environment build dir: hooks and manual WSL runs share it, and neither
 # touches the tree the Windows IDE may be using.
 build_dir="$root/_build-wsl"
 mkdir -p "$build_dir"
-
-source "$root/scripts/lib/common.sh"
-
-# Only source changes need the compile gate; hook, CI and documentation edits
-# do not.
-staged=$(git diff --cached --name-only --diff-filter=d)
-if [ -z "$staged" ] || ! printf '%s\n' "$staged" | grep -qE '^(src/|moon\.mod$)'; then
-  echo "pre-commit: no module sources staged, nothing to check"
-  exit 0
-fi
 
 # Formatting is fixed automatically rather than reported. The snapshot pair
 # tells apart files fmt rewrote (re-stage) from files that also carry the
@@ -95,10 +89,8 @@ if ! module_check "$build_dir"; then
   exit 1
 fi
 
-# The version invariant: moon.mod and the CLI's VERSION constant agree.
-source "$root/scripts/lib/checks.sh"
-if ! check_version_sync "$root"; then
-  echo "pre-commit: fix the version invariant above before committing."
+if ! devkit_run_checks "$root"; then
+  echo "pre-commit: 固定校验未通过,提交中止。"
   exit 1
 fi
 

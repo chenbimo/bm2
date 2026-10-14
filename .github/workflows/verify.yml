@@ -12,16 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pin the toolchain to the local dev version — the WSL toolchain is the
-      # reference. The version string is the full moonc version from `moon -V`
-      # (e.g. 0.10.15+943464bfa); dated 0.1.YYYYMMDD strings are not served by
-      # the binary host.
+      # 工具链与本地 WSL 版本一致;版本号只有一处(moonbit/scripts/devkit.conf)。
       - name: Install MoonBit
         run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
         env:
           MOONBIT_INSTALL_VERSION: 0.10.15+943464bfa
 
       - uses: oven-sh/setup-bun@v2
-
-      - name: Run full verification
-        run: bash scripts/verify.sh
+      # 门禁只有一份实现:CI 与本地钩子跑的是同一个脚本,它自带生成物完整性校验。
+      - name: Verify
+        run: bash scripts/devkit/verify.sh

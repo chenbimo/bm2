@@ -1,3 +1,4 @@
 #!/bin/bash
+# 生成物 · 禁改。源:moonbit/scripts/static/.githooks/pre-commit
 root="$(cd "$(dirname "$0")/.." && pwd)"
-exec bash "$root/scripts/hook-dispatch.sh" pre-commit "$@"
+exec bash "$root/scripts/devkit/hook-dispatch.sh" pre-commit "$@"

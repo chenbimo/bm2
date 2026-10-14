@@ -1,10 +1,12 @@
 #!/bin/bash
+# 生成物 · 禁改。源:moonbit/scripts/static/scripts/devkit/hook-dispatch.sh
+#
 # Git hook dispatcher: run one hook stage inside the environment that actually
 # has the toolchain.
 #
-# The workspace's checks need the MoonBit toolchain, which lives in WSL; git,
-# however, is usually driven from Windows. The hook crosses that boundary
-# instead of demanding a toolchain on both sides.
+# The checks need the MoonBit toolchain, which lives in WSL; git, however, is
+# usually driven from Windows. The hook crosses that boundary instead of
+# demanding a toolchain on both sides.
 #
 # Activated via: git config core.hooksPath .githooks
 set -u
@@ -17,7 +19,7 @@ root=$(git rev-parse --show-toplevel)
 case "$(uname -s)" in
   Linux*)
     cd "$root"
-    exec bash "scripts/$stage.sh" "$@"
+    exec bash "scripts/devkit/$stage.sh" "$@"
     ;;
   *)
     if ! command -v wsl.exe >/dev/null 2>&1; then
@@ -36,6 +38,6 @@ case "$(uname -s)" in
     # 无参数设计:commit-msg 需要的消息文件在 WSL 侧路径确定
     # (<wsl_root>/.git/COMMIT_EDITMSG),由 commit-msg.sh 自行推导,
     # 不跨桥传参——参数桥在部分环境下会丢参。
-    exec wsl.exe -d Debian -- bash -lc "cd '$wsl_root' && bash scripts/$stage.sh"
+    exec wsl.exe -d Debian -- bash -lc "cd '$wsl_root' && bash scripts/devkit/$stage.sh"
     ;;
 esac

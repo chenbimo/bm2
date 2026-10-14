@@ -60,11 +60,11 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 1. **快检**(改完即跑,秒级):`moon check --deny-warn --warn-list +implicit_impl_as_method --target-dir _build-wsl`(单模块下无需指定包路径)
 2. **模块测试**(功能完成时,十秒级):`moon test --target native`
-3. **全量**(批次收尾一次):`bash scripts/verify.sh`(fmt / check / 单测 / 构建)。交付或发布前的端到端属于手动档,见下
+3. **全量**(批次收尾一次):`bash scripts/devkit/verify.sh`(fmt / check / 单测 / 构建)。交付或发布前的端到端属于手动档,见下
 
 e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了多少还添脆弱);测试内的 sleep 是真实时序语义,不为速度压缩。
 
-**耗时的用例只手动跑(严格)**:e2e 与 soak 都是分钟级,任何无人值守的流程——pre-commit、pre-push(含打 tag 推送)、CI、发布——都**不执行**它们,只跑第 1、2、3 档。手动入口只有两个:`bash scripts/verify.sh --with-e2e`(仅 e2e)与 `--release`(e2e + soak)。**AI 助手同样不主动执行**:没有用户的明确指令,不得运行 e2e 与 soak,批次收尾的验证止于第 3 档。
+**耗时的用例只手动跑(严格)**:e2e 与 soak 都是分钟级,任何无人值守的流程——pre-commit、pre-push(含打 tag 推送)、CI、发布——都**不执行**它们,只跑第 1、2、3 档。手动入口只有两个:`bash scripts/devkit/verify.sh --with-e2e`(仅 e2e)与 `--release`(e2e + soak)。**AI 助手同样不主动执行**:没有用户的明确指令,不得运行 e2e 与 soak,批次收尾的验证止于第 3 档。
 
 **测前先换二进制(严格)**:任何命令测试与功能测试之前,先把最新源码构建到对应目录,并替换现有的 `bm2` 与 `bm2d`(安装位置 `/usr/local/bin`,先写临时名再 `mv`,避开 ETXTBSY)。守护进程必须一起换:配置由守护进程**重新读取并解析**,只换 CLI 会让新功能「在 CLI 通过、在守护进程报错」——错误不带 `bm2:` 前缀正是它来自守护进程的标志(已实证:数字占位符在 CLI 侧解析通过,旧守护进程用自己的旧解析器重读同一份配置后拒绝)。协议未变时 `bm2 reload` 即可换班,协议变了(如 v4→v5)只能 SIGTERM 后由新 CLI 自动拉起。
 
@@ -72,7 +72,7 @@ e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了�
 
 ## 发布
 
-本仓库的发布门禁是 `bash scripts/verify.sh`(fmt / check / 单测 / 构建);推 tag 时 `pre-push` 跑的也是这一档。e2e 与 soak 属于手动档,发布同样不自动执行它们——见上文「测试粒度」。
+本仓库的发布门禁是 `bash scripts/devkit/verify.sh`(fmt / check / 单测 / 构建);推 tag 时 `pre-push` 跑的也是这一档。e2e 与 soak 属于手动档,发布同样不自动执行它们——见上文「测试粒度」。
 
 版本号在 `moon.mod` 与 CLI 的 `VERSION` 常量里必须一致(verify.sh 与 pre-commit 校验)。
 
@@ -110,10 +110,10 @@ git config core.hooksPath .githooks
 | --- | --- | --- |
 | `commit-msg` | 提交时 | 强制校验上文提交格式,不合规则的提交被拒绝 |
 | `pre-commit` | 提交时 | 仅当本次改动了 `src/` 或 `moon.mod` 时:`moon fmt` 自动修复并重新暂存 + `moon check --deny-warn` + 版本号一致校验 |
-| `pre-push` | 推送时 | `bash scripts/verify.sh`(fmt / check / 单测 / 构建);e2e 由发布前手动跑 |
+| `pre-push` | 推送时 | `bash scripts/devkit/verify.sh`(fmt / check / 单测 / 构建);e2e 由发布前手动跑 |
 
 - 确需绕过:`git commit --no-verify`(例外应 rare)
-- 钩子实现:`scripts/hook-dispatch.sh`(跨环境分发)+ `scripts/{pre-commit,commit-msg,pre-push}.sh` + `scripts/lib/{common,checks}.sh`
+- 钩子与验收门禁由工作区唯一源 `moonbit/scripts` 生成到 `scripts/devkit/`,**生成物禁改**(后果见该目录 README);项目只在 `scripts/devkit.conf` 里声明业务事实,慢测试挂在 `scripts/e2e/gate.sh` 与 `scripts/soak.sh` 两个插槽上
 
 ## 硬性约定
 

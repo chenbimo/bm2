@@ -1,3 +1,4 @@
 #!/bin/bash
+# 生成物 · 禁改。源:moonbit/scripts/static/.githooks/commit-msg
 root="$(cd "$(dirname "$0")/.." && pwd)"
-exec bash "$root/scripts/hook-dispatch.sh" commit-msg "$@"
+exec bash "$root/scripts/devkit/hook-dispatch.sh" commit-msg "$@"
