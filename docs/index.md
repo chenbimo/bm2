@@ -9,6 +9,9 @@ hero:
     - theme: brand
       text: 开始使用
       link: /guide/install
+    - theme: alt
+      text: 命令参考
+      link: /guide/commands
 
 ---
 
