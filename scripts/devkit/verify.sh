@@ -2,13 +2,14 @@
 # 生成物 · 禁改。源:moonbit/scripts/static/scripts/devkit/verify.sh
 #
 # 从 WSL 终端跑:bash scripts/devkit/verify.sh
-# 统一验收门禁(本地钩子与 CI 跑的是同一个脚本):
+# 快门禁(本地钩子与 CI 跑的是同一个脚本):推送与 CI 只允许跑到这一档。
 #   1. 生成物完整性校验     4. 各 target 测试(DEVKIT_TARGETS)
 #   2. 项目声明的校验器     5. 声明的构建(DEVKIT_BUILDS)
-#   3. fmt / 严格 check     6. 慢测试插槽(--with-e2e / --release)
+#   3. fmt / 严格 check
 #
-# --with-e2e 追加慢测试,--release 在其上再叠 soak。两者都按规矩手动跑:
-# 任何自动化都不跑它们,所以插槽没声明就等于没有这一档。
+# e2e、soak 等分钟级套件绝不进入本快捷档,只存在于手动命令:
+#   --with-e2e 追加慢测试(DEVKIT_E2E),--release 在其上再叠 soak(DEVKIT_SOAK)。
+# 插槽没声明就等于没有这一档;任何自动流程与 AI 都不主动跑它们。
 set -euo pipefail
 
 WITH_E2E=0
