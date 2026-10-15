@@ -53,10 +53,10 @@ const sidebar = [
 ]
 
 export default defineConfig({
-  // 站点挂在 https://yicode.tech/bm2 这个子路径下,base 必须与它一致。不声明
-  // 的话,资源与内部链接会指向站点根目录(那里是官网 SPA),打开就是白屏。
-  // 这是部署形态唯一的切换点:换到独立域名(根路径)时改成 '/',挂子路径时写回来。
-  base: '/bm2/',
+  // 站点挂在 https://bm2.moonbitlang.dev 这个子域名下,是根路径,所以 base 为 '/'。
+  // 这是部署形态唯一的切换点:换回子路径部署时,这里要和路径前缀一致,否则资源与
+  // 内部链接会指向站点根,打开就是白屏。
+  base: '/',
   lang: 'zh-CN',
   title: 'bm2',
   description: 'Bun 与 Node.js 的进程管理器，MoonBit 编写。',

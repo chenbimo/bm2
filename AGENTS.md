@@ -22,7 +22,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## 目录结构
 
-- `docs/` — 手册(VitePress,中文单语;英文待实现稳定后再补)。依赖与构建在 Windows 侧跑,配置读 `moon.mod` 取版本与仓库地址,页面里不写版本号。部署挂在 `yicode.tech/bm2` 子路径下(`base` 为 `/bm2/`,构建产物放服务器 `/wwwroot/site/bm2/`);服务端配置在 `yicode-tech` 仓库的 `web/api/Caddyfile`,**本仓库不留副本**。VitePress 精确锁在 `2.0.0-alpha.20`:依赖树从 126 个包降到 36 个,但 alpha 的破坏性变更**可能静默生效**(已遇到 `lastUpdatedText` 被移除且不报错),升级时逐个核对配置键;等 npm 的 `latest` 变成 2.x 再改成 `^2`
+- `docs/` — 手册(VitePress,中文单语;英文待实现稳定后再补)。依赖与构建在 Windows 侧跑,配置读 `moon.mod` 取版本与仓库地址,页面里不写版本号。部署在 `bm2.moonbitlang.dev`(子域名根路径,`base` 为 `/`),托管于 Cloudflare Pages 项目 `moonbit-bm2`,推送到 `main` 且 `docs/**` 或 `moon.mod` 有改动时自动重建;命名与上站流程见工作区规范 `NEW-PROJECT.md`。VitePress 精确锁在 `2.0.0-alpha.20`:依赖树从 126 个包降到 36 个,但 alpha 的破坏性变更**可能静默生效**(已遇到 `lastUpdatedText` 被移除且不报错),升级时逐个核对配置键;等 npm 的 `latest` 变成 2.x 再改成 `^2`
 - `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
 - `src/config` — bm2.toml 解析与校验(`[notify]` 订阅过滤也在此层)
 - `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
