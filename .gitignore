@@ -9,3 +9,11 @@ nul
 docs/node_modules/
 docs/.vitepress/cache/
 docs/dist/
+
+# 敏感与本地态:令牌、私钥与 CLI 本地状态禁止入库(见工作区规范第八节)
+.cloudflare/
+.wrangler/
+.env
+.env.*
+*.key
+*.pem
