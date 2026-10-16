@@ -22,4 +22,5 @@ import {
   "moonbit-community/toml@0.5.0",
   "moonbitlang/x@0.5.5",
   "moonbitlang/async@0.22.4",
+  "chensuiyi/clitable@0.2.0",
 }

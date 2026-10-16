@@ -43,91 +43,65 @@ fn print_list(
 }
 
 ///|
-/// Render a table: every column is padded to its widest cell *as displayed*.
+/// 实例表交给 `chensuiyi/clitable` 渲染。
 ///
-/// Widths come from `@utils.display_width`, not `String::length`. Length counts
-/// UTF-16 code units, so a translated header like `运行时长` measured 4 while
-/// occupying 8 columns, and the Chinese table came out ragged with everything
-/// after it pulled left.
+/// 列宽按显示宽度算，CJK 等全角字符占两列，这套算法不在 bm2 手写：那是
+/// Unicode 数据的活，交给专门维护它的库做。ID、PID、PORT、TIMES 是数字列，
+/// 右对齐；列的位置与语言无关，所以按下标声明。
+///
+/// `render()` 只在两种情况下报错：行数与列数不符，或者人为约束过总宽。
+/// 这里两条都踩不到——行的构造就在上方，逐列填齐，总宽也没约束过。契约是
+/// `raise`，所以不能吞：抓到了把原因打到 stderr 再离开。
 fn render_table(header : Array[String], rows : Array[Array[String]]) -> String {
-  let widths : Array[Int32] = []
-  for name in header {
-    widths.push(@utils.display_width(name))
+  let cols : Array[@clitable.Column] = []
+  for i in 0..<header.length() {
+    let col = @clitable.Column::new(header[i])
+    if i == 1 || i == 2 || i == 3 || i == 8 {
+      cols.push(col.align(@clitable.Right))
+    } else {
+      cols.push(col)
+    }
   }
-  for row in rows {
-    for i in 0..<row.length() {
-      let width = @utils.display_width(row[i])
-      if width > widths[i] {
-        widths[i] = width
+  try @clitable.Table::new(cols).push_rows(rows).render() catch {
+    e => {
+      let reason = match e {
+        @clitable.TableError::Arity(rows_, cells_) =>
+          "row count \{rows_} and cell count \{cells_} do not match"
+        @clitable.TableError::TooNarrow(width_) =>
+          "the table does not fit into \{width_} columns"
       }
+      @proc.eprintln("bm2: instance table render failed: \{reason}")
+      ""
     }
+  } noraise {
+    out => out
   }
-  let lines = [table_line(header, widths)]
-  for row in rows {
-    lines.push(table_line(row, widths))
-  }
-  lines.join("\n")
 }
 
 ///|
-/// One table row. Every column is padded, the last included, so all lines of a
-/// table are exactly as wide as each other — which is also what the test asserts.
-fn table_line(cols : Array[String], widths : Array[Int32]) -> String {
-  let buf = StringBuilder()
-  for i in 0..<cols.length() {
-    if i > 0 {
-      buf.write_string("  ")
-    }
-    buf.write_string(@utils.pad_to(cols[i], widths[i]))
-  }
-  buf.to_string()
-}
-
-///|
-/// Lay key/value pairs out in rows of `per_row` columns, each column as wide as its
-/// widest cell, with the first row carrying the real prefix and the rest an indent
-/// of the same width.
+/// 守护进程摘要：一行标签做表头，一行数值做数据，同一张表里八条信息。
+/// 表头来自翻译函数，换语言跟着变；宽度与对齐由 clitable 保证。
 ///
-/// Written for the daemon summary: eight numbers that fit one line only by running
-/// into each other, and in Chinese the labels and the English units made one soup.
-fn render_pairs(
-  pairs : Array[String],
-  first_prefix : String,
-  per_row : Int32,
-) -> String {
-  let rows = (pairs.length() + per_row - 1) / per_row
-  let widths : Array[Int32] = []
-  for i in 0..<per_row {
-    let mut width = 0
-    for r in 0..<rows {
-      let index = r * per_row + i
-      if index < pairs.length() {
-        let cell = @utils.display_width(pairs[index])
-        if cell > width {
-          width = cell
-        }
-      }
-    }
-    widths.push(width)
+/// 数值条数必须与列数一致：clitable 不做静默补齐，少了会当场报 Arity。
+fn render_summary(head : Array[String], values : Array[String]) -> String {
+  let cols : Array[@clitable.Column] = []
+  for label in head {
+    cols.push(@clitable.Column::new(label))
   }
-  let indent = @utils.pad_to("", first_prefix.length())
-  let lines = []
-  for r in 0..<rows {
-    let buf = StringBuilder()
-    buf.write_string(if r == 0 { first_prefix } else { indent })
-    for i in 0..<per_row {
-      let index = r * per_row + i
-      if index >= pairs.length() {
-        break
+  try @clitable.Table::new(cols).push_rows([values]).render() catch {
+    e => {
+      let reason = match e {
+        @clitable.TableError::Arity(rows_, cells_) =>
+          "row count \{rows_} and cell count \{cells_} do not match"
+        @clitable.TableError::TooNarrow(width_) =>
+          "the table does not fit into \{width_} columns"
       }
-      if i > 0 {
-        buf.write_string("  ")
-      }
-      buf.write_string(@utils.pad_to(pairs[index], widths[i]))
+      @proc.eprintln("bm2: daemon summary render failed: \{reason}")
+      ""
     }
-    lines.push(buf.to_string())
+  } noraise {
+    out => out
   }
-  lines.join("\n")
 }
 
 ///|
@@ -144,18 +118,18 @@ pub fn print_daemon(info : @protocol.DaemonInfo, lang : @i18n.Lang) -> Unit {
     Some(kb) => kb
     None => 0
   }
-  // Pairs, not one interpolated sentence: the summary is a row of numbers, and
-  // only the few words around them have a translation.
+  // 标签行与数值行分开收集：表头来自翻译函数，数值行是采集结果本身，
+  // MB 这类单位跟着数值走，不进表头。
   let labels = @i18n.daemon_labels(lang)
-  let pairs = [
-    "\{labels[0]} \{info.pid}",
-    "\{labels[1]} \{fds}",
-    "\{labels[2]} \{rss / 1024} \{labels[3]}",
-    "\{labels[4]} \{@utils.human_duration(info.uptime_ms, pad=true)}",
-    "\{labels[5]} \{info.instances}",
-    "\{labels[6]} \{info.commands_applied}",
-    "\{labels[7]} \{info.pending_restarts}",
-    "\{labels[8]} \{info.pending_removals}",
+  let values = [
+    info.pid.to_string(),
+    fds.to_string(),
+    (rss / 1024).to_string() + " MB",
+    @utils.human_duration(info.uptime_ms, pad=true),
+    info.instances.to_string(),
+    info.commands_applied.to_string(),
+    info.pending_restarts.to_string(),
+    info.pending_removals.to_string(),
   ]
-  println(render_pairs(pairs, "daemon: ", 4))
+  println(render_summary(labels, values))
 }

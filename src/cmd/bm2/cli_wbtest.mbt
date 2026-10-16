@@ -94,63 +94,41 @@ async test "a busy daemon is reported instead of being replaced" {
 }
 
 ///|
-/// Every line of a table must occupy the same number of terminal columns. The bug
-/// this pins: widths used to come from `String::length`, so the translated header
-/// `运行时长` measured 4 code units while occupying 8 columns, and the Chinese table
-/// came out ragged with the rest of its columns pulled left.
-test "table lines are equal in display width, in both languages" {
+/// 实例表交给 clitable 渲染，宽度与对齐是库的职责，它的仓库里有自己的测试。
+/// 这里钉住的是 bm2 侧的输入契约：表头的列数与数据行的列数一致，渲染里要
+/// 看得到真实数据，出错也不会悄悄吞掉一张表。
+test "the list table keeps a full grid of columns" {
   for lang in [@i18n.Lang::En, @i18n.Lang::Zh] {
     let header = @i18n.list_headers(lang)
-    let rows = [
-      [
-        "api",
-        "0",
-        "12345",
-        "3020",
-        @i18n.mode_value(lang, "production"),
-        @i18n.exec_value(lang, "cluster"),
-        @i18n.status_value(lang, "running"),
-        "3",
-        "42 MB",
-        "18m 02s",
-        "/wwwroot/api",
-      ],
+    assert_eq(header.length(), 11)
+    let row = [
+      "api",
+      "0",
+      "12345",
+      "3020",
+      @i18n.mode_value(lang, "production"),
+      @i18n.exec_value(lang, "cluster"),
+      @i18n.status_value(lang, "running"),
+      "3",
+      "42 MB",
+      "18m 02s",
+      "/wwwroot/api",
     ]
-    let lines = @utils.split(render_table(header, rows), "\n")
-    assert_eq(lines.length(), 2)
-    let expected = @utils.display_width(lines[0])
-    for line in lines {
-      assert_eq(@utils.display_width(line), expected)
-    }
-    // The header must be at least as wide as the row it labels, in every column:
-    // a width that ignored display columns would fail this on the Chinese header.
-    assert_true(expected >= @utils.display_width("api"))
+    assert_eq(row.length(), header.length())
+    let out = render_table(header, [row])
+    assert_true(out.contains("api"))
+    assert_true(out.contains("/wwwroot/api"))
   }
 }
 
 ///|
-/// The daemon summary is a row of numbers with no sentence to it: pairs, four to a
-/// line, the second line indented to the width of the prefix so the columns line up
-/// in either language.
-test "the daemon summary lines up its pairs" {
-  for lang in [@i18n.Lang::En, @i18n.Lang::Zh] {
-    let labels = @i18n.daemon_labels(lang)
-    let pairs = [
-      "\{labels[0]} 607883",
-      "\{labels[1]} 8",
-      "\{labels[2]} 3 \{labels[3]}",
-      "\{labels[4]} 18m 02s",
-      "\{labels[5]} 0",
-      "\{labels[6]} 7",
-      "\{labels[7]} 0",
-      "\{labels[8]} 0",
-    ]
-    let lines = @utils.split(render_pairs(pairs, "daemon: ", 4), "\n")
-    assert_eq(lines.length(), 2)
-    // The first pair of each row carries the prefix, the continuation an indent of
-    // exactly the same width.
-    assert_true(lines[0].has_prefix("daemon: " + labels[0] + " 607883"))
-    assert_true(lines[1].has_prefix("        " + labels[5] + " 0"))
-    assert_eq(@utils.display_width(lines[0]), @utils.display_width(lines[1]))
-  }
+/// 守护进程摘要的表头与数值行等长：clitable 用 Arity 执法，不等长当场报。
+/// 这里钉住表头标签与数值都完整出现在渲染结果里。
+test "the daemon summary pairs headers with values" {
+  let labels = @i18n.daemon_labels(@i18n.Lang::En)
+  let values = ["607883", "8", "3 MB", "18m 02s", "0", "7", "0", "0"]
+  assert_eq(values.length(), labels.length())
+  let out = render_summary(labels, values)
+  assert_true(out.contains("607883"))
+  assert_true(out.contains(labels[6]))
 }
