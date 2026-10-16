@@ -268,20 +268,20 @@ pub fn status_value(lang : Lang, status : String) -> String {
 }
 
 ///|
-/// The daemon context line's labels, in the order they are printed. Mostly
-/// acronyms that read the same everywhere, which is why this is a list of labels
-/// rather than a sentence: there is no sentence to translate.
+/// The daemon context line's labels, in the order they are printed. Eight
+/// entries, one per column of the summary table; the labels are the header row
+/// the renderer shows above the values. Mostly acronyms that read the same
+/// everywhere, which is why this is a list of labels rather than a sentence:
+/// there is no sentence to translate.
 pub fn daemon_labels(lang : Lang) -> Array[String] {
   match lang {
     En =>
       [
-        "pid", "fds", "rss", "MB", "uptime", "instances", "commands", "restarts",
-        "removals",
+        "pid", "fds", "rss", "uptime", "instances", "commands", "restarts", "removals",
       ]
     Zh =>
       [
-        "pid", "fds", "rss", "MB", "运行时长", "实例", "命令", "重启",
-        "退役",
+        "pid", "fds", "rss", "运行时长", "实例", "命令", "重启", "退役",
       ]
   }
 }

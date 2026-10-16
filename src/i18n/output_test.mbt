@@ -39,15 +39,16 @@ test "the list header has the same columns in both languages" {
 }
 
 ///|
-/// `print_daemon` indexes this list by hand, so a short list is an out-of-bounds
-/// wait to happen.
+/// 标签表是摘要表的表头行：八条对应八类数值，MB 这类单位跟数值走，
+/// 不占表头位。两种语言的条数与首项必须一致。
 test "the daemon labels keep their order and count" {
   let en = @i18n.daemon_labels(@i18n.Lang::En)
   let zh = @i18n.daemon_labels(@i18n.Lang::Zh)
-  assert_eq(en.length(), 9)
+  assert_eq(en.length(), 8)
   assert_eq(zh.length(), en.length())
   assert_eq(en[0], "pid")
   assert_eq(zh[0], "pid")
+  assert_true(!en.contains("MB"))
 }
 
 ///|
