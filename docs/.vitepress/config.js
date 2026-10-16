@@ -68,6 +68,8 @@ export default defineConfig({
   themeConfig: {
     socialLinks: [{ icon: 'github', link: repository }],
     nav: [
+      // 官网门户入口:每个页面顶栏都能一键回到 moonbitlang.dev。
+      { text: 'Moonkit 官网', link: 'https://moonbitlang.dev' },
       { text: '指南', link: '/guide/install' },
       // 版本号来自 moon.mod，不在任何页面里硬编码。
       { text: `v${version}`, link: `${repository}/releases` },
