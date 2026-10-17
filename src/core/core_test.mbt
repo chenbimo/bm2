@@ -528,12 +528,18 @@ test "resolve_state_dir uses fixed home directory" {
 /// A registration whose config file disappeared is skipped with an event, never
 /// started from a stale record.
 test "load_projects skips a project whose config is gone" {
-  let root = "/tmp/bm2-core-test-lost-config"
+  // A run-fixed root: two tests in one process must not share the listing.
+  let root = "/tmp/bm2-core-test-lost-config-\{@proc.get_pid()}"
   let state_dir = root + "/state"
   @fsx.mkdir_p(state_dir + "/api")
+  // The record must be one the loader would accept — mode and stopped
+  // included — so the exercise lands on the config-gone branch, not on a
+  // record the loader silently drops before it can even log about it.
   @fsx.write_atomic(
     state_dir + "/api/project.json",
-    @utf8.encode("{\"config_path\":\"/nonexistent/bm2.toml\"}"),
+    @utf8.encode(
+      "{\"config_path\":\"/nonexistent/bm2.toml\",\"mode\":\"production\",\"stopped\":false}",
+    ),
   )
   let sv = @core.Supervisor::new(state_dir~, bun_path="/bin/sh")
   sv.load_projects()
