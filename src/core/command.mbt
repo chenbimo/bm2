@@ -128,6 +128,10 @@ fn Supervisor::cmd_remove(
       } noraise {
         _ => ()
       }
+      // Snapshotted before the retire: the caller walks from this baseline to
+      // the empty listing, and the instances have to be in it for the walk's
+      // diff to ever see them disappear.
+      let snapshot = self.infos_of([name])
       // Hard with `-f`, graceful (SIGTERM, with the usual escalation) without it.
       // `check_removals` finalizes once every instance has stopped.
       try self.remove_app(name, force=req.force.unwrap_or(false)) catch {
@@ -138,7 +142,7 @@ fn Supervisor::cmd_remove(
       if self.projects.get(name) is Some(project) {
         project.stopped = false
       }
-      @protocol.Response::ok(@i18n.removing(lang), self.infos_of([name]))
+      @protocol.Response::ok(@i18n.removing(lang), snapshot)
     }
   }
 }

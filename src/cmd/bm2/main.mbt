@@ -330,12 +330,21 @@ async fn run() -> Int32 {
       // daemon loop never blocks on stop timeouts. kill -y only requests
       // the daemon shutdown and needs no polling.
       let infos = if mode is Some(_) || app is Some(_) {
-        poll_settled(state_dir, command, app, timeout_ms)
+        poll_settled(
+          state_dir,
+          command,
+          app,
+          timeout_ms,
+          scoped_lang,
+          !json_flag,
+          resp.instances,
+          command == "stop",
+        )
       } else {
         resp.instances
       }
       println(
-        if settled(infos, app) {
+        if settled(infos, app, command == "stop") {
           resp.message
         } else {
           resp.message + @i18n.timed_out(scoped_lang)
@@ -352,7 +361,7 @@ async fn run() -> Int32 {
       if mode is Some(@config.Mode::Development) &&
         !no_follow_flag &&
         @proc.interrupted() == 0 &&
-        settled(infos, app) {
+        settled(infos, app, false) {
         match app {
           Some(name) => follow_logs(state_dir, name, lang)
           None => ()

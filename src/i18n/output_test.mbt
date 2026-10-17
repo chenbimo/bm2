@@ -93,6 +93,8 @@ test "unrecognised values print as they came" {
 /// not lose them.
 test "parameters survive translation" {
   assert_true(@i18n.removed(@i18n.Lang::Zh, "/srv/api").contains("/srv/api"))
+  assert_true(@i18n.status_gone(@i18n.Lang::Zh, "api").contains("api"))
+  assert_true(@i18n.status_gone(@i18n.Lang::En, "api").contains("api"))
   assert_true(@i18n.follow_started(@i18n.Lang::Zh, "api").contains("api"))
   assert_true(
     @i18n.unknown_command(@i18n.Lang::Zh, "frobnicate").contains("frobnicate"),

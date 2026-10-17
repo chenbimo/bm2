@@ -21,20 +21,34 @@ fn info(app : String, status : String) -> @protocol.InstanceInfo {
 /// `settled` decides when the CLI stops polling after an async start or
 /// kill: online and errored are terminal, everything else keeps waiting.
 test "settled treats online and errored as terminal" {
-  assert_true(settled([info("a", "online")], Some("a")))
-  assert_true(settled([info("a", "errored")], Some("a")))
-  assert_false(settled([info("a", "starting")], Some("a")))
-  assert_false(settled([info("a", "restarting")], Some("a")))
-  assert_false(settled([info("a", "stopping")], Some("a")))
+  assert_true(settled([info("a", "online")], Some("a"), false))
+  assert_true(settled([info("a", "errored")], Some("a"), false))
+  assert_false(settled([info("a", "starting")], Some("a"), false))
+  assert_false(settled([info("a", "restarting")], Some("a"), false))
+  assert_false(settled([info("a", "stopping")], Some("a"), false))
 }
 
 ///|
 test "settled ignores other projects and an empty listing" {
   // Another project being busy must not hold up this one.
-  assert_true(settled([info("other", "starting")], Some("a")))
+  assert_true(settled([info("other", "starting")], Some("a"), false))
   // A stopped instance leaves the listing entirely, which reads as settled.
-  assert_true(settled([], Some("a")))
-  assert_false(settled([info("a", "starting"), info("a", "online")], Some("a")))
+  assert_true(settled([], Some("a"), false))
+  assert_false(
+    settled([info("a", "starting"), info("a", "online")], Some("a"), false),
+  )
+}
+
+///|
+/// A `stop` wait is settled exactly by every relevant instance having
+/// stopped: the listed stopped row is the goal state there, not something
+/// to wait past.
+test "settled accepts stopped only when asked" {
+  assert_false(settled([info("a", "stopped")], Some("a"), false))
+  assert_true(settled([info("a", "stopped")], Some("a"), true))
+  assert_false(
+    settled([info("a", "stopped"), info("a", "stopping")], Some("a"), true),
+  )
 }
 
 ///|

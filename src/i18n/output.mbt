@@ -237,6 +237,17 @@ pub fn mode_value(lang : Lang, mode : String) -> String {
 }
 
 ///|
+/// An instance dropped out of the listing while the CLI was waiting for it to
+/// settle — the daemon's way of saying "stopped" and the last line before the
+/// final state is printed.
+pub fn status_gone(lang : Lang, what : String) -> String {
+  match lang {
+    En => "removed " + what
+    Zh => "已移除 " + what
+  }
+}
+
+///|
 /// How instances share the port.
 pub fn exec_value(lang : Lang, exec_mode : String) -> String {
   match lang {

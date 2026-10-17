@@ -119,14 +119,41 @@ fn self_dir() -> String {
 /// status (or leaves the listing after a stop), or the deadline passes.
 /// For a kill the goal state is the project disappearing: an unknown-app
 /// error response means the daemon finished unregistering it.
+/// While waiting, each step diffs the previous snapshot against the current
+/// one and prints one line per observed transition — a status change or an
+/// instance leaving the listing — so a long wait shows movement instead of
+/// silence. The diff starts from `baseline` (the answer to the request that
+/// started the wait), so a transition that happened while the answer was in
+/// flight is still reported. With `print_progress` off (--json) nothing is
+/// printed.
 async fn poll_settled(
   state_dir : String,
   command : String,
   app : String?,
   timeout_ms : Int32,
+  lang : @i18n.Lang,
+  print_progress : Bool,
+  baseline : Array[@protocol.InstanceInfo],
+  terminal_stopped : Bool,
 ) -> Array[@protocol.InstanceInfo] {
   let deadline = @utils.now_ms() + timeout_ms.to_uint64()
   let mut last : Array[@protocol.InstanceInfo] = []
+  // Previous snapshot, keyed by instance: id -> (app name, status). Only
+  // instances of the target app are tracked — an unrelated restart elsewhere
+  // is noise the operator did not wait on.
+  let mut prev : Map[String, (String, String)] = Map([], capacity=8)
+  for
+    info in baseline.filter(fn(info) {
+      match app {
+        None => true
+        Some(name) => info.app_name == name
+      }
+    }) {
+    prev[info.app_name + ":" + info.instance_id.to_string()] = (
+      info.app_name,
+      info.status,
+    )
+  }
   let poll_req : @protocol.Request = {
     protocol: Some(@protocol.PROTOCOL_VERSION),
     command: "list",
@@ -151,14 +178,55 @@ async fn poll_settled(
     match resp {
       Some(r) if r.ok => {
         last = r.instances
+        // Diff the snapshots only for a waited-on wait: --json wants just the
+        // final line, no chatter.
+        if print_progress {
+          let relevant = last.filter(fn(info) {
+            match app {
+              None => true
+              Some(name) => info.app_name == name
+            }
+          })
+          let next : Map[String, (String, String)] = Map([], capacity=8)
+          for info in relevant {
+            let key = info.app_name + ":" + info.instance_id.to_string()
+            next[key] = (info.app_name, info.status)
+            match prev.get(key) {
+              Some((_, old)) =>
+                if old != info.status {
+                  println(
+                    "\{info.app_name}: \{@i18n.status_value(lang, info.status)}",
+                  )
+                }
+              None => ()
+            }
+          }
+          for key, (name, _) in prev {
+            if next.get(key) is None {
+              println(@i18n.status_gone(lang, name))
+            }
+          }
+          prev = next
+        }
         // For a start, terminal statuses finish the wait. For a kill the
         // instances disappear first; the project is only gone once the
         // daemon answers with unknown-app, so keep polling until then.
-        if command != "kill" && settled(r.instances, app) {
+        if command != "kill" && settled(r.instances, app, terminal_stopped) {
           break
         }
       }
-      Some(r) if !r.ok && command == "kill" => break
+      // Not-ok means "unknown app" for a retiring wait: the daemon
+      // unregistering the project is the wait's happy ending. Anything that
+      // was still tracked in the previous snapshot is thereby removed.
+      Some(r) if !r.ok && (command == "kill" || command == "remove") => {
+        if print_progress {
+          for _key, (name, _status) in prev {
+            println(@i18n.status_gone(lang, name))
+          }
+          prev = Map([], capacity=8)
+        }
+        break
+      }
       _ => ()
     }
     // Ctrl+C during the wait means "stop waiting", not "poll until the timeout":
@@ -176,8 +244,15 @@ async fn poll_settled(
 ///|
 /// True when every instance of the target app is in a terminal status.
 /// Stopped instances leave the listing entirely, so an empty match set
-/// also counts as settled.
-fn settled(infos : Array[@protocol.InstanceInfo], app : String?) -> Bool {
+/// also counts as settled. `accept_stopped` adds the stopped status to the
+/// terminal set: it belongs to a `stop` wait, whose goal state is exactly
+/// "every instance stopped" — a listed stopped row is the goal there, not
+/// a reason to keep waiting.
+fn settled(
+  infos : Array[@protocol.InstanceInfo],
+  app : String?,
+  accept_stopped : Bool,
+) -> Bool {
   let relevant = infos.filter(fn(info) {
     match app {
       None => true
@@ -187,7 +262,11 @@ fn settled(infos : Array[@protocol.InstanceInfo], app : String?) -> Bool {
   if relevant.is_empty() {
     return true
   }
-  relevant.all(fn(info) { info.status == "online" || info.status == "errored" })
+  relevant.all(fn(info) {
+    info.status == "online" ||
+    info.status == "errored" ||
+    (accept_stopped && info.status == "stopped")
+  })
 }
 
 ///|
