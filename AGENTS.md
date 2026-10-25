@@ -10,6 +10,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 - **构建目录两级制**:`_build` = Windows IDE 默认产物;`_build-wsl` = WSL 全部构建的显式目标(`--target-dir _build-wsl`)。两棵树隔离,防止 IDE 与 WSL 的缓存互相污染
 - **WSL 互操作层不可信(已实证)**:本机 wsl.exe 的参数桥会随机损坏输出与退出码回传——同一二进制,interop 通道测得恒 0,文件通道测得真实码(2/1/0)。因此:复杂命令一律落盘脚本后以 `wsl bash 脚本` 执行;涉及退出码 / 输出内容的验证,**结果必须写文件再读回**,禁止依赖命令行回传;出现"异常退出码"类怪象时,先用文件通道复测再定位
 - Windows 侧自动化调用统一走 `wsl -d Debian --cd /mnt/c/codes/moonbit/bm2 -- bash <脚本>`
+- **Git 推送只在 Windows 侧执行**(定死):SSH 私钥在 `C:\Users\bimos\.ssh`,WSL 里没有;WSL 的全局 `core.sshCommand` 已被设成直接报错退出,不会挂起也不会误发。推送从 Windows 的 git 发起,pre-push 钩子会把门禁转交 WSL 跑,门禁不缺席
 - **例外:文档站的 node 工具链跑在 Windows 侧**(`docs/` 下 `bun install` / `bun run dev`):Rollup 与 esbuild 装的是平台专属的原生二进制,`node_modules` 在 Windows 与 WSL 之间不可共用;而文档的交互(浏览器预览)发生在 Windows,工具链就该跟着交互走
 - **产品文案**:人类可读的全部文案集中在 `src/i18n` 文案包,每条消息一个函数、按 `Lang` match,漏一种语言编译不过;加语言时编译器与测试全路带路,不允许任何一处静默回落
 - **语言来源三层**:配置 `lang` 是声明,写不支持的值直接报错;环境与请求里不认识的值退回英文。归属规则:关于某个项目的消息跟项目配置走,全量表、帮助、升级这类跟操作者环境走
