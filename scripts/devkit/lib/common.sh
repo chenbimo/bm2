@@ -45,9 +45,14 @@ devkit_load_conf() {
 }
 
 # The strict type/warning gate that must pass before a commit. The explicit warn
-# list adds the deprecation warnings the IDE shows by default, so they cannot
-# creep back in unnoticed.
+# list adds the deprecation and dead-surface warnings the IDE shows by default, so
+# they cannot creep back in unnoticed.
+#
+# The list is space-free and comma-free on purpose: `moonc -w` takes prefix runs
+# (`+a-31-32@11...`), so `+a+b` enables both and `+a,+b` is rejected outright
+# ("invalid character ','"). Keep every group behind one `+` run.
 module_check() {
   local build_dir="$1"
-  moon check --target-dir "$build_dir" --target native --deny-warn --warn-list +implicit_impl_as_method
+  moon check --target-dir "$build_dir" --target native --deny-warn \
+    --warn-list +implicit_impl_as_method+unused_default_value+unused_optional_argument+prefer_readonly_array+unnecessary_view_op
 }
