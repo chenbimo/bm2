@@ -44,6 +44,18 @@ case "$(uname -s)" in
         if [ -z "$devkit_src" ] ||
           ! (cd "$root" && git diff --cached --name-only --diff-filter=d | grep -qE "^(${devkit_src}|moon\.mod$)"); then
           need_local=1
+        else
+          # 命中源码但项目没有 Moon 构建能力位(门户站点:目标/构建全空、无 moon.mod),
+          # pre-commit 的编译门无从算起,本地跑完整 pre-commit.sh 也进不了,直接跳过。
+          # 生成物完整性校验(commit-msg 后)仍有效:sync 时由 dispatch 读到的声明决定。
+          devkit_targets=$(sed -nE 's/^DEVKIT_TARGETS="?([^"#]*)"?/\1/p' "$root/scripts/devkit.conf" |
+                           head -1 | tr -d '[:space:]')
+          devkit_builds=$(sed -nE 's/^DEVKIT_BUILDS="?([^"#]*)"?/\1/p' "$root/scripts/devkit.conf" |
+                           head -1 | tr -d '[:space:]')
+          if [ ! -f "$root/moon.mod" ] && [ -z "$devkit_targets" ] && [ -z "$devkit_builds" ]; then
+            echo "pre-commit: no Moon build capability declared, nothing to check"
+            exit 0
+          fi
         fi
       fi
       if [ "$need_local" = "1" ]; then

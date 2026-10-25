@@ -4,6 +4,9 @@ _build/
 _build-wsl/
 nul
 
+# 编译器为每个包生成的接口文件(0.10.17 起落在包根),构建时重建
+pkg.generated.mbti
+
 # The docs site is the only JavaScript tooling in the repository. Its lockfile
 # is tracked; its dependencies and build output are not.
 docs/node_modules/

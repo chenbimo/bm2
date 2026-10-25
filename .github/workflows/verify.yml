@@ -16,7 +16,7 @@ jobs:
       - name: Install MoonBit
         run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
         env:
-          MOONBIT_INSTALL_VERSION: 0.10.15+943464bfa
+          MOONBIT_INSTALL_VERSION: 0.10.17+d971670cd
 
       - uses: oven-sh/setup-bun@v2
       # 门禁只有一份实现:CI 与本地钩子跑的是同一个脚本,它自带生成物完整性校验。
