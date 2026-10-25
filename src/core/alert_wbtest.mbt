@@ -25,7 +25,6 @@ fn wb_report(
   min_level? : String,
   cron? : @config.CronSpec,
   template? : String,
-  targets? : Array[@config.NotifyEndpoint],
 ) -> @config.NotifyReport {
   {
     name: "t",
@@ -35,7 +34,7 @@ fn wb_report(
     cron,
     cron_text: None,
     template,
-    targets: targets.unwrap_or([]),
+    targets: [],
   }
 }
 

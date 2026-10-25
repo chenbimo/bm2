@@ -9,8 +9,8 @@
 fn hmac_sha256_base64(key : String, message : String) -> String {
   let mac = @crypto.hmac(
     @crypto.SHA256::new(),
-    @utf8.encode(key)[:],
-    @utf8.encode(message)[:],
+    @utf8.encode(key),
+    @utf8.encode(message),
   )
   @base64.encode(mac.unsafe_reinterpret_as_bytes())
 }

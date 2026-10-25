@@ -173,7 +173,7 @@ fn NotifyRunner::enqueue(
 async fn NotifyRunner::deliver_alert(
   self : NotifyRunner,
   alert : Alert,
-  detail~ : String = "instant",
+  detail~ : String,
 ) -> Array[(String, String?)] {
   let results = @notify.deliver_all(
     alert.targets,

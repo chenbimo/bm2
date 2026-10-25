@@ -79,7 +79,7 @@ bm2 kill -y     # 停掉全部项目、注销它们、退出守护进程
 
 ## `list`
 
-每个活跃或异常实例一行：PID、端口、启动模式（`development` / `production`）、执行模式（`cluster` / `fork`）、状态、内存、运行时长，以及项目的工作目录。被有意停止的实例不显示，`restarting` 与 `errored` 的实例保持可见，便于诊断。
+实例以一张框线表列出:名称、实例序号、PID、端口、启动模式(`development` / `production`)、执行模式(`cluster` / `fork`)、状态、启动次数、内存、运行时长,以及项目的工作目录;不加项目名时,表上方还有一行守护进程摘要。重启间隙的 `stopped` 实例不显示,而 `bm2 stop` 停止的项目、`restarting` 与 `errored` 的实例保持可见,便于诊断。
 
 `--json` 输出同样的机器可读数据；`list` 不需要守护进程，没有登记任何项目时就是一个空结果。
 

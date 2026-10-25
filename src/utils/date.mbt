@@ -125,8 +125,10 @@ fn two_digits(text : String, start : Int32) -> Int32 {
 /// `Sat, 03 Oct 2026 08:15:30 +0000`. Email needs the weekday and month
 /// names spelled out, which the ISO timestamp does not carry.
 pub fn rfc5322(epoch_ms : UInt64) -> String {
-  let weekdays = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"]
-  let months = [
+  let weekdays : ReadOnlyArray[String] = [
+    "Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed",
+  ]
+  let months : ReadOnlyArray[String] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
     "Dec",
   ]

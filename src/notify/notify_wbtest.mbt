@@ -7,13 +7,22 @@ fn n_target(
   preset : String,
   url : String,
   secret? : String,
-  format? : String,
   from? : String,
   to? : Array[String],
   username? : String,
   password? : String,
 ) -> Target {
-  { name: "t", preset, url, secret, format, from, to, username, password, }
+  {
+    name: "t",
+    preset,
+    url,
+    secret,
+    format: None,
+    from,
+    to,
+    username,
+    password,
+  }
 }
 
 ///|

@@ -159,8 +159,8 @@ fn Supervisor::report_line(
   self : Supervisor,
   inst : Instance,
   now_mono : UInt64,
-  lang~ : String = "en",
-  peak~ : Int32? = None,
+  lang~ : String,
+  peak~ : Int32?,
 ) -> String {
   // Matched on `Lang` rather than tested for being Chinese: a language added later
   // has to answer with its own field labels, instead of silently taking the English
@@ -238,7 +238,7 @@ fn Supervisor::build_report(
   app_name : String,
   policy : @config.NotifyConfig,
   now_mono : UInt64,
-  stats~ : Bool = false,
+  stats~ : Bool,
 ) -> @notify.Message {
   let lines = []
   let mut online = 0

@@ -62,8 +62,10 @@ fn Supervisor::mark_online(
 }
 
 ///|
-/// Terminal stopped state. A stopped instance is omitted from `bm2 list`
-/// and never restarts on its own.
+/// Terminal stopped state: the process is gone and the instance never restarts
+/// on its own. Whether the row stays visible is the listing's call, not this
+/// one's — a project stopped on purpose keeps its rows (see `cmd_list`), a
+/// retiring project hides them.
 fn Supervisor::mark_stopped(self : Supervisor, inst : Instance) -> Unit {
   inst.status = Stopped
   inst.clear_process()

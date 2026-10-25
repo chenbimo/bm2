@@ -142,13 +142,7 @@ async fn poll_settled(
   // instances of the target app are tracked — an unrelated restart elsewhere
   // is noise the operator did not wait on.
   let mut prev : Map[String, (String, String)] = Map([], capacity=8)
-  for
-    info in baseline.filter(fn(info) {
-      match app {
-        None => true
-        Some(name) => info.app_name == name
-      }
-    }) {
+  for info in of_app(baseline, app) {
     prev[info.app_name + ":" + info.instance_id.to_string()] = (
       info.app_name,
       info.status,
@@ -181,14 +175,8 @@ async fn poll_settled(
         // Diff the snapshots only for a waited-on wait: --json wants just the
         // final line, no chatter.
         if print_progress {
-          let relevant = last.filter(fn(info) {
-            match app {
-              None => true
-              Some(name) => info.app_name == name
-            }
-          })
           let next : Map[String, (String, String)] = Map([], capacity=8)
-          for info in relevant {
+          for info in of_app(last, app) {
             let key = info.app_name + ":" + info.instance_id.to_string()
             next[key] = (info.app_name, info.status)
             match prev.get(key) {
@@ -243,8 +231,9 @@ async fn poll_settled(
 
 ///|
 /// True when every instance of the target app is in a terminal status.
-/// Stopped instances leave the listing entirely, so an empty match set
-/// also counts as settled. `accept_stopped` adds the stopped status to the
+/// Instances that leave the listing entirely (a retired project's, an app
+/// whose registration is gone) read as settled too, so an empty match set
+/// counts as settled. `accept_stopped` adds the stopped status to the
 /// terminal set: it belongs to a `stop` wait, whose goal state is exactly
 /// "every instance stopped" — a listed stopped row is the goal there, not
 /// a reason to keep waiting.
@@ -253,12 +242,7 @@ fn settled(
   app : String?,
   accept_stopped : Bool,
 ) -> Bool {
-  let relevant = infos.filter(fn(info) {
-    match app {
-      None => true
-      Some(name) => info.app_name == name
-    }
-  })
+  let relevant = of_app(infos, app)
   if relevant.is_empty() {
     return true
   }
@@ -266,6 +250,22 @@ fn settled(
     info.status == "online" ||
     info.status == "errored" ||
     (accept_stopped && info.status == "stopped")
+  })
+}
+
+///|
+/// The rows that belong to the waited-on project. An unfiltered wait keeps
+/// everything; a named one drops other projects' restarts, which the operator
+/// did not ask about.
+fn of_app(
+  infos : Array[@protocol.InstanceInfo],
+  app : String?,
+) -> Array[@protocol.InstanceInfo] {
+  infos.filter(fn(info) {
+    match app {
+      None => true
+      Some(name) => info.app_name == name
+    }
   })
 }
 

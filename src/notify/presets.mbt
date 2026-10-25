@@ -275,7 +275,7 @@ fn render_email(
   buf.write_string("From: " + target.from.unwrap_or("") + "\n")
   buf.write_string("To: " + target.to.unwrap_or([]).join(", ") + "\n")
   buf.write_string(
-    "Subject: =?UTF-8?B?" + @base64.encode(@utf8.encode(msg.title)[:]) + "?=\n",
+    "Subject: =?UTF-8?B?" + @base64.encode(@utf8.encode(msg.title)) + "?=\n",
   )
   buf.write_string("Date: " + @utils.rfc5322(msg.ts_ms) + "\n")
   // A Message-ID is a SHOULD in RFC 5322 and its absence costs deliverability.
