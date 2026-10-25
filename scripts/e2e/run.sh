@@ -56,10 +56,14 @@ wait_http() { # wait_http <port> <expected body>
   done
   printf '%s' "$body"
 }
+# 表格解析(row_count / col_values / cell / daemon_cell)与 soak 共用一份。
+# shellcheck source=scripts/e2e/table.sh
+source "$root/scripts/e2e/table.sh"
+
 wait_status() { # wait_status <app> <expected status> <max attempts>
   for _ in $(seq 1 "$3"); do
     local status
-    status=$(bm2 list "$1" | tail -1 | awk '{print $7}')
+    status=$(cell "$1" STATUS)
     if [ "$status" = "$2" ]; then
       printf '%s' "$status"
       return 0
@@ -100,26 +104,25 @@ sed -i 's/min_uptime_ms = 60000/min_uptime_ms = 50/' "$ACC/quick/bm2.toml"
 (cd "$ACC/crash" && bm2 serve >/dev/null)
 (cd "$ACC/quick" && bm2 serve >/dev/null)
 sleep 2
-check "both projects listed" "2" "$(bm2 list | grep -cE '^(crash|quick) ')"
-check "crash present" "1" "$(bm2 list | grep -c '^crash ')"
+check "both projects listed" "2" "$(( $(row_count crash) + $(row_count quick) ))"
+check "crash present" "1" "$(row_count crash)"
 check "list --json valid array" "1" "$(bm2 list --json | grep -c '^\[.*\]$')"
 check "list --json carries app name" "1" "$(bm2 list --json | grep -c '"app_name":"crash"')"
 check "list --json name filter" "0" "$(bm2 list --json crash | grep -c '"app_name":"quick"')"
-# The human table also reports the daemon itself, above the instance rows (so the
-# last line of `bm2 list <app>` stays an instance row).
-check "list reports the daemon" 1 "$(bm2 list | grep -c '^daemon: pid ' || true)"
-contains "list names the daemon pid" "$state_dir/bm2d.pid" "$(bm2 list | sed -n 's/^daemon: pid \([0-9]*\).*/\1/p')"
+# The human table also reports the daemon itself, above the instance table.
+check "list reports the daemon" 1 "$([ -n "$(daemon_cell pid)" ] && echo 1 || echo 0)"
+contains "list names the daemon pid" "$state_dir/bm2d.pid" "$(daemon_cell pid)"
 
 echo "===== B. crash loop -> errored ====="
 check "crash errored" "errored" "$(wait_status crash errored 60)"
-check "crash restart_count 3" "3" "$(bm2 list crash | tail -1 | awk '{print $8}')"
+check "crash restart_count 3" "3" "$(cell crash TIMES)"
 contains "crash.log reason=exit_code" $state_dir/crash/logs/crash-0.crash.log "reason=exit_code"
 contains "crash.log restartCount=3" $state_dir/crash/logs/crash-0.crash.log "restartCount=3"
 
 echo "===== C. clean exit restarts without burning the crash budget ====="
 # quick exits cleanly every 100ms: the TIMES column (6th) grows, but a
 # clean exit never consumes the crash budget, so it must not hit errored.
-check "quick started multiple times" 1 "$([ "$(bm2 list quick | tail -1 | awk '{print $8}')" -ge 2 ] && echo 1 || echo 0)"
+check "quick started multiple times" 1 "$([ "$(cell quick TIMES)" -ge 2 ] && echo 1 || echo 0)"
 check "quick not errored" "0" "$(bm2 list quick | grep -c 'errored' || true)"
 if [ -s $state_dir/quick/logs/quick-0.crash.log ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: quick crash.log should be empty"
@@ -132,7 +135,7 @@ write_project hog hog 4221 hog.ts 1 1000
 sed -i 's/max_memory_mb = 512/max_memory_mb = 16/; s/max_restarts = 2/max_restarts = 1/' "$ACC/hog/bm2.toml"
 (cd "$ACC/hog" && bm2 serve >/dev/null)
 check "hog errored" "errored" "$(wait_status hog errored 80)"
-check "hog restart_count 2" "2" "$(bm2 list hog | tail -1 | awk '{print $8}')"
+check "hog restart_count 2" "2" "$(cell hog TIMES)"
 contains "hog crash.log memory_limit" $state_dir/hog/logs/hog-0.crash.log "reason=memory_limit"
 contains "hog crash.log rssMb" $state_dir/hog/logs/hog-0.crash.log "rssMb="
 
@@ -146,18 +149,18 @@ bm2 remove -f quick
 # The project is gone entirely: querying it reports unknown app.
 OUT=$(bm2 list quick 2>&1)
 check "quick omitted from list" "unknown app: quick" "$OUT"
-check "quick absent from all list" "0" "$(bm2 list | grep -c '^quick ' || true)"
+check "quick absent from all list" "0" "$(row_count quick)"
 check "quick registration removed" "0" "$([ -f "$state_dir/quick/project.json" ] && echo 1 || echo 0)"
 
 echo "===== G. daemon crash adopts running instances ====="
-SLOW_PID_BEFORE=$(bm2 list slow | tail -1 | awk '{print $3}')
+SLOW_PID_BEFORE=$(cell slow PID)
 kill -9 "$(cat "$state_dir/bm2d.pid")"
 check "stale control-plane file remains after daemon kill" 1 "$([ -f "$state_dir/daemon.endpoint" ] && echo 1 || echo 0)"
 sleep 1
 bm2 list slow >/dev/null
-SLOW_PID_AFTER=$(bm2 list slow | tail -1 | awk '{print $3}')
+SLOW_PID_AFTER=$(cell slow PID)
 check "slow adopted with same pid" "$SLOW_PID_BEFORE" "$SLOW_PID_AFTER"
-check "slow adopted online" "online" "$(bm2 list slow | tail -1 | awk '{print $7}')"
+check "slow adopted online" "online" "$(cell slow STATUS)"
 contains "adoption event logged" $state_dir/bm2d.events.jsonl "\"event\":\"instance_adopted\""
 
 echo "===== H. pid reuse -> pid_conflict, foreign process untouched ====="
@@ -169,7 +172,7 @@ EOF
 kill -9 "$(cat "$state_dir/bm2d.pid")" 2>/dev/null
 sleep 1
 bm2 list slow >/dev/null
-check "pid_conflict status" "errored" "$(bm2 list slow | tail -1 | awk '{print $7}')"
+check "pid_conflict status" "errored" "$(cell slow STATUS)"
 contains "pid_conflict crash.log" $state_dir/slow/logs/slow-0.crash.log "reason=pid_conflict"
 contains "pid_conflict event logged" $state_dir/bm2d.events.jsonl "\"event\":\"pid_conflict\""
 if kill -0 "$FOREIGN" 2>/dev/null; then
@@ -193,7 +196,7 @@ echo "===== K. structural change accepted when stopped ====="
 bm2 remove -f slow
 sed -i 's/port = 4241/port = 4241/; s/instances = [0-9]*/instances = 2/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 serve >/dev/null)
-check "two instances after rebuild" "2" "$(bm2 list slow | grep -c '^slow ')"
+check "two instances after rebuild" "2" "$(row_count slow)"
 check "rebuilt instance on 4241" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 check "rebuilt instance on 4242" "slow slow-1 production 4242 1" "$(wait_http 4242 "slow slow-1 production 4242 1")"
 bm2 remove -f slow
@@ -223,13 +226,13 @@ check "all registrations removed on shutdown" "0" "$(find "$state_dir" -name pro
 
 echo "===== M. reload swaps daemon while apps keep running ====="
 (cd "$ACC/slow" && bm2 serve >/dev/null)
-APID=$(bm2 list slow | sed -n '2p' | awk '{print $3}')
+APID=$(cell slow PID)
 DPID=$(cat "$state_dir/bm2d.pid")
 check "reload response" "reloaded" "$(bm2 reload)"
 sleep 1
 NDPID=$(cat "$state_dir/bm2d.pid")
 check "daemon pid changed" "changed" "$([ -n "$NDPID" ] && [ "$NDPID" != "$DPID" ] && echo changed || echo same)"
-check "app pid preserved" "$APID" "$(bm2 list slow | sed -n '2p' | awk '{print $3}')"
+check "app pid preserved" "$APID" "$(cell slow PID)"
 check "slow still served" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
 
@@ -238,17 +241,18 @@ bm2 remove -f slow
 write_project stubborn stubborn 4251 ignore-term.ts 1 300
 (cd "$ACC/stubborn" && bm2 serve >/dev/null)
 sleep 1
-SPID=$(bm2 list stubborn | sed -n '2p' | awk '{print $3}')
-check "restart with ignored SIGTERM" "started" "$(cd "$ACC/stubborn" && bm2 serve | head -1)"
+SPID=$(cell stubborn PID)
+# 进程行先出现(停止中→online 的相邻快照对比),最终 `started` 在它后面。
+check "restart with ignored SIGTERM" "1" "$(cd "$ACC/stubborn" && bm2 serve | grep -c '^started$')"
 sleep 1
 check "stubborn old process SIGKILLed" 1 "$(kill -0 "$SPID" 2>/dev/null; echo $?)"
-check "stubborn new instance online" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $7}')"
+check "stubborn new instance online" "online" "$(cell stubborn STATUS)"
 bm2 remove -f stubborn
 
 echo "===== O. external SIGKILL records signal reason ====="
 (cd "$ACC/slow" && bm2 serve >/dev/null)
 sleep 1
-SPID=$(bm2 list slow | sed -n '2p' | awk '{print $3}')
+SPID=$(cell slow PID)
 kill -9 "$SPID"
 sleep 1
 contains "signal reason logged" $state_dir/slow/logs/slow-0.crash.log "signal=SIGKILL"
@@ -256,7 +260,7 @@ check "slow restarted after signal" "online" "$(wait_status slow online 20)"
 
 echo "===== P. corrupted state file is discarded ====="
 DPID=$(cat "$state_dir/bm2d.pid")
-APID=$(bm2 list slow | sed -n '2p' | awk '{print $3}')
+APID=$(cell slow PID)
 kill -9 "$DPID" "$APID" 2>/dev/null
 sleep 0.5
 echo 'not json' > "$state_dir/slow/slow-0.json"
@@ -269,7 +273,7 @@ echo "===== R. multi-instance port sequence ====="
 bm2 remove -f slow
 sed -i 's/instances = [0-9]*/instances = 3/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 serve >/dev/null)
-check "three instances online" "3" "$(bm2 list slow | grep -c '^slow ')"
+check "three instances online" "3" "$(row_count slow)"
 check "instance on 4241" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 check "instance on 4242" "slow slow-1 production 4242 1" "$(wait_http 4242 "slow slow-1 production 4242 1")"
 check "instance on 4243" "slow slow-2 production 4243 2" "$(wait_http 4243 "slow slow-2 production 4243 2")"
@@ -311,7 +315,7 @@ bm2 stop withenv >/dev/null 2>&1
 printf 'name = "withenv"\nscript = "envapp.ts"\ninstances = 2\nport = "__APP_PORT__"\nexec_mode = "fork"\n' > "$ACC/withenv/bm2.toml"
 (cd "$ACC/withenv" && bm2 dev --no-follow >/dev/null 2>&1)
 check "dev reads .env.development" "envapp development dev 0" "$(wait_http 4282 'envapp development dev 0')"
-check "dev runs a single instance" "1" "$(bm2 list withenv | grep -c '^withenv ')"
+check "dev runs a single instance" "1" "$(row_count withenv)"
 check "dev mode in json" "1" "$(bm2 list withenv --json | grep -c '\"mode\":\"development\"')"
 bm2 stop withenv >/dev/null 2>&1
 # `[env]` 退场了:它现在就是个普通未知字段。
@@ -347,12 +351,12 @@ if echo "$OUT" | grep -q "already registered by $ACC/slow/bm2.toml"; then
 else
   FAIL=$((FAIL + 1)); echo "FAIL: name owner reported (got [$OUT])"
 fi
-check "the owner keeps its instances" "3" "$(bm2 list slow | grep -c '^slow ')"
+check "the owner keeps its instances" "3" "$(row_count slow)"
 # The same directory starting again is the update path, and still works: it
 # exits cleanly and the instances keep running under the refreshed config.
 (cd "$ACC/slow" && bm2 serve >/dev/null 2>&1)
 check "same directory restart still updates" "0" "$?"
-check "owner still online after the update" "3" "$(bm2 list slow | grep -c ' online')"
+check "owner still online after the update" "3" "$(col_values slow STATUS | grep -c '^online$' || true)"
 bm2 remove -f slow
 
 echo "===== T. long stop_timeout must not split the daemon ====="
@@ -366,7 +370,7 @@ sleep 1
 # The daemon keeps answering requests while the long restart is in flight;
 # the instance is mid-stop, which is exactly what async start looks like.
 check "daemon pid unchanged during restart" "$DPID" "$(cat "$state_dir/bm2d.pid")"
-ST=$(bm2 list stubborn | sed -n '2p' | awk '{print $7}')
+ST=$(cell stubborn STATUS)
 if [ "$ST" = "stopping" ] || [ "$ST" = "online" ]; then
   PASS=$((PASS + 1)); echo "PASS: daemon answers during long restart (status=$ST)"
 else
@@ -374,30 +378,30 @@ else
 fi
 wait "$START_PID"
 sleep 5
-check "stubborn online after full restart" "online" "$(bm2 list stubborn | sed -n '2p' | awk '{print $7}')"
+check "stubborn online after full restart" "online" "$(cell stubborn STATUS)"
 bm2 remove -f stubborn
 
 echo "===== V. stop, remove, clean ====="
 write_project v1 vapp 4491 slow.ts 1 1000
 (cd "$ACC/v1" && bm2 serve >/dev/null)
-check "vapp online before stop" "online" "$(bm2 list vapp | sed -n '2p' | awk '{print $7}')"
+check "vapp online before stop" "online" "$(cell vapp STATUS)"
 bm2 stop vapp
 check "stop exits cleanly" "0" "$?"
 # Stopped but registered: still listed, with nothing online.
-check "a stopped app stays registered" "1" "$(bm2 list vapp | grep -c '^vapp ')"
-check "nothing online after a stop" "0" "$(bm2 list vapp | grep -c ' online')"
+check "a stopped app stays registered" "1" "$(row_count vapp)"
+check "nothing online after a stop" "0" "$(col_values vapp STATUS | grep -c '^online$' || true)"
 # The stop has to survive a daemon swap, or it is only a pause.
 bm2 reload >/dev/null
 sleep 2
-check "still stopped after the daemon reloaded" "0" "$(bm2 list vapp | grep -c ' online')"
+check "still stopped after the daemon reloaded" "0" "$(col_values vapp STATUS | grep -c '^online$' || true)"
 # And start is how it comes back.
 (cd "$ACC/v1" && bm2 serve >/dev/null)
 sleep 2
-check "start resumes a stopped project" "1" "$(bm2 list vapp | grep -c ' online')"
+check "start resumes a stopped project" "1" "$(col_values vapp STATUS | grep -c '^online$' || true)"
 # Retiring frees the name and keeps the logs.
 bm2 remove vapp
 check "remove exits cleanly" "0" "$?"
-check "a retired project leaves the registry" "0" "$(bm2 list vapp | grep -c '^vapp ')"
+check "a retired project leaves the registry" "0" "$(row_count vapp)"
 if [ -d "$state_dir/vapp/logs" ]; then
   PASS=$((PASS + 1)); echo "PASS: remove keeps the logs"
 else
@@ -423,7 +427,7 @@ else
 fi
 # The freed name can be registered again.
 (cd "$ACC/v1" && bm2 serve >/dev/null)
-check "the freed name registers again" "1" "$(bm2 list vapp | grep -c '^vapp ')"
+check "the freed name registers again" "1" "$(row_count vapp)"
 # Forced removal takes the whole state directory with it.
 write_project v2 vapp2 4492 slow.ts 1 1000
 (cd "$ACC/v2" && bm2 serve >/dev/null)
@@ -455,7 +459,7 @@ write_project twin twin 4292 slow.ts 2 1000
 sed -i 's/max_restarts = 2/max_restarts = 0/' "$ACC/twin/bm2.toml"
 (cd "$ACC/twin" && bm2 serve >/dev/null)
 sleep 1
-P1=$(bm2 list twin | sed -n '2p' | awk '{print $3}')
+P1=$(cell twin PID)
 kill -9 "$P1"
 sleep 1
 # One instance errored (pid gone), one still online: kill must unregister both.
@@ -489,16 +493,16 @@ stop_timeout_ms = 1000
 EOF
 (cd "$ACC/reuseapp" && bm2 serve >/dev/null)
 sleep 1
-check "three instances online" "3" "$(bm2 list reuseapp | grep -c '^reuseapp ')"
-check "all instances share port 4301" "3" "$(bm2 list reuseapp | awk '$4 == 4301' | wc -l)"
-check "mode column shows cluster" "3" "$(bm2 list reuseapp | awk '$5 == "cluster"' | wc -l)"
+check "three instances online" "3" "$(row_count reuseapp)"
+check "all instances share port 4301" "3" "$(col_values reuseapp PORT | grep -c '^4301$' || true)"
+check "mode column shows cluster" "3" "$(col_values reuseapp EXEC | grep -c '^cluster$' || true)"
 DISTINCT=$(for i in $(seq 1 40); do curl -s --max-time 1 localhost:4301; done | sort -u | wc -l)
 check "requests reach multiple instances" 1 "$([ "$DISTINCT" -ge 2 ] && echo 1 || echo 0)"
-R_PID=$(bm2 list reuseapp | sed -n '2p' | awk '{print $3}')
+R_PID=$(cell reuseapp PID)
 kill -9 "$R_PID"
 sleep 2
 check "port still served after one crash" 1 "$(curl -s --max-time 1 localhost:4301 >/dev/null && echo 1 || echo 0)"
-check "crashed instance restarted" "3" "$(bm2 list reuseapp | grep -c '^reuseapp ')"
+check "crashed instance restarted" "3" "$(row_count reuseapp)"
 bm2 remove -f reuseapp >/dev/null
 
 echo "===== Y. cluster without reusePort is stopped with a clear reason ====="
@@ -517,8 +521,8 @@ EOF
 (cd "$ACC/noreuse" && bm2 serve >/dev/null)
 BOTH_ERRORED=0
 for _ in $(seq 1 40); do
-  LINES=$(bm2 list noreuse 2>/dev/null | grep -c '^noreuse ')
-  NONERR=$(bm2 list noreuse 2>/dev/null | grep '^noreuse ' | awk '{print $7}' | grep -cv '^errored$')
+  LINES=$(row_count noreuse)
+  NONERR=$(col_values noreuse STATUS | grep -cv '^errored$' || true)
   if [ "$LINES" = "2" ] && [ "$NONERR" = "0" ]; then BOTH_ERRORED=1; break; fi
   sleep 0.5
 done
@@ -534,8 +538,8 @@ sed -i 's/script = "slow.ts"/script = "reuse.ts"/' "$ACC/noreuse/bm2.toml"
 (cd "$ACC/noreuse" && bm2 serve >/dev/null)
 RECOVERED=0
 for _ in $(seq 1 40); do
-  LINES=$(bm2 list noreuse 2>/dev/null | grep -c '^noreuse ')
-  ONLINE=$(bm2 list noreuse 2>/dev/null | grep '^noreuse ' | awk '{print $7}' | grep -c '^online$')
+  LINES=$(row_count noreuse)
+  ONLINE=$(col_values noreuse STATUS | grep -c '^online$' || true)
   if [ "$LINES" = "2" ] && [ "$ONLINE" = "2" ]; then RECOVERED=1; break; fi
   sleep 0.5
 done
@@ -576,7 +580,7 @@ for _ in 2 3 4 5; do
   sleep 1
 done
 FD_LAST=$(ls "/proc/$DPID/fd" | wc -l)
-check "instance online after four restarts" "online" "$(bm2 list cycle | tail -1 | awk '{print $7}')"
+check "instance online after four restarts" "online" "$(cell cycle STATUS)"
 check "no zombie children under bm2d" "0" "$(ps --ppid "$DPID" -o stat= 2>/dev/null | grep -c '^Z' || true)"
 check "fd count bounded across restarts" 1 "$([ "$FD_LAST" -le $((FD_FIRST + 3)) ] && echo 1 || echo 0)"
 bm2 remove -f cycle >/dev/null
@@ -822,16 +826,16 @@ export BM2_UPDATE_BASE="http://127.0.0.1:4399"
 write_project stubborn stubborn 4341 ignore-term.ts 1 1000
 (cd "$ACC/stubborn" && bm2 serve >/dev/null)
 sleep 1
-STUBBORN_PID=$(bm2 list stubborn | tail -1 | awk '{print $3}')
+STUBBORN_PID=$(cell stubborn PID)
 check "stubborn app is up before the upgrade" 1 \
   "$([ -n "$STUBBORN_PID" ] && [ "$STUBBORN_PID" != 0 ] && echo 1 || echo 0)"
 write_manifest "9.9.9" "$BM2_SHA" "$BM2D_SHA"
 bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1
 contains "upgrade applies while an app runs" "$ACC/upgrade-out.txt" "updated and applied"
 check "the running app keeps its pid across the swap" "$STUBBORN_PID" \
-  "$(bm2 list stubborn | tail -1 | awk '{print $3}')"
+  "$(cell stubborn PID)"
 check "the running app is still online" "online" \
-  "$(bm2 list stubborn | tail -1 | awk '{print $7}')"
+  "$(cell stubborn STATUS)"
 bm2 remove -f stubborn >/dev/null 2>&1 || true
 
 # Two upgrades at once would stage and swap the same files: the lock is what
@@ -919,13 +923,9 @@ stop_timeout_ms = 1000
 EOF
 (cd "$ACC/pair" && bm2 serve >/dev/null)
 sleep 3
-PAIR_LIST=$(bm2 list pair)
-check "the crashing instance errored out" "errored" \
-  "$(printf '%s\n' "$PAIR_LIST" | sed -n '2p' | awk '{print $7}')"
-check "its neighbour is still online" "online" \
-  "$(printf '%s\n' "$PAIR_LIST" | sed -n '3p' | awk '{print $7}')"
-check "the neighbour never restarted" "1" \
-  "$(printf '%s\n' "$PAIR_LIST" | sed -n '3p' | awk '{print $8}')"
+check "the crashing instance errored out" "errored" "$(cell pair STATUS 1)"
+check "its neighbour is still online" "online" "$(cell pair STATUS 2)"
+check "the neighbour never restarted" "1" "$(cell pair TIMES 2)"
 check "the neighbour still serves" "ok" "$(curl -s --max-time 2 localhost:4372)"
 bm2 remove -f pair >/dev/null 2>&1 || true
 

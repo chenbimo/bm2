@@ -60,8 +60,12 @@ EOF
 
 cleanup() {
   (cd "$ACC/app" && bm2 kill -y >/dev/null 2>&1) || true
-  pkill -x bm2d 2>/dev/null || true
-  pkill -f 'bun .*slow\.ts' 2>/dev/null || true
+  # 只收本轮的守护进程:按名字全局 pkill bm2d 会顺手杀掉同机其他 HOME 下的
+  # 生产守护进程(它的实例跟着失去监督),这一轮就曾把 /wwwroot/api 停了。
+  if [ -f "$state_dir/bm2d.pid" ]; then
+    kill -TERM "$(cat "$state_dir/bm2d.pid")" 2>/dev/null || true
+  fi
+  pkill -f "$ACC/.*slow\.ts" 2>/dev/null || true
   rm -rf "$bin_dir"
 }
 trap cleanup EXIT
@@ -77,8 +81,11 @@ sample() { # sample <label>: refresh SAMPLE_* and print them
   SAMPLE_FILES=$(find "$state_dir" -type f 2>/dev/null | wc -l)
   echo "soak $1: daemon_fds=$SAMPLE_FDS daemon_rss_kb=$SAMPLE_RSS state_files=$SAMPLE_FILES"
 }
+# 表格解析与 e2e 共用一份(soak 只用到 row_count)。
+# shellcheck source=scripts/e2e/table.sh
+source "$root/scripts/e2e/table.sh"
 
-(cd "$ACC/app" && bm2 start >/dev/null)
+(cd "$ACC/app" && bm2 serve >/dev/null)
 sleep 2
 sample "warm"
 WARM_FDS=$SAMPLE_FDS
@@ -86,11 +93,11 @@ WARM_RSS=$SAMPLE_RSS
 WARM_FILES=$SAMPLE_FILES
 
 for i in $(seq 1 "$CYCLES"); do
-  bm2 kill app >/dev/null 2>&1 || true
-  (cd "$ACC/app" && bm2 start >/dev/null)
+  bm2 remove app >/dev/null 2>&1 || true
+  (cd "$ACC/app" && bm2 serve >/dev/null)
   if [ $((i % 10)) -eq 0 ]; then sample "cycle$i"; fi
 done
-online=$(bm2 list | grep -c '^app ' || true)
+online=$(online_count app)
 [ "$online" = "1" ] || {
   echo "soak: the app is not online after $CYCLES cycles (matched $online)" >&2
   exit 1
@@ -101,7 +108,7 @@ for i in $(seq 1 "$RELOADS"); do
   sleep 1
   sample "reload$i"
 done
-online=$(bm2 list | grep -c '^app ' || true)
+online=$(online_count app)
 [ "$online" = "1" ] || {
   echo "soak: the app is not online after $RELOADS reloads (matched $online)" >&2
   exit 1
