@@ -1,6 +1,6 @@
 # bm2
 
-<img src="docs/public/logo.svg" width="140" height="81" alt="bm2 logo">
+<img src="docs/public/logo.svg" width="141" height="80" alt="bm2 logo">
 
 一句话说清它是什么：**给 Bun 与 Node.js 项目用的进程管理器，两个静态二进制，自身不带运行时。**
 

@@ -71,13 +71,13 @@ export default defineConfig({
   // 容易写错)。部署侧只认 docs/dist 这一处,改这里就要同步改部署脚本。
   outDir: 'dist',
   // 图标统一用 site 仓库的那套素材(favicon.svg + icons/*.png),所有项目共用同一个印记;
-  // 项目自己的 logo 由 scripts/logo.mjs 生成为长方形字标。
+  // 项目自己的 logo 由 yicode-tech/scripts/moduleLogo 生成为长方形字标。
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     ['link', { rel: 'apple-touch-icon', sizes: '180x180', href: '/icons/apple-touch-icon-180.png' }],
   ],
   themeConfig: {
-    logo: { src: '/logo.svg', width: 45, height: 26, alt: 'bm2' },
+    logo: { src: '/logo.svg', width: 46, height: 26, alt: 'bm2' },
     siteTitle: false,
     socialLinks: [{ icon: 'github', link: repository }],
     nav: [
