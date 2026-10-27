@@ -17,7 +17,7 @@ bm2 notify    # 在项目目录执行：给所有目标发一条测试消息
 | `timeout_ms` | 单个目标的硬超时（100–60000） | `5000` |
 | `dedupe_window_s` | 同一告警在此秒数内只发一条（0–604800，`0` 关闭） | `3600` |
 | `max_per_minute` | 每分钟即时上报上限（0–6000，`0` 不限） | `30` |
-| `queue_size` | 即时队列深度（1–4096）；满时丢最新 | `128` |
+| `queue_size` | 即时队列深度（1–4096），满时丢最新 | `128` |
 | `events` | 事件总闸 | `[]` |
 | `threshold_rss_percent` | RSS 占 `max_memory_mb` 的百分比（0–100） | `0` |
 | `threshold_offline_min` | 实例非 online 持续分钟数（0–1440） | `0` |
@@ -89,7 +89,7 @@ template = "stats"
 | `memory_limit` | warn | RSS 超上限，按异常重启处理 |
 | `oom_kill` | warn | SIGKILL 且内存逼近上限，判定为内核 OOM killer |
 | `reuseport_missing` | error | cluster 模式未开 `reusePort`，项目已被停止 |
-| `lifecycle` | info | 项目启动、停止或退役；干净退出后的按计划重启 |
+| `lifecycle` | info | 项目启动、停止或退役，以及干净退出后的按计划重启 |
 | `daemon` | info | 守护进程启动，或 reload 之后接管了本项目 |
 | `threshold` | warn | 内存逼近上限、离线过久、重启过频或重启风暴 |
 | `disk_pressure` | warn | 状态盘剩余空间不足 |
@@ -166,3 +166,5 @@ url = "__BM2_STATS_WEBHOOK_URL__"
 **周期上报**到点直发，不去重也不限流。失败只记事件，不重试。
 
 **被丢弃的消息只留事件，不留内容。** 排查要看的是丢了多少、什么时候丢的，不是丢的内容是什么。
+
+配好了却收不到消息，按[排障与常见问题](/guide/troubleshooting)里的四步顺序排查。

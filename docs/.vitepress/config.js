@@ -30,6 +30,7 @@ const sidebar = [
     text: '开始',
     items: [
       { text: '安装与升级', link: '/guide/install' },
+      { text: '十五分钟上手', link: '/guide/quickstart' },
       { text: '配置', link: '/guide/configuration' },
       { text: '环境变量', link: '/guide/environment' },
     ],
@@ -48,7 +49,11 @@ const sidebar = [
   },
   {
     text: '参考',
-    items: [{ text: '功能特性', link: '/guide/features' }],
+    items: [
+      { text: '能力总览', link: '/guide/features' },
+      { text: '排障与常见问题', link: '/guide/troubleshooting' },
+      { text: '从 pm2 迁移', link: '/guide/migration-from-pm2' },
+    ],
   },
 ]
 
