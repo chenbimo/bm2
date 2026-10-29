@@ -112,7 +112,8 @@ jobs:
             chmod +x "dist/$pkg/$name"
           done
           tar -C dist -czf "dist/$pkg.tar.gz" "$pkg"
-          cd dist && sha256sum "$pkg.tar.gz" > "$pkg.sha256"
+          # 子 shell 里算哈希,免得 cd 之后下面的 ls 找不到 dist。
+          (cd dist && sha256sum "$pkg.tar.gz" > "$pkg.sha256")
           ls -l dist
 
       - uses: actions/upload-artifact@v4
