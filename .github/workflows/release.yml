@@ -87,6 +87,9 @@ jobs:
       - name: Build
         run: |
           set -euo pipefail
+          # 注册表索引不在缓存里,少了这一步依赖解析会报 module not found。
+          # verify.sh 自己会跑 update,这里必须显式补上。
+          moon update
           moon build src/cmd/bm2 src/cmd/bm2d --target native --target-dir _build-release
 
       # 产物路径随 moon 版本变过(多一层/少一层 build 目录),名字也带 .exe 后缀
@@ -202,4 +205,8 @@ jobs:
 
       - name: moon publish
         if: steps.check.outputs.skip != 'true'
-        run: moon publish
+        run: |
+          set -euo pipefail
+          # 同 Build:注册表索引不在缓存里,发布前也要先更新。
+          moon update
+          moon publish
