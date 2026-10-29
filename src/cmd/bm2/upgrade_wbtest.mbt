@@ -76,7 +76,17 @@ test "upgrade only fires when the published version is newer" {
   // 版本号相对当前 VERSION 动态构造,避免每次发版手动同步测试。
   let v = @utils.parse(VERSION)
   let newer = "\{v.major}.\{v.minor}.\{v.patch + 1}"
-  let older = "\{v.major}.\{v.minor - 1}.\{v.patch}"
+  // 旧版本号按位退,不能直接 minor - 1:1.0.0 会拼出 1.-1.0 这种非法串,
+  // 那时测的就不是比较逻辑,而是解析器遇到脏输入的反应了。
+  let older = if v.patch > 0 {
+    "\{v.major}.\{v.minor}.\{v.patch - 1}"
+  } else if v.minor > 0 {
+    "\{v.major}.\{v.minor - 1}.0"
+  } else {
+    "\{v.major - 1}.0.0"
+  }
   assert_true(@utils.compare(@utils.parse(newer), v) > 0)
-  assert_true(@utils.compare(@utils.parse(older), v) < 0)
+  if v.major > 0 || v.minor > 0 || v.patch > 0 {
+    assert_true(@utils.compare(@utils.parse(older), v) < 0)
+  }
 }
