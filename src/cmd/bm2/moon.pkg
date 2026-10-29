@@ -3,7 +3,6 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/http",
   "moonbitlang/async/socket",
-  "moonbitlang/x/crypto",
   "moonbitlang/x/fs",
   "chensuiyi/bm2/config",
   "chensuiyi/bm2/core",

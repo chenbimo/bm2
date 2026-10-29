@@ -43,19 +43,37 @@ which bm2 bm2d
 
 `bm2d` 找不到时的表现很明确：任何需要守护进程的命令都会报 `bm2: bm2d did not start`，并告诉你去看 `~/.bm2/bm2d.log`。
 
+### 从 GitHub Releases 下载安装
+
+不想装 MoonBit 工具链时，从 [Releases](https://github.com/chenbimo/bm2/releases) 下载对应架构的 `bm2` 与 `bm2d`，**放进 `~/.moon/bin`**。
+
+```bash
+mkdir -p ~/.moon/bin
+mv bm2 bm2d ~/.moon/bin/
+chmod +x ~/.moon/bin/bm2 ~/.moon/bin/bm2d
+```
+
+`~/.moon/bin` 通常已经在 `PATH` 里，装完直接可用；如果不在，把 `export PATH="$HOME/.moon/bin:$PATH"` 写进 `~/.profile`。
+
+**为什么一定要放这个目录**：`moon install` 也装这里，`bm2 upgrade` 替换的正是这一份。放到别处，升级装的是 `~/.moon/bin` 里那份，跑起来的还是你放的那份。
+
+这条装法没有自升级：`bm2 upgrade` 依赖 `moon` 命令，机器上没有它会直接说明，不会假装成功。要升级就重新下载，覆盖同一个目录。
+
 ## 升级
 
 ```bash
 bm2 upgrade
 ```
 
-它做的事按顺序是：比对发布站版本、下载本平台的两个二进制、逐个校验 SHA256、换入新版本、把守护进程交给新二进制。
+它做的事按顺序是：查 mooncakes 上的最新版本、用 `moon install` 换入两个二进制、把守护进程交给新二进制。
 
 应用全程继续运行。
 
-失败不会留下半套新版本：要么保持原样，要么从备份恢复。
+升级需要本机有 `moon` 命令。如果你是直接下载 GitHub Release 的产物手工放的，机器上通常没有 moon，这条命令会告诉你改用哪种方式，而不是自己去下载一套。
 
-已经是最新版本时它直接告诉你，不做无谓的下载。
+`moon install` 失败时旧版本原样保留，不会留下半套新版本。
+
+已经是最新版本时它直接告诉你，不做无谓的安装。
 
 ## 只换二进制
 

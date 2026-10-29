@@ -93,28 +93,6 @@ async fn swap_daemon(state_dir : String, lang : @i18n.Lang) -> Bool {
 }
 
 ///|
-/// Directory containing the running bm2 binary; upgrades replace it and
-/// bm2d in place.
-fn self_dir() -> String {
-  let exe = try @proc.self_exe() catch {
-    _ => return "."
-  } noraise {
-    found => found
-  }
-  let mut idx = -1
-  for i, c in exe {
-    if c == '/' {
-      idx = i
-    }
-  }
-  if idx >= 0 {
-    exe[:idx].to_owned()
-  } else {
-    "."
-  }
-}
-
-///|
 /// Poll `list` until every instance of the target app reaches a terminal
 /// status (or leaves the listing after a stop), or the deadline passes.
 /// For a kill the goal state is the project disappearing: an unknown-app

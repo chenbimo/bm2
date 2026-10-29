@@ -1,171 +1,60 @@
 ///|
-/// 自升级的下载侧:读取发布站的更新清单(本项目发布产物的格式),
-/// 按本机平台取产物,下载并校验。
+/// 自升级:只走 `moon install` 一条路。
+///
+/// 初次安装有两条路——`moon install`,或从 GitHub Release 下载产物自己放进 PATH;
+/// 升级只有这一条:查 registry 的最新版本 → `moon install` 覆盖当前目录的两个二进制
+/// → 守护进程换班。
+///
+/// 换班不是重启:旧守护进程 detach 后退出,新守护进程用 pidfd 收养仍在运行的实例,
+/// 应用 PID 不变、服务不中断。启动期的参数(环境变量白名单、端口)要等应用下次拉起
+/// 才走新逻辑;监督期的能力(重启预算、日志轮转、通知)换班即生效。
+///
+/// 为什么不自己下载产物:发布站方案已弃用,产物只经 GitHub Release 与 mooncakes 分发。
+/// 两条下载链路并存必然漂移,校验、清理、回滚都得维护两份。
 
 ///|
-/// How long the manifest may take: it is a small JSON document on a static host.
-const UPDATE_MANIFEST_TIMEOUT_MS : Int32 = 30000
+/// registry 的模块元数据,只取其中的 version 字段。
+const REGISTRY_URL : String = "https://mooncakes.io/api/v0/modules/chensuiyi/bm2"
 
 ///|
-/// How long one artifact may take. Binaries are a few MB, so this is generous on
-/// purpose — a slow link must still finish — but a stalled connection has to fail
-/// the update instead of hanging the CLI.
-const UPDATE_DOWNLOAD_TIMEOUT_MS : Int32 = 300000
+/// registry 只是一个小 JSON,15 秒足够;卡住就按失败处理,不拖住 CLI。
+const REGISTRY_TIMEOUT_MS : Int32 = 15000
 
 ///|
-/// 发布站地址(可用环境变量覆盖,便于内网镜像与测试)。
-pub fn update_base() -> String {
-  match @env.get_env_var("BM2_UPDATE_BASE") {
-    Some(url) if !url.is_empty() => url
-    _ => "https://static2.yicode.tech"
-  }
-}
+/// execvpe 找不到可执行文件时的退出码,用它区分「没装 moon」与其他失败。
+const EXIT_COMMAND_NOT_FOUND : Int32 = 127
 
 ///|
-/// 本机平台架构标识(与清单 artifacts[].target 对齐)。
-/// 读自身 ELF 头的 e_machine,不需要子进程:0xB7 是 aarch64,其余按 x86-64 处理。
-pub fn self_target() -> String {
-  let exe = try @proc.self_exe() catch {
-    _ => return "linux-x64"
-  } noraise {
-    path => path
-  }
-  let head = try @fsx.read_small(exe, cap=64) catch {
-    _ => return "linux-x64"
-  } noraise {
-    data => data
-  }
-  if head.length() < 20 {
-    return "linux-x64"
-  }
-  let machine = head[18].to_int() + head[19].to_int() * 256
-  if machine == 0xb7 {
-    "linux-arm64"
-  } else {
-    "linux-x64"
-  }
-}
-
-///|
-/// 更新清单里的一个产物。
-pub struct UpdateArtifact {
-  name : String
-  target : String
-  url : String
-  sha256 : String
-} derive(Debug, Eq)
-
-///|
-/// 解析发布清单:版本号与产物列表。字段手工提取,因为清单键是驼峰
-/// (`fileSize`),与 MoonBit 的 snake_case 字段命名不兼容。
-pub fn parse_manifest(text : String) -> (String, Array[UpdateArtifact])? {
-  let parsed = try @json.parse(text) catch {
-    _ => return None
-  } noraise {
-    json => json
-  }
-  let fields = match parsed {
-    Json::Object(fields) => fields
-    _ => return None
-  }
-  let version = json_string(fields, "version")
-  if version.is_empty() {
-    return None
-  }
-  let items = match fields.get("artifacts") {
-    Some(Json::Array(items)) => items
-    _ => return None
-  }
-  let artifacts : Array[UpdateArtifact] = []
-  for item in items {
-    match item {
-      Json::Object(entry) => {
-        let name = json_string(entry, "name")
-        let url = json_string(entry, "url")
-        let digest = json_string(entry, "sha256")
-        if name.is_empty() || url.is_empty() || digest.is_empty() {
-          continue
-        }
-        artifacts.push({
-          name,
-          target: json_string(entry, "target"),
-          url,
-          sha256: digest,
-        })
-      }
-      _ => continue
-    }
-  }
-  Some((version, artifacts))
-}
-
-///|
-fn json_string(fields : Map[String, Json], key : String) -> String {
-  match fields.get(key) {
-    Some(Json::String(value)) => value
-    _ => ""
-  }
-}
-
-///|
-/// 取本机平台下的全部必需产物:先精确匹配 target,再回退 any。
-/// 任一必需产物缺失即返回 None(缺一不可,避免半更新)。
-pub fn pick_artifacts(
-  artifacts : Array[UpdateArtifact],
-  target : String,
-  names : Array[String],
-) -> Array[UpdateArtifact]? {
-  let picked : Array[UpdateArtifact] = []
-  for name in names {
-    let mut exact : UpdateArtifact? = None
-    let mut fallback : UpdateArtifact? = None
-    for item in artifacts {
-      if item.name != name {
-        continue
-      }
-      if item.target == target {
-        exact = Some(item)
-        break
-      }
-      if item.target == "any" {
-        fallback = Some(item)
-      }
-    }
-    match exact {
-      Some(item) => picked.push(item)
-      None =>
-        match fallback {
-          Some(item) => picked.push(item)
-          None => return None
-        }
-    }
-  }
-  Some(picked)
-}
-
-///|
-/// 拉取一段文本(更新清单)。
+/// HTTP GET 取文本。
 pub async fn fetch_text(url : String) -> String {
   let (_response, body) = @http.get(url)
   @utf8.decode(body.binary())
 }
 
 ///|
-/// 下载到本地文件。产物只有几 MB,整块读进内存再落盘,无需流式句柄。
-pub async fn download_to(url : String, path : String) -> Unit {
-  let (_response, body) = @http.get(url)
-  @fs.write_bytes_to_file(path, body.binary())
+/// 从 registry 响应里取最新版本号。只认顶层 version 字段:
+/// 其他字段的用途与本流程无关,多解析一处就多一处会随上游变更而失效的地方。
+pub fn parse_registry_version(text : String) -> String? {
+  let parsed = try @json.parse(text) catch {
+    _ => return None
+  } noraise {
+    json => json
+  }
+  match parsed {
+    Json::Object(fields) =>
+      match fields.get("version") {
+        Some(Json::String(version)) if !version.is_empty() => Some(version)
+        _ => None
+      }
+    _ => None
+  }
 }
 
 ///|
-/// 文件的 SHA256,小写十六进制。
-pub fn sha256_hex(path : String) -> String raise {
-  @crypto.bytes_to_hex_string(@crypto.sha256(@fs.read_file_to_bytes(path)))
-}
-
-///|
-/// 执行一个外部程序(NUL 分隔参数),输出直连终端,退出码 0 视为成功。
-fn run_program(program : String, args_blob : String) -> Bool {
+/// 执行一个外部程序(NUL 分隔参数),输出直连终端。
+/// 返回退出码;-1 表示起不来或被信号杀掉。
+/// 不设超时:装多久、拉多少依赖由 moon 自己决定,卡住由用户 Ctrl+C 中断。
+fn run_program(program : String, args_blob : String) -> Int32 {
   let pid = try
     @proc.spawn({
       bun_path: program,
@@ -176,138 +65,35 @@ fn run_program(program : String, args_blob : String) -> Bool {
       env_blob: @proc.base_env_blob(),
     })
   catch {
-    _ => return false
+    _ => return -1
   } noraise {
-    spawned => spawned
+    pid => pid
   }
-  let reaped = try @proc.wait_child(pid) catch {
-    _ => None
+  let exited = try @proc.wait_child(pid) catch {
+    _ => return -1
   } noraise {
-    result => result
+    event => event
   }
-  match reaped {
-    Some((_, @proc.ChildExit::Exited(0))) => true
-    _ => false
-  }
-}
-
-///|
-/// 下载并安装一批产物。全部下载与校验通过后才动现有二进制;替换失败用
-/// 备份还原。返回错误说明,None 表示成功。
-pub async fn install_artifacts(
-  picked : Array[UpdateArtifact],
-  dir : String,
-  lang : @i18n.Lang,
-) -> String? {
-  let staged : Array[UpdateArtifact] = []
-  for item in picked {
-    let temp = dir + "/." + item.name + ".new"
-    if !download_ok(item.url, temp) {
-      remove_file(temp)
-      return Some(@i18n.upgrade_download_failed(lang, item.url))
-    }
-    let actual = try sha256_hex(temp) catch {
-      _ => ""
-    } noraise {
-      digest => digest
-    }
-    if actual != item.sha256 {
-      remove_file(temp)
-      return Some(@i18n.upgrade_checksum_mismatch(lang, item.name))
-    }
-    if !make_executable(temp) {
-      remove_file(temp)
-      return Some(@i18n.upgrade_not_executable(lang, item.name))
-    }
-    staged.push(item)
-  }
-  // 替换:先备份旧文件再改名;同文件系统内的 mv 是原子的。
-  let backed : Array[String] = []
-  for item in staged {
-    let destination = dir + "/" + item.name
-    let saved = destination + ".bak"
-    let had_old = @fs.path_exists(destination)
-    if had_old && !move_file(destination, saved) {
-      restore(dir, backed)
-      return Some(@i18n.upgrade_cannot_replace(lang, item.name))
-    }
-    if !move_file(dir + "/." + item.name + ".new", destination) {
-      restore(dir, backed)
-      return Some(@i18n.upgrade_cannot_replace(lang, item.name))
-    }
-    if had_old {
-      backed.push(item.name)
-    }
-  }
-  for name in backed {
-    remove_file(dir + "/" + name + ".bak")
-  }
-  None
-}
-
-///|
-/// Download one artifact inside a bounded wait.
-async fn download_ok(url : String, path : String) -> Bool {
-  let failed = try {
-    let attempt = async fn() { download_to(url, path) }
-    match @async.with_timeout_opt(UPDATE_DOWNLOAD_TIMEOUT_MS, attempt) {
-      Some(_) => false
-      None => true
-    }
-  } catch {
-    _ => true
-  } noraise {
-    flag => flag
-  }
-  !failed
-}
-
-///|
-fn make_executable(path : String) -> Bool {
-  let failed = try {
-    @fsx.chmod(path, 0o755)
-    false
-  } catch {
-    _ => true
-  } noraise {
-    flag => flag
-  }
-  !failed
-}
-
-///|
-fn move_file(source : String, destination : String) -> Bool {
-  run_program("mv", source + "\u{0}-f\u{0}" + destination + "\u{0}")
-}
-
-///|
-fn remove_file(path : String) -> Unit {
-  try @fsx.unlink(path) catch {
-    _ => ()
-  } noraise {
-    _ => ()
+  match exited {
+    Some((_, @proc.Exited(code))) => code
+    Some((_, @proc.Signaled(_))) => -1
+    None => -1
   }
 }
 
 ///|
-/// 回滚已替换的文件:删掉新文件,把备份改回正式名。
-fn restore(dir : String, backed : Array[String]) -> Unit {
-  for name in backed {
-    let destination = dir + "/" + name
-    remove_file(destination)
-    ignore(move_file(destination + ".bak", destination))
-  }
+/// 装到 moon 的默认目录(~/.moon/bin)。不传 --bin:moon 的安装脚本已经把这个目录
+/// 写进 PATH,按默认来才不会出现「装在 A、运行的是 B」。
+/// `chensuiyi/bm2/...` 一次装齐两个 main 包,同批替换才不会 CLI 新、守护进程旧。
+fn moon_install() -> Int32 {
+  let args = "install" + "\u{0}" + "chensuiyi/bm2/..."
+  run_program("moon", args)
 }
 
 ///|
-/// Upgrade bm2 from the release station: fetch the manifest, compare the
-/// published version with the running one, download this platform's binaries,
-/// verify their SHA256, swap them in place, then swap the daemon so the new
-/// binary takes over without touching the running apps.
+/// Upgrade through the moon toolchain, then hand over to the new daemon.
 async fn cmd_upgrade(state_dir : String, lang : @i18n.Lang) -> Int32 {
-  // One upgrade at a time: two of them would stage and swap the same files. The
-  // lock is released when this process exits, so a crashed upgrade never blocks
-  // the next one.
+  // 同一时刻只允许一个升级:两个并发会把同一批文件换来换去。
   @utils.discard(() => @fsx.mkdir_p(state_dir, mode=0o700))
   let _lock = try @fsx.lock_exclusive(state_dir + "/upgrade.lock") catch {
     _ => {
@@ -317,13 +103,10 @@ async fn cmd_upgrade(state_dir : String, lang : @i18n.Lang) -> Int32 {
   } noraise {
     fd => fd
   }
-  let base = update_base()
-  let manifest_url = base +
-    "/products/bm2/latest.json?t=" +
-    @utils.now_ms().to_string()
+  let url = REGISTRY_URL + "?t=" + @utils.now_ms().to_string()
   let fetched = try {
-    let attempt = async fn() { fetch_text(manifest_url) }
-    @async.with_timeout_opt(UPDATE_MANIFEST_TIMEOUT_MS, attempt)
+    let attempt = async fn() { fetch_text(url) }
+    @async.with_timeout_opt(REGISTRY_TIMEOUT_MS, attempt)
   } catch {
     _ => None
   } noraise {
@@ -332,39 +115,33 @@ async fn cmd_upgrade(state_dir : String, lang : @i18n.Lang) -> Int32 {
   let text = match fetched {
     Some(text) => text
     None => {
-      @proc.eprintln(@i18n.upgrade_unreachable(lang, base))
+      @proc.eprintln(@i18n.upgrade_registry_unreachable(lang))
       return 1
     }
   }
-  let (version, artifacts) = match parse_manifest(text) {
-    Some(parsed) => parsed
+  let latest = match parse_registry_version(text) {
+    Some(version) => version
     None => {
-      @proc.eprintln(@i18n.upgrade_bad_manifest(lang))
+      @proc.eprintln(@i18n.upgrade_bad_registry(lang))
       return 1
     }
   }
-  if @utils.compare(@utils.parse(version), @utils.parse(VERSION)) <= 0 {
+  if @utils.compare(@utils.parse(latest), @utils.parse(VERSION)) <= 0 {
     println(@i18n.update_up_to_date(lang, VERSION))
     return 0
   }
-  println(@i18n.update_available(lang, version, VERSION))
-  let target = self_target()
-  // bm2 与 bm2d 必须同批取到,缺一不可,否则会出现半更新。
-  let picked = match pick_artifacts(artifacts, target, ["bm2", "bm2d"]) {
-    Some(items) => items
-    None => {
-      @proc.eprintln(@i18n.upgrade_no_release(lang, target))
-      return 1
-    }
+  println(@i18n.update_available(lang, latest, VERSION))
+  // 装到 moon 的默认目录。手工把二进制放在别处的情况由文档约束:
+  // 从 GitHub Release 下载也要放进 ~/.moon/bin,否则升级装到 A、运行的是 B。
+  let code = moon_install()
+  if code == EXIT_COMMAND_NOT_FOUND {
+    @proc.eprintln(@i18n.upgrade_no_moon(lang))
+    return 1
   }
-  match install_artifacts(picked, self_dir(), lang) {
-    Some(reason) => {
-      @proc.eprintln("bm2: " + reason)
-      return 1
-    }
-    None => ()
+  if code != 0 {
+    @proc.eprintln(@i18n.upgrade_install_failed(lang, code))
+    return 1
   }
-  // Apply immediately when a daemon is running; a failed swap still
-  // leaves the update installed, so only the message differs.
+  // 装完才换班:失败了旧版本照常运行,不会出现半套新版本。
   apply_update(state_dir, lang)
 }

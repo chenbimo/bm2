@@ -140,60 +140,44 @@ pub fn upgrade_running(lang : Lang) -> String {
 }
 
 ///|
-pub fn upgrade_unreachable(lang : Lang, base : String) -> String {
+pub fn upgrade_registry_unreachable(lang : Lang) -> String {
   match lang {
-    En => "bm2: cannot reach the release station " + base
-    Zh => "bm2: 无法访问发布站 " + base
+    En => "bm2: cannot reach mooncakes.io to look up the latest version"
+    Zh => "bm2: 无法访问 mooncakes.io 查询最新版本"
   }
 }
 
 ///|
-pub fn upgrade_bad_manifest(lang : Lang) -> String {
+pub fn upgrade_bad_registry(lang : Lang) -> String {
   match lang {
-    En => "bm2: cannot read the release manifest"
-    Zh => "bm2: 无法读取发布清单"
+    En => "bm2: cannot read the latest version from mooncakes.io"
+    Zh => "bm2: 无法从 mooncakes.io 读取最新版本"
   }
 }
 
 ///|
-pub fn upgrade_no_release(lang : Lang, target : String) -> String {
+/// 没有 moon 就没有升级通道:两条安装来源里,手动下载的那条不提供自升级。
+pub fn upgrade_no_moon(lang : Lang) -> String {
   match lang {
-    En => "bm2: no release for " + target + " yet"
-    Zh => "bm2: 还没有 " + target + " 的发布产物"
+    En =>
+      "bm2: 'moon' not found; upgrade needs it. Install with 'moon install chensuiyi/bm2/...', or download the new release from GitHub"
+    Zh =>
+      "bm2: 找不到 'moon' 命令,升级需要它。请用 'moon install chensuiyi/bm2/...' 安装,或从 GitHub Release 下载新版"
   }
 }
 
 ///|
-/// One download failed. The URL is included because it is the only thing that
-/// says *which* artifact, and a partial update is not an update.
-pub fn upgrade_download_failed(lang : Lang, url : String) -> String {
+/// moon install 失败时旧版本原样保留,提示里带上退出码便于排查。
+pub fn upgrade_install_failed(lang : Lang, code : Int32) -> String {
   match lang {
-    En => "cannot download " + url
-    Zh => "无法下载 " + url
-  }
-}
-
-///|
-pub fn upgrade_checksum_mismatch(lang : Lang, name : String) -> String {
-  match lang {
-    En => "checksum mismatch for " + name + "; update aborted"
-    Zh => name + " 的校验和不匹配,已中止升级"
-  }
-}
-
-///|
-pub fn upgrade_not_executable(lang : Lang, name : String) -> String {
-  match lang {
-    En => "cannot mark " + name + " executable"
-    Zh => "无法给 " + name + " 加上可执行权限"
-  }
-}
-
-///|
-pub fn upgrade_cannot_replace(lang : Lang, name : String) -> String {
-  match lang {
-    En => "cannot replace " + name
-    Zh => "无法替换 " + name
+    En =>
+      "bm2: 'moon install' failed (exit " +
+      code.to_string() +
+      "); nothing was replaced"
+    Zh =>
+      "bm2: 'moon install' 失败(退出码 " +
+      code.to_string() +
+      "),未做任何替换"
   }
 }
 
