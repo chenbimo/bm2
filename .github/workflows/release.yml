@@ -128,6 +128,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # gh 需要在仓库上下文里跑(它要认 remote 与 tag);--generate-notes 还要
+      # 完整的 tag 历史来算变更区间,所以不省 fetch-depth。
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
