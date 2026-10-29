@@ -21,7 +21,10 @@ jobs:
 
       # 工具链与本地 WSL 版本一致;版本号只有一处(moonbit/scripts/devkit.conf)。
       - name: Install MoonBit
-        run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          # 安装脚本只把它写进 ~/.bashrc,非交互步骤读不到;显式告诉后续步骤。
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
         env:
           MOONBIT_INSTALL_VERSION: 0.10.17+d971670cd
 
