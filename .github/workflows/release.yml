@@ -1,0 +1,196 @@
+name: release
+
+# 打 tag 即发布,四步串行,前一步不过后面不发:
+#   verify → build(x64/arm64) → GitHub Release → moon publish
+#
+# 为什么放在一个 workflow 里而不是拆成几个:`needs` 是唯一的顺序保证。
+# 拆开就只能靠 workflow_run 串,失败语义反而更难看清。
+#
+# 生成物 · 由 moonbit/scripts 渲染(源:templates/release-binary.yml),手改无效。
+
+on:
+  push:
+    tags: ['v*']
+
+# gh release 需要写仓库内容;其余步骤只读。
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # tag 与代码里的版本必须是同一个数:两者漂移时发出去的版本号是骗人的。
+      - name: Tag matches moon.mod
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(sed -nE 's/^version = "([^"]+)"/\1/p' moon.mod | head -1)
+          if [ "$tag" != "$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match moon.mod version $version" >&2
+            exit 1
+          fi
+          echo "releasing bm2 $version"
+
+      - name: Install MoonBit
+        run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+        env:
+          MOONBIT_INSTALL_VERSION: 0.10.17+d971670cd
+
+      - name: Cache moon registry
+        uses: actions/cache@v4
+        with:
+          path: .mooncakes
+          key: mooncakes-x64-${{ hashFiles('moon.mod') }}
+          restore-keys: mooncakes-x64-
+
+      - uses: oven-sh/setup-bun@v2
+      - name: Verify
+        run: bash scripts/devkit/verify.sh
+
+  build:
+    needs: verify
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MoonBit
+        run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+        env:
+          MOONBIT_INSTALL_VERSION: 0.10.17+d971670cd
+
+      - name: Cache moon registry
+        uses: actions/cache@v4
+        with:
+          path: .mooncakes
+          key: mooncakes-${{ matrix.arch }}-${{ hashFiles('moon.mod') }}
+          restore-keys: mooncakes-${{ matrix.arch }}-
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          moon build src/cmd/bm2 src/cmd/bm2d --target native --target-dir _build-release
+
+      # 产物路径随 moon 版本变过(多一层/少一层 build 目录),名字也带 .exe 后缀
+      # (Linux 产物同样如此,文件本身是 ELF)。按名字找,不写死路径;只认文件,
+      # 因为同名的 build/cmd/<名字> 目录也在同一棵树下。
+      - name: Package
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^version = "([^"]+)"/\1/p' moon.mod | head -1)
+          pkg="bm2-v${version}-linux-${{ matrix.arch }}"
+          mkdir -p "dist/$pkg"
+          for name in bm2 bm2d; do
+            found=$(find _build-release -type f \( -name "$name" -o -name "$name.exe" \) | head -1)
+            if [ -z "$found" ]; then
+              echo "binary $name not found in _build-release" >&2
+              exit 1
+            fi
+            # 包内去掉 .exe 后缀:Linux 用户看到的名字应当干净。
+            cp "$found" "dist/$pkg/$name"
+            chmod +x "dist/$pkg/$name"
+          done
+          tar -C dist -czf "dist/$pkg.tar.gz" "$pkg"
+          cd dist && sha256sum "$pkg.tar.gz" > "$pkg.sha256"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bm2-linux-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -- *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      # 重跑同一次发布时不报错:已有 release 就覆盖资产。
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes dist/*
+          fi
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 仓库级 secret(Settings → Secrets and variables → Actions)。
+    # secret 按仓库隔离,每个模块各配一次;不声明 environment,免得为同一个 token
+    # 在每个仓库各建一个环境。
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MoonBit
+        run: curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+        env:
+          MOONBIT_INSTALL_VERSION: 0.10.17+d971670cd
+
+      - name: Write mooncakes credentials
+        run: |
+          set -euo pipefail
+          if [ -z "${MOONCAKES_CREDENTIALS:-}" ]; then
+            echo "secret MOONCAKES_CREDENTIALS is missing" >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.moon"
+          printf '%s' "$MOONCAKES_CREDENTIALS" > "$HOME/.moon/credentials.json"
+          # 粘贴时多一个换行或少了字段，moon publish 只会给一句看不懂的报错，
+          # 这里先确认它就是那份 {token, username}。
+          if ! grep -q '"token"' "$HOME/.moon/credentials.json" ||
+             ! grep -q '"username"' "$HOME/.moon/credentials.json"; then
+            echo "credentials.json must contain both token and username" >&2
+            exit 1
+          fi
+        env:
+          MOONCAKES_CREDENTIALS: ${{ secrets.MOONCAKES_CREDENTIALS }}
+
+      # 同一版本可能因为重跑而重复发布,先查 registry,已是这个版本就跳过。
+      # 取第一个 version 字段:响应里依赖项也带 version,贪婪匹配会抓错那个。
+      - name: Skip when already published
+        id: check
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^version = "([^"]+)"/\1/p' moon.mod | head -1)
+          published=$(curl -fsS "https://mooncakes.io/api/v0/modules/chensuiyi/bm2" \
+            | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)
+          echo "on mooncakes: $published, releasing: $version"
+          if [ "$published" = "$version" ]; then
+            echo "chensuiyi/bm2 $version is already on mooncakes; skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: moon publish
+        if: steps.check.outputs.skip != 'true'
+        run: moon publish

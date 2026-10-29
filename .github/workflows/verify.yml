@@ -4,11 +4,12 @@ name: verify
 # scripts/devkit/verify.sh,本地钩子与 CI 跑的是同一个脚本(它自带生成物完整性校验)。
 # e2e 与 soak 是分钟级手动档,绝不进 CI:入口只有本地的 verify.sh --with-e2e / --release,
 # 见 moonbit/scripts/NEW-PROJECT.md 第十节。
+#
+# 发布 tag 不在这里触发:需要发布产物的模块有自己的 release workflow(如 bm2),
+# 那里第一步就是同一个 verify.sh,并且要等它通过才继续打包与发布。
 on:
   push:
     branches: [main]
-    # 发布 tag 同样过门禁:tag 推上去就等于对外宣告了一个版本,不能被跳过。
-    tags: ['v*']
   pull_request:
 
 jobs:
