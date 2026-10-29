@@ -4,31 +4,26 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## 工具链
 
-- MoonBit **以 WSL 里的版本为准**(当前 `moonc 0.10.17`);IDE 与 CI 跟随该版本
-- **告警档要连写、不能加逗号**:`moonc -w` 吃的是前缀串(`+a-31-32@11…`),`+a+b+c` 同时开三组,`+a,+b` 会被拒(`invalid character ','`)。另注意 `--deny-warn` 时输出按包截断(第一个出错的包之后不再报),要审计全量告警得跑一次不带 `--deny-warn` 的 `moon check --warn-list +…`
-- **操作环境:除用 IDE 写代码外,构建 / 测试 / 验证 / 发包全部在 WSL 执行**(Windows 侧不装工具链、不发包)
-- **构建目录两级制**:`_build` = Windows IDE 默认产物;`_build-wsl` = WSL 全部构建的显式目标(`--target-dir _build-wsl`)。两棵树隔离,防止 IDE 与 WSL 的缓存互相污染
-- **WSL 互操作层不可信(已实证)**:本机 wsl.exe 的参数桥会随机损坏输出与退出码回传——同一二进制,interop 通道测得恒 0,文件通道测得真实码(2/1/0)。因此:复杂命令一律落盘脚本后以 `wsl bash 脚本` 执行;涉及退出码 / 输出内容的验证,**结果必须写文件再读回**,禁止依赖命令行回传;出现"异常退出码"类怪象时,先用文件通道复测再定位
+工作区通用铁律（WSL 编译、`_build`/`_build-wsl` 两级目录、wsl 互操作文件通道、git push 只在 Windows、告警档连写、依赖库读源码）见上级 `../AGENTS.md`，本节只写 bm2 自己的。
+
 - Windows 侧自动化调用统一走 `wsl -d Debian --cd /mnt/c/codes/moonbit/bm2 -- bash <脚本>`
-- **Git 推送只在 Windows 侧执行**(定死):SSH 私钥在 `C:\Users\bimos\.ssh`,WSL 里没有;WSL 的全局 `core.sshCommand` 已被设成直接报错退出,不会挂起也不会误发。推送从 Windows 的 git 发起,pre-push 钩子会把门禁转交 WSL 跑,门禁不缺席
-- **例外:文档站的 node 工具链跑在 Windows 侧**(`docs/` 下 `bun install` / `bun run dev`):Rollup 与 esbuild 装的是平台专属的原生二进制,`node_modules` 在 Windows 与 WSL 之间不可共用;而文档的交互(浏览器预览)发生在 Windows,工具链就该跟着交互走
+- **例外:文档站的 node 工具链跑在 Windows 侧**（`docs/` 下 `bun install` / `bun run dev`）：Rollup 与 esbuild 装的是平台专属的原生二进制，`node_modules` 在 Windows 与 WSL 之间不可共用；而文档的交互（浏览器预览）发生在 Windows，工具链就该跟着交互走
 - **产品文案**:人类可读的全部文案集中在 `src/i18n` 文案包,每条消息一个函数、按 `Lang` match,漏一种语言编译不过;加语言时编译器与测试全路带路,不允许任何一处静默回落
 - **语言来源三层**:配置 `lang` 是声明,写不支持的值直接报错;环境与请求里不认识的值退回英文。归属规则:关于某个项目的消息跟项目配置走,全量表、帮助、升级这类跟操作者环境走
 - **机器读的输出钉住语言**:门禁(`scripts/verify.sh`)固定 `BM2_LANG=en`,按列位解析的表格、e2e 的断言不能被宿主语言改写;人在命令行用 `BM2_LANG` 覆盖
 - **终端表格交给 `chensuiyi/clitable` 渲染**:显示宽度(CJK 占两列)由它依赖的 `moonbit-community/unicodewidth` 负责,项目内不再手写 Unicode 宽度表;实例表与守护进程摘要用同一套组件与框线
 - **事件日志与状态文件保持语言中立键**:告警判据、脚本与上报管道按事件名与字段取值,不读文案
-- **文档暂时只做中文**:`README.md` 与 `docs/` 都是中文单语。英文文档等实现稳定后再补,现在不做——同时维护两份必然漂移(已经发生过:英文 README 的命令清单落后了整整一代)
+- **文档只做中文**:`README.md` 与 `docs/` 都是中文单语。英文文档等实现稳定后再补
 
-## 依赖库的使用(严格遵守)
+## 依赖库的使用
 
-- **判断依赖库的能力、边界与错误行为,一律读它的源码**:模块依赖在 `.mooncakes/<组织>/<包>/src/`,随编译器发布的 core 在 WSL 的 `/root/.moon/lib/core/`。凡是要下「某个 API 会不会抛错、支不支持某语义」这类结论,先读实现,并在结论里给出源码位置
-- **`.mbti` 只能当索引,或者干脆不读**:它不显示推断出来的错误类型——`@fs` 的 `.mbti` 里 `// Errors` 段是空的,而 `@fs.rename` 实际 `raise @os_error.OSError`。据此判断「失败即 abort」会得出完全相反的结论(已实证:轮转一度因此改用存在性探测,后全部回退为 try/catch)。拿不准时,读实现,或写一个临时探针用例跑一次
-- **新增依赖前先确认它还在维护**,并优先用 core 自带的那份(core 随编译器发布,不必进 `moon.mod`)
-- **测试专用依赖用 `import { ... } for "wbtest"` 声明**(`moon.pkg` 支持按目标声明依赖,可参考 `moonbitlang/core/json` 的写法):既避开 `unused_package` 告警,也不进发布产物
+读取与判断依赖的通用规则(读源码、`.mbti` 只当索引、优先 core 自带、`for "wbtest"`)见上级 `../AGENTS.md`。bm2 特有的一条:
+
+- 模块内包(`src/notify` 等)不是外部依赖,改动它不需要 `moon add`;新增外部依赖前先在 `moon.mod` 里确认版本区间
 
 ## 目录结构
 
-- `docs/` — 手册(VitePress,中文单语;英文待实现稳定后再补)。依赖与构建在 Windows 侧跑,配置读 `moon.mod` 取版本与仓库地址,页面里不写版本号。部署在 `bm2.moonbitlang.dev`(子域名根路径,`base` 为 `/`),托管于 Cloudflare Pages 项目 `moonbit-bm2`,推送到 `main` 且 `docs/**` 或 `moon.mod` 有改动时自动重建;构建环境变量 `BUN_VERSION` 与 `SKIP_DEPENDENCY_INSTALL=1` 必设,值与原因见工作区规范 `NEW-PROJECT.md`。VitePress 精确锁在 `2.0.0-alpha.20`:依赖树从 126 个包降到 36 个,但 alpha 的破坏性变更**可能静默生效**(已遇到 `lastUpdatedText` 被移除且不报错),升级时逐个核对配置键;等 npm 的 `latest` 变成 2.x 再改成 `^2`
+- `docs/` — 手册(VitePress,中文单语;英文待实现稳定后再补)。依赖与构建在 Windows 侧跑,配置读 `moon.mod` 取版本与仓库地址,页面里不写版本号。部署在 `bm2.moonbitlang.dev`(子域名根路径,`base` 为 `/`),托管于 Cloudflare Pages 项目 `moonbit-bm2`,推送到 `main` 且 `docs/**` 或 `moon.mod` 有改动时自动重建;构建环境变量 `BUN_VERSION` 与 `SKIP_DEPENDENCY_INSTALL=1` 必设,值与原因见工作区规范 `NEW-PROJECT.md`。VitePress 精确锁在 alpha（当前取值看 `docs/package.json`）：依赖树从 126 个包降到 36 个，但 alpha 的破坏性变更**可能静默生效**（已遇到 `lastUpdatedText` 被移除且不报错），升级时逐个核对配置键；等 npm 的 `latest` 变成 2.x 再改成 `^2`
 - `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
 - `src/config` — bm2.toml 解析与校验(`[notify]` 订阅过滤也在此层)
 - `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
@@ -62,13 +57,9 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## 测试粒度
 
-验证分三档,由内向外升级,**禁止拿全量当快检**(每改一步跑一次全量是错误用法):
+验证分三档(快检 `moon check` → 模块测试 `moon test --target native` → 全量 `scripts/devkit/verify.sh`),**禁止拿全量当快检**;通用的三档定义与 e2e/soak 只手动跑的规则见上级 `../AGENTS.md`。bm2 特有的部分:
 
-1. **快检**(改完即跑,秒级):`moon check --deny-warn --warn-list +implicit_impl_as_method --target-dir _build-wsl`(单模块下无需指定包路径)
-2. **模块测试**(功能完成时,十秒级):`moon test --target native`
-3. **全量**(批次收尾一次):`bash scripts/devkit/verify.sh`(fmt / check / 单测 / 构建)。交付或发布前的端到端属于手动档,见下
-
-e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了多少还添脆弱);测试内的 sleep 是真实时序语义,不为速度压缩。
+- e2e 不拆段不过滤(全部用例共享守护进程与状态,拆分省不了多少还添脆弱);测试内的 sleep 是真实时序语义,不为速度压缩
 
 **耗时的用例只手动跑(严格)**:e2e 与 soak 都是分钟级,任何无人值守的流程——pre-commit、pre-push(含打 tag 推送)、CI、发布——都**不执行**它们,只跑第 1、2、3 档。手动入口只有两个:`bash scripts/devkit/verify.sh --with-e2e`(仅 e2e)与 `--release`(e2e + soak)。**AI 助手同样不主动执行**:没有用户的明确指令,不得运行 e2e 与 soak,批次收尾的验证止于第 3 档。
 
