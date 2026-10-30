@@ -156,13 +156,13 @@ pub fn upgrade_bad_registry(lang : Lang) -> String {
 }
 
 ///|
-/// 没有 moon 就没有升级通道:两条安装来源里,手动下载的那条不提供自升级。
+/// 没有 moon 就没有安装与升级通道:bm2 只经 mooncakes 分发,不提供第二条下载路径。
 pub fn upgrade_no_moon(lang : Lang) -> String {
   match lang {
     En =>
-      "bm2: 'moon' not found; upgrade needs it. Install with 'moon install chensuiyi/bm2/...', or download the new release from GitHub"
+      "bm2: 'moon' not found; install it, then run 'moon install chensuiyi/bm2/...'"
     Zh =>
-      "bm2: 找不到 'moon' 命令,升级需要它。请用 'moon install chensuiyi/bm2/...' 安装,或从 GitHub Release 下载新版"
+      "bm2: 找不到 'moon' 命令,请先安装它,再执行 'moon install chensuiyi/bm2/...'"
   }
 }
 

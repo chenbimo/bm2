@@ -1,16 +1,15 @@
 ///|
 /// 自升级:只走 `moon install` 一条路。
 ///
-/// 初次安装有两条路——`moon install`,或从 GitHub Release 下载产物自己放进 PATH;
-/// 升级只有这一条:查 registry 的最新版本 → `moon install` 覆盖当前目录的两个二进制
-/// → 守护进程换班。
+/// 安装与升级都只有这一条:初次安装是 `moon install chensuiyi/bm2/...`,升级是
+/// 查 registry 的最新版本 → `moon install` 覆盖当前目录的两个二进制 → 守护进程换班。
 ///
 /// 换班不是重启:旧守护进程 detach 后退出,新守护进程用 pidfd 收养仍在运行的实例,
 /// 应用 PID 不变、服务不中断。启动期的参数(环境变量白名单、端口)要等应用下次拉起
 /// 才走新逻辑;监督期的能力(重启预算、日志轮转、通知)换班即生效。
 ///
-/// 为什么不自己下载产物:发布站方案已弃用,产物只经 GitHub Release 与 mooncakes 分发。
-/// 两条下载链路并存必然漂移,校验、清理、回滚都得维护两份。
+/// 为什么不自己下载产物:产物只经 mooncakes 分发,再维护一条下载链路必然漂移,
+/// 校验、清理、回滚都得维护两份。
 
 ///|
 /// registry 的模块元数据,只取其中的 version 字段。
@@ -131,8 +130,7 @@ async fn cmd_upgrade(state_dir : String, lang : @i18n.Lang) -> Int32 {
     return 0
   }
   println(@i18n.update_available(lang, latest, VERSION))
-  // 装到 moon 的默认目录。手工把二进制放在别处的情况由文档约束:
-  // 从 GitHub Release 下载也要放进 ~/.moon/bin,否则升级装到 A、运行的是 B。
+  // 装到 moon 的默认目录(~/.moon/bin)。按默认来才不会出现「装在 A、运行的是 B」。
   let code = moon_install()
   if code == EXIT_COMMAND_NOT_FOUND {
     @proc.eprintln(@i18n.upgrade_no_moon(lang))
