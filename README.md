@@ -70,7 +70,7 @@ bm2 只做进程托管，边界很清楚。
 
 版本下限在启动那一刻实测。低于下限会直接拒绝启动并说清缺什么，而不是让实例反复崩溃给你看。
 
-## 安装
+## 安装 bm2
 
 ```bash
 curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
@@ -198,14 +198,16 @@ cd docs && bun install && bun run dev
 
 | 主题 | 位置 |
 | --- | --- |
-| 安装与升级 | [docs/guide/install.md](docs/guide/install.md) |
+| 安装与升级 bm2 | [docs/guide/install.md](docs/guide/install.md) |
 | 十五分钟上手 | [docs/guide/quickstart.md](docs/guide/quickstart.md) |
-| 配置 | [docs/guide/configuration.md](docs/guide/configuration.md) |
+| 配置参考 | [docs/guide/configuration.md](docs/guide/configuration.md) |
 | 环境变量 | [docs/guide/environment.md](docs/guide/environment.md) |
-| 命令 | [docs/guide/commands.md](docs/guide/commands.md) |
-| 负载均衡 | [docs/guide/load-balancing.md](docs/guide/load-balancing.md) |
 | 状态与日志 | [docs/guide/state-and-logs.md](docs/guide/state-and-logs.md) |
-| 通知与上报 | [docs/guide/notifications.md](docs/guide/notifications.md) |
+| 两种模式怎么选 | [docs/guide/load-balancing.md](docs/guide/load-balancing.md) |
+| cluster 模式 | [docs/guide/mode-cluster.md](docs/guide/mode-cluster.md) |
+| fork 模式 | [docs/guide/mode-fork.md](docs/guide/mode-fork.md) |
+| 命令参考 | [docs/guide/commands.md](docs/guide/commands.md) |
+| 通知 | [docs/guide/notifications.md](docs/guide/notifications.md) |
 | 排障与常见问题 | [docs/guide/troubleshooting.md](docs/guide/troubleshooting.md) |
 | 从 pm2 迁移 | [docs/guide/migration-from-pm2.md](docs/guide/migration-from-pm2.md) |
 | 能力总览 | [docs/guide/features.md](docs/guide/features.md) |
