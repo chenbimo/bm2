@@ -95,14 +95,15 @@ bm2 只做进程托管。反向代理、TLS、域名交给 Nginx 或 Caddy。开
 | 配置方式 | 静态 TOML，字段强校验，零代码执行 | `ecosystem.config.js`，可执行任意代码 |
 | 环境变量 | 最小白名单 + 保留变量显式注入 | 继承调用 shell 的完整环境 |
 | 崩溃恢复 | pidfd 钉住原进程收养，环境校验防误管 | 守护进程崩溃后按 dump 重建，不收养 |
-| 自升级 | `bm2 upgrade`：比对版本、下载校验、自动换入新守护进程 | npm 手动升级后 `pm2 update` 重载 |
+| 自升级 | `bm2 upgrade`：查最新版本、`moon install` 换入二进制、新守护进程接管 | npm 手动升级后 `pm2 update` 重载 |
 
 已经在用 pm2 的话，[从 pm2 迁移](/guide/migration-from-pm2)那页有逐条的对应关系与改法。
 
 ## 从哪里开始
 
 - 第一次用：读[十五分钟上手](/guide/quickstart)，从空目录走到正在服务的实例。
-- 要写配置：读[配置](/guide/configuration)，字段、默认值、约束与占位符都在那里。
-- 要接网关：读[负载均衡](/guide/load-balancing)，`cluster` 与 `fork` 的差别决定了网关怎么写。
+- 要写配置：读[配置参考](/guide/configuration)，字段、默认值、约束与占位符都在那里。
+- 要选执行模式：先看[两种模式怎么选](/guide/load-balancing)，再按需要读 [cluster 模式](/guide/mode-cluster) 或 [fork 模式](/guide/mode-fork)。
+- 要查命令：读[命令参考](/guide/commands)，每个命令的行为、输出与退出码。
 - 要接告警：读[通知](/guide/notifications)，事件、阈值、周期报告的完整写法。
 - 出问题了：先翻[排障与常见问题](/guide/troubleshooting)。

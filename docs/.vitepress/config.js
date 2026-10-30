@@ -29,23 +29,32 @@ const sidebar = [
   {
     text: '开始',
     items: [
-      { text: '安装与升级', link: '/guide/install' },
+      { text: '安装与升级 bm2', link: '/guide/install' },
       { text: '十五分钟上手', link: '/guide/quickstart' },
-      { text: '配置', link: '/guide/configuration' },
+    ],
+  },
+  {
+    text: '配置',
+    items: [
+      { text: '配置参考', link: '/guide/configuration' },
       { text: '环境变量', link: '/guide/environment' },
+      { text: '状态与日志', link: '/guide/state-and-logs' },
+    ],
+  },
+  {
+    text: '执行模式',
+    items: [
+      { text: '两种模式怎么选', link: '/guide/load-balancing' },
+      { text: 'cluster 模式', link: '/guide/mode-cluster' },
+      { text: 'fork 模式', link: '/guide/mode-fork' },
     ],
   },
   {
     text: '使用',
     items: [
-      { text: '命令', link: '/guide/commands' },
-      { text: '负载均衡', link: '/guide/load-balancing' },
-      { text: '状态与日志', link: '/guide/state-and-logs' },
+      { text: '命令参考', link: '/guide/commands' },
+      { text: '通知', link: '/guide/notifications' },
     ],
-  },
-  {
-    text: '上报',
-    items: [{ text: '通知', link: '/guide/notifications' }],
   },
   {
     text: '参考',
