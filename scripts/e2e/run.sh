@@ -694,99 +694,21 @@ bm2 remove -f notif >/dev/null 2>&1 || true
 kill "$RECEIVER" 2>/dev/null
 pkill -f "bun .*notify/receiver.ts" 2>/dev/null
 
-echo "===== AD. bm2 upgrade: version check, checksum safety and apply ====="
-# A static station serving a release directory. The manifest points at copies of
-# the running binaries, so the happy path exercises download -> checksum -> swap ->
-# daemon apply while every failure path can be probed without touching anything
-# real: a mismatch must abort with the installed binary byte-identical.
-mkdir -p "$ACC/release/products/bm2"
-cp "$bin_dir/bm2" "$ACC/release/bm2"
-cp "$bin_dir/bm2d" "$ACC/release/bm2d"
-MANIFEST="$ACC/release/products/bm2/latest.json"
-cat > "$ACC/release-server.ts" <<'EOF'
-const dir = process.argv[2];
-Bun.serve({
-  port: 4399,
-  fetch: (req) => new Response(Bun.file(dir + new URL(req.url).pathname)),
-});
-EOF
-bun "$ACC/release-server.ts" "$ACC/release" >/dev/null 2>&1 &
-STATION=$!
-STATION_READY=0
-for _ in $(seq 1 30); do
-  # curl -f so a 404 cannot pass for "up": the station must really serve files.
-  if curl -sf --max-time 1 localhost:4399/bm2 >/dev/null; then
-    STATION_READY=1
-    break
-  fi
-  sleep 0.2
-done
-check "release station is up" 1 "$STATION_READY"
-
-# write_manifest <version> <bm2 sha256> <bm2d sha256>: both platforms, so the
-# section runs unchanged on x64 and arm64.
-write_manifest() {
-  cat > "$MANIFEST" <<EOF
-{
-  "version": "$1",
-  "artifacts": [
-    { "name": "bm2", "target": "linux-x64", "url": "http://127.0.0.1:4399/bm2", "sha256": "$2" },
-    { "name": "bm2d", "target": "linux-x64", "url": "http://127.0.0.1:4399/bm2d", "sha256": "$3" },
-    { "name": "bm2", "target": "linux-arm64", "url": "http://127.0.0.1:4399/bm2", "sha256": "$2" },
-    { "name": "bm2d", "target": "linux-arm64", "url": "http://127.0.0.1:4399/bm2d", "sha256": "$3" }
-  ]
-}
-EOF
-}
-BM2_SHA=$(sha256sum "$ACC/release/bm2" | cut -d' ' -f1)
-BM2D_SHA=$(sha256sum "$ACC/release/bm2d" | cut -d' ' -f1)
-export BM2_UPDATE_BASE="http://127.0.0.1:4399"
-
-write_manifest "$MV" "$BM2_SHA" "$BM2D_SHA"
-check "upgrade reports an up-to-date CLI" "bm2 is up to date ($MV)" "$(bm2 upgrade)"
-
-# Wrong checksum: abort before replacing anything, and leave no staged file.
-write_manifest "9.9.9" "0000000000000000000000000000000000000000000000000000000000000000" "$BM2D_SHA"
-bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1
-check "checksum mismatch exits non-zero" 1 "$?"
-contains "checksum mismatch aborts the upgrade" "$ACC/upgrade-out.txt" \
-  "checksum mismatch for bm2; update aborted"
-check "no staged file left behind" 0 \
-  "$([ -f "$bin_dir/.bm2.new" ] && echo 1 || echo 0)"
-check "installed binary is byte-identical after the abort" "$BM2_SHA" \
-  "$(sha256sum "$bin_dir/bm2" | cut -d' ' -f1)"
-
-# Half a release is not a release: bm2 and bm2d always travel together.
-cat > "$MANIFEST" <<EOF
-{ "version": "9.9.9", "artifacts": [
-  { "name": "bm2", "target": "any", "url": "http://127.0.0.1:4399/bm2", "sha256": "$BM2_SHA" } ] }
-EOF
-bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1
-check "a release missing bm2d is refused" 1 "$?"
-contains "the refusal names the platform" "$ACC/upgrade-out.txt" "no release for"
-
-# An unreachable station is reported instead of hanging or half-updating.
-BM2_UPDATE_BASE="http://127.0.0.1:1" bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1
-check "an unreachable station is refused" 1 "$?"
-contains "the refusal names the station" "$ACC/upgrade-out.txt" "cannot reach the release station"
-
-# Happy path: identical binaries under a newer version, so the swap really runs
-# without changing behaviour.
-write_manifest "9.9.9" "$BM2_SHA" "$BM2D_SHA"
-bm2 list >/dev/null 2>&1
-DPID_BEFORE=$(cat "$state_dir/bm2d.pid")
-bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1
-contains "upgrade announces the new version" "$ACC/upgrade-out.txt" "new version 9.9.9 available"
-contains "upgrade applies the new daemon" "$ACC/upgrade-out.txt" "updated"
-check "the daemon really swapped" 1 \
-  "$([ "$DPID_BEFORE" != "$(cat "$state_dir/bm2d.pid")" ] && echo 1 || echo 0)"
-check "no backup file left behind" 0 "$([ -f "$bin_dir/bm2.bak" ] && echo 1 || echo 0)"
-check "the CLI still runs after replacing itself" "bm2 $MV" "$(bm2 version)"
-check "the daemon still answers after the swap" 1 \
-  "$([ -n "$(bm2 list)" ] && echo 1 || echo 0)"
-# Whatever the paths above did, the shipped version stays the shipped version:
-# the artifacts were copies of the running binaries.
-check "the installed version is unchanged" "bm2 $MV" "$(bm2 version)"
+echo "===== AD. bm2 upgrade: offline failure ====="
+# 升级只剩一条路:查 registry → moon install → 换班。产物、清单、校验和、平台选择
+# 都由 mooncakes 与 moon 负责,bm2 不再自己维护下载链路,所以这里能测的只有不依赖
+# 上游状态的契约:没有网络时给一句明确的失败,而不是空转或半更新。
+# 「已是最新」那条路径依赖 mooncakes 上已发布的版本,版本号一改就从通过变失败,
+# 不适合放进 e2e;版本比较与 registry 解析由 upgrade_wbtest.mbt 覆盖。
+rc=0
+if unshare -n true 2>/dev/null; then
+  unshare -n bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1 || rc=$?
+  check "no network is refused" 1 "$rc"
+  contains "the refusal names the registry" "$ACC/upgrade-out.txt" "cannot reach mooncakes.io"
+else
+  # unshare 需要 root:普通用户跑 e2e 时这一条只能跳过,不能装作通过。
+  echo "SKIP: no network is refused (unshare needs root)"
+fi
 
 echo "===== AE. the control plane has a connection ceiling ====="
 # Silent connections hold one slot each (until AUTH_TIMEOUT_MS), so a runaway
@@ -820,23 +742,9 @@ for _ in $(seq 1 20); do
 done
 check "the control plane answers again once the slots free up" 1 "$ANSWERED"
 
-echo "===== AF. upgrade with a running app, and upgrade mutual exclusion ====="
-export BM2_UPDATE_BASE="http://127.0.0.1:4399"
-# An app that ignores SIGTERM: the swap must adopt it, never restart it.
-write_project stubborn stubborn 4341 ignore-term.ts 1 1000
-(cd "$ACC/stubborn" && bm2 serve >/dev/null)
-sleep 1
-STUBBORN_PID=$(cell stubborn PID)
-check "stubborn app is up before the upgrade" 1 \
-  "$([ -n "$STUBBORN_PID" ] && [ "$STUBBORN_PID" != 0 ] && echo 1 || echo 0)"
-write_manifest "9.9.9" "$BM2_SHA" "$BM2D_SHA"
-bm2 upgrade >"$ACC/upgrade-out.txt" 2>&1
-contains "upgrade applies while an app runs" "$ACC/upgrade-out.txt" "updated and applied"
-check "the running app keeps its pid across the swap" "$STUBBORN_PID" \
-  "$(cell stubborn PID)"
-check "the running app is still online" "online" \
-  "$(cell stubborn STATUS)"
-bm2 remove -f stubborn >/dev/null 2>&1 || true
+echo "===== AF. upgrade mutual exclusion ====="
+# 两个升级同时跑会把同一批二进制换来换去:锁是让第二个停下、而不是交错执行的唯一原因。
+# 换班本身(应用 PID 不变、服务不中断)由 M 段的 reload 覆盖,这里不再伪造一次安装。
 
 # Two upgrades at once would stage and swap the same files: the lock is what
 # makes the second one stop instead of interleaving.
@@ -848,9 +756,6 @@ check "a concurrent upgrade is refused" 1 "$?"
 contains "the refusal names the lock" "$ACC/upgrade-out.txt" \
   "another upgrade is already running"
 wait "$LOCKER" 2>/dev/null || true
-
-unset BM2_UPDATE_BASE
-kill "$STATION" 2>/dev/null
 
 echo "===== AK. two projects with dead endpoints are both attempted ====="
 # Retry state is per message and the next attempt prefers a different project,
