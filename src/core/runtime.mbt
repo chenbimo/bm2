@@ -1,11 +1,12 @@
 ///|
 /// Minimum runtime versions bm2 supports; a start is refused when the real binary
-/// is older. cluster mode additionally needs these floors for SO_REUSEPORT (Bun
-/// reusePort / Node listen reusePort).
+/// is older. Node's floor is the release that made `listen({ reusePort })` work
+/// (v22.12.0); Bun's is the oldest line bm2 still supports, its `Bun.serve`
+/// `reusePort` being far older than that.
 const MIN_BUN : String = "1.4.0"
 
 ///|
-const MIN_NODE : String = "24.0.0"
+const MIN_NODE : String = "22.12.0"
 
 ///|
 /// How long a `<runtime> --version` probe may take. The wait itself belongs to the
