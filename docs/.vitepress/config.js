@@ -30,6 +30,7 @@ const sidebar = [
     text: '开始',
     items: [
       { text: '安装与升级 bm2', link: '/guide/install' },
+      { text: '网络与国内镜像', link: '/guide/registry-mirror' },
       { text: '十五分钟上手', link: '/guide/quickstart' },
     ],
   },
