@@ -147,7 +147,7 @@ fn Supervisor::check_memory(self : Supervisor) -> Unit {
     }
     for inst in arr {
       if inst.status is Online {
-        match @proc.read_rss_kb(inst.pid) {
+        match @proc.tree_rss_kb(inst.pid, app.max_tree_processes) {
           Some(kb) => {
             self.notify.record_rss(
               inst.app_name + "/" + inst.instance_id.to_string(),

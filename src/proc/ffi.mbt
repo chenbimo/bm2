@@ -48,20 +48,11 @@ extern "C" fn c_kill0(pid : Int32) -> Int32 = "proc_kill0"
 extern "C" fn c_sleep_ms(ms : Int32) -> Unit = "proc_sleep_ms"
 
 ///|
+#borrow(path, buf)
+extern "C" fn c_read_file(path : Bytes, buf : Bytes, cap : Int32) -> Int32 = "proc_read_file"
+
+///|
 extern "C" fn c_getpid() -> Int32 = "proc_getpid"
-
-///|
-extern "C" fn c_read_rss_kb(pid : Int32) -> Int32 = "proc_read_rss_kb"
-
-///|
-extern "C" fn c_read_cpu_ticks(pid : Int32) -> Int64 = "proc_read_cpu_ticks"
-
-///|
-extern "C" fn c_clk_tck() -> Int32 = "proc_clk_tck"
-
-///|
-#borrow(buf)
-extern "C" fn c_hostname(buf : Bytes, cap : Int32) -> Int32 = "proc_hostname"
 
 ///|
 extern "C" fn c_close(fd : Int32) -> Int32 = "proc_close"
@@ -71,13 +62,6 @@ extern "C" fn c_close(fd : Int32) -> Int32 = "proc_close"
 /// yet), 1 = joinable (the listener shares, reusePort on), 2 = held
 /// exclusively (reusePort missing), negative = errno.
 extern "C" fn c_probe_reuseport(port : Int32) -> Int32 = "proc_probe_reuseport"
-
-///|
-extern "C" fn c_getuid() -> Int32 = "proc_getuid"
-
-///|
-#borrow(buf)
-extern "C" fn c_uname(buf : Bytes, cap : Int32) -> Int32 = "proc_uname"
 
 ///|
 extern "C" fn c_pidfd_open(pid : Int32) -> Int32 = "proc_pidfd_open"
@@ -112,9 +96,6 @@ extern "C" fn c_monotonic_ms() -> Int64 = "proc_monotonic_ms"
 extern "C" fn c_local_parts(epoch_ms : Int64, out : Bytes) -> Int32 = "proc_local_parts"
 
 ///|
-extern "C" fn c_load_1m() -> Double = "proc_load_1m"
-
-///|
 #borrow(path)
 extern "C" fn c_disk_free_kb(path : Bytes) -> Int64 = "proc_disk_free_kb"
 
@@ -124,3 +105,6 @@ extern "C" fn c_write_fd(fd : Int32, data : Bytes) -> Int32 = "proc_write_fd"
 
 ///|
 extern "C" fn c_kill(pid : Int32, sig : Int32) -> Int32 = "proc_kill"
+
+///|
+extern "C" fn c_pidfd_send_signal(fd : Int32, sig : Int32) -> Int32 = "proc_pidfd_send_signal"

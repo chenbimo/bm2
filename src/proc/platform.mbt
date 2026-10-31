@@ -2,12 +2,16 @@
 /// Host name from the kernel, or "unknown" when it cannot be read. Used to say
 /// which machine a notification came from.
 pub fn hostname() -> String {
-  let buf = Bytes::make(256, b'\x00')
-  let len = c_hostname(buf, 256)
-  if len <= 0 {
-    "unknown"
-  } else {
-    @utf8.decode_lossy(buf[:len].to_owned())
+  match read_proc_text("/proc/sys/kernel/hostname") {
+    None => "unknown"
+    Some(text) => {
+      let name = text.trim().to_owned()
+      if name.is_empty() {
+        "unknown"
+      } else {
+        name
+      }
+    }
   }
 }
 
@@ -16,10 +20,9 @@ pub fn hostname() -> String {
 /// clear reason instead of failing later on the first POSIX-specific
 /// syscall. Returns None when the platform is supported.
 pub fn platform_error() -> String? {
-  let name = try uname() catch {
-    _ => return Some("cannot detect platform")
-  } noraise {
-    name => name
+  let name = match ostype() {
+    None => return Some("cannot detect platform")
+    Some(value) => value
   }
   if name == "Linux" {
     None
@@ -43,8 +46,23 @@ pub fn probe_reuseport(port : Int32) -> Int32 {
 }
 
 ///|
+/// Real user id, from the `Uid:` line of /proc/self/status. `-1` when the file
+/// cannot be read, which never happens for the daemon's own process and leaves
+/// a value no comparison or path can mistake for a real uid.
 pub fn get_uid() -> Int32 {
-  c_getuid()
+  let body = match read_proc_text("/proc/self/status") {
+    None => return -1
+    Some(text) => text
+  }
+  for line in @utils.split(body, "\n") {
+    if line.has_prefix("Uid:") {
+      return match digits_at(line, 4) {
+        Some(value) => value
+        None => -1
+      }
+    }
+  }
+  -1
 }
 
 ///|
@@ -90,14 +108,17 @@ pub fn local_parts(
 }
 
 ///|
-/// One-minute load average, None when unavailable.
+/// One-minute load average from /proc/loadavg, None when unavailable.
 pub fn load_1m() -> Double? {
-  let value = c_load_1m()
-  if value < 0.0 {
-    None
-  } else {
-    Some(value)
+  let body = match read_proc_text("/proc/loadavg") {
+    None => return None
+    Some(text) => text
   }
+  let fields = proc_fields(body)
+  if fields.is_empty() {
+    return None
+  }
+  double_of(fields[0])
 }
 
 ///|
@@ -112,14 +133,13 @@ pub fn disk_free_kb(path : String) -> Int64? {
 }
 
 ///|
-/// Kernel name from uname(2), e.g. "Linux".
-pub fn uname() -> String raise ProcessError {
-  let buf = Bytes::make(64, b'\x00')
-  let len = c_uname(buf, 64)
-  if len < 0 {
-    raise Failed(op="uname", errno=-len)
+/// Kernel name from /proc/sys/kernel/ostype, e.g. "Linux". None when the file
+/// cannot be read, which on a kernel that runs bm2 never happens.
+pub fn ostype() -> String? {
+  match read_proc_text("/proc/sys/kernel/ostype") {
+    None => None
+    Some(text) => Some(text.trim().to_owned())
   }
-  @utf8.decode_lossy(buf[:len])
 }
 
 ///|

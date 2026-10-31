@@ -12,12 +12,19 @@
 #include <sys/socket.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
-#include <sys/utsname.h>
 #include <sys/statvfs.h>
 #include <netinet/in.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+
+/* P_PIDFD 是 glibc 2.36 才加进 idtype_t 的枚举值,而它背后只是内核的
+ * idtype 3(waitid P_PIDFD,Linux 5.4 起)。老发行版的头文件里没有这个名字,
+ * 从源码安装会直接编译失败,所以在这里补一份常量:数值与内核 ABI 一致,
+ * 新头文件存在时则让位给系统定义。 */
+#ifndef P_PIDFD
+#define P_PIDFD 3
+#endif
 
 /* All paths/strings passed from MoonBit are Bytes with a trailing NUL. */
 
@@ -175,76 +182,42 @@ int32_t proc_kill0(int32_t pid) {
   return kill((pid_t)pid, 0) == 0 ? 0 : -errno;
 }
 
-/* utime + stime of a process, in clock ticks, from /proc/<pid>/stat, or -1
- * when the process is gone. The comm field is parenthesised and may contain
- * spaces, so parsing restarts after the last ')': field 3 is the state
- * character, then ppid (4) ... utime (14), stime (15). */
+/* Signal the process a pidfd is pinned to. The kernel resolves the fd to the
+ * exact process it was opened for, so a reused pid cannot redirect the signal
+ * the way kill(pid, sig) can between a liveness check and the send. */
 MOONBIT_FFI_EXPORT
-int64_t proc_read_cpu_ticks(int32_t pid) {
-  char path[64];
-  snprintf(path, sizeof(path), "/proc/%d/stat", pid);
-  FILE *f = fopen(path, "r");
-  if (f == NULL) return -1;
-  char buf[2048];
-  size_t n = fread(buf, 1, sizeof(buf) - 1, f);
-  fclose(f);
-  if (n == 0) return -1;
-  buf[n] = 0;
-  char *close_paren = strrchr(buf, ')');
-  if (close_paren == NULL) return -1;
-  char *p = close_paren + 1;
-  while (*p == ' ') p++;
-  if (*p == 0) return -1;
-  p++; /* the state character */
-  long long vals[12];
-  int idx = 0;
-  while (*p != 0 && idx < 12) {
-    while (*p == ' ') p++;
-    if (*p == 0) break;
-    vals[idx++] = strtoll(p, &p, 10);
-  }
-  if (idx < 12) return -1;
-  return (int64_t)(vals[10] + vals[11]);
+int32_t proc_pidfd_send_signal(int32_t fd, int32_t sig) {
+  int rc = (int)syscall(SYS_pidfd_send_signal, fd, sig, NULL, 0);
+  return rc == 0 ? 0 : -errno;
 }
 
-/* Clock ticks per second, the divisor that turns cpu ticks into seconds. */
+/* Read a virtual file under /proc into buf, up to cap bytes. procfs reports a
+ * size of 0 for its files, so a stat-then-read returns nothing: the only way is
+ * to read until EOF. Returns the byte count, or -errno. */
 MOONBIT_FFI_EXPORT
-int32_t proc_clk_tck(void) {
-  long value = sysconf(_SC_CLK_TCK);
-  return value > 0 ? (int32_t)value : 100;
-}
-
-/* Host name, so notifications can say which machine they came from. */
-MOONBIT_FFI_EXPORT
-int32_t proc_hostname(moonbit_bytes_t buf, int32_t cap) {
+int32_t proc_read_file(const char *path, moonbit_bytes_t buf, int32_t cap) {
   if (cap <= 0) return -EINVAL;
-  if (gethostname((char *)buf, (size_t)cap) != 0) return -errno;
-  buf[cap - 1] = 0;
-  return (int32_t)strlen((char *)buf);
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return -errno;
+  int32_t total = 0;
+  while (total < cap) {
+    ssize_t n = read(fd, buf + total, (size_t)(cap - total));
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      int failed = errno;
+      close(fd);
+      return -failed;
+    }
+    if (n == 0) break;
+    total += (int32_t)n;
+  }
+  close(fd);
+  return total;
 }
 
 MOONBIT_FFI_EXPORT
 int32_t proc_getpid(void) {
   return (int32_t)getpid();
-}
-
-/* VmRSS in kB from /proc/<pid>/status, or -1 when unavailable. */
-MOONBIT_FFI_EXPORT
-int32_t proc_read_rss_kb(int32_t pid) {
-  char path[64];
-  snprintf(path, sizeof(path), "/proc/%d/status", pid);
-  FILE *f = fopen(path, "r");
-  if (f == NULL) return -1;
-  char line[256];
-  long rss = -1;
-  while (fgets(line, sizeof(line), f) != NULL) {
-    if (strncmp(line, "VmRSS:", 6) == 0) {
-      rss = strtol(line + 6, NULL, 10);
-      break;
-    }
-  }
-  fclose(f);
-  return (int32_t)rss;
 }
 
 MOONBIT_FFI_EXPORT
@@ -287,14 +260,6 @@ int32_t proc_local_parts(int64_t epoch_ms, int32_t out[6]) {
   out[4] = tm.tm_hour;
   out[5] = tm.tm_min;
   return 0;
-}
-
-/* One-minute load average, or -1.0 when unavailable. */
-MOONBIT_FFI_EXPORT
-double proc_load_1m(void) {
-  double loads[1];
-  if (getloadavg(loads, 1) != 1) return -1.0;
-  return loads[0];
 }
 
 /* Free space on the filesystem holding path, in KiB, or -1 on error. */
@@ -405,22 +370,6 @@ int32_t proc_pidfd_alive(int32_t fd) {
   } while (rc < 0 && errno == EINTR);
   if (rc < 0) return -errno;
   return rc == 0 ? 1 : 0;
-}
-
-MOONBIT_FFI_EXPORT
-int32_t proc_getuid(void) {
-  return (int32_t)getuid();
-}
-
-/* Kernel name from uname(2), e.g. "Linux", for platform gating. */
-MOONBIT_FFI_EXPORT
-int32_t proc_uname(moonbit_bytes_t buf, int32_t cap) {
-  struct utsname uts;
-  if (uname(&uts) != 0) return -errno;
-  size_t n = strlen(uts.sysname);
-  if ((int32_t)n >= cap) return -ENAMETOOLONG;
-  memcpy(buf, uts.sysname, n + 1);
-  return (int32_t)n;
 }
 
 /* ---------------- process helpers ---------------- */

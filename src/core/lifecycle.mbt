@@ -220,13 +220,13 @@ pub fn Supervisor::remove_app(
       )
       if force {
         inst.kill_deadline_ms = 0UL
-        @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
+        @proc.signal_tree(inst.pidfd, inst.pid, @proc.SIGKILL)
       } else {
         // Graceful: SIGTERM now, and the tick's escalation behind it if the app
         // is still there when its own stop timeout runs out.
         inst.kill_deadline_ms = @proc.monotonic_ms() +
           app.stop_timeout_ms.to_uint64()
-        @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGTERM))
+        @proc.signal_tree(inst.pidfd, inst.pid, @proc.SIGTERM)
       }
     } else if !(inst.status is Errored) {
       inst.exit_intent = Stop

@@ -262,3 +262,53 @@ test "kill_fresh reaches a child that has not built its group yet" {
   // Best-effort cleanup never raises, even with nothing left to signal.
   @proc.kill_fresh(pid, @proc.SIGKILL)
 }
+
+///|
+/// A spawned shell that waits on a background sleep is a real two-process
+/// tree. The walk must find the child - `/proc/<pid>/task/<tid>/children` is
+/// the only source for it - and the summed RSS must be positive.
+test "process tree finds a real parent and child" {
+  let dir = "/tmp/bm2-tree-test-\{@proc.get_pid()}"
+  @fsx.mkdir_p(dir)
+  let pid = @proc.spawn({
+    bun_path: "/bin/sh",
+    script: "-c\u{0}sleep 30 & wait",
+    cwd: dir,
+    out_log: dir + "/tree.out.log",
+    err_log: dir + "/tree.err.log",
+    env_blob: @proc.instance_env_blob("testapp", 4, 4003, node_env="production"),
+  })
+  assert_true(pid > 0)
+  // Let the shell fork the background sleep before the tree is read.
+  @proc.sleep_ms(300)
+  let tree = @proc.process_tree(pid, 32)
+  assert_true(tree.contains(pid))
+  assert_true(tree.length() >= 2)
+  match @proc.tree_rss_kb(pid, 32) {
+    Some(kb) => assert_true(kb > 0)
+    None => fail("expected tree RSS for a running tree")
+  }
+  @proc.kill_fresh(pid, @proc.SIGKILL)
+  let mut exit = None
+  for _ in 0..<50 {
+    match @proc.wait_child(pid, nohang=true) {
+      Some(reaped) => {
+        exit = Some(reaped)
+        break
+      }
+      None => @proc.sleep_ms(20)
+    }
+  }
+  assert_true(exit is Some(_))
+}
+
+///|
+/// The walk of a process that forks nothing is the process itself, and an
+/// unknown pid has no tree at all rather than an empty-but-present answer.
+test "tree walk of a leaf and of a gone pid" {
+  let leaf = @proc.process_tree(@proc.get_pid(), 8)
+  assert_true(leaf.contains(@proc.get_pid()))
+  assert_true(leaf.length() <= 8)
+  assert_true(@proc.children_of(0x7fffffff).is_empty())
+  assert_true(@proc.tree_rss_kb(0x7fffffff, 8) is None)
+}

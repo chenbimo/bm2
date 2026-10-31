@@ -54,6 +54,37 @@ pub fn kill(pid : Int32, sig : Int32) -> Unit raise ProcessError {
 }
 
 ///|
+/// Signal the process a pidfd is pinned to. The kernel resolves the fd to the
+/// process it was opened for, so a pid reused between a liveness check and the
+/// send cannot receive this signal instead of the intended target.
+pub fn signal_pidfd(fd : Int32, sig : Int32) -> Unit raise ProcessError {
+  let rc = c_pidfd_send_signal(fd, sig)
+  if rc < 0 {
+    raise Failed(op="pidfd_send_signal", errno=-rc)
+  }
+}
+
+///|
+/// Best-effort signal for one supervised instance: the pidfd pins the leader
+/// when we hold one, and the process group takes the children setsid() put in
+/// the same group. Failures are ignored because every way this can fail means
+/// the process is already gone.
+pub fn signal_tree(pidfd : Int32, pgid : Int32, sig : Int32) -> Unit {
+  if pidfd > 0 {
+    try signal_pidfd(pidfd, sig) catch {
+      _ => ()
+    } noraise {
+      _ => ()
+    }
+  }
+  try kill_group(pgid, sig) catch {
+    _ => ()
+  } noraise {
+    _ => ()
+  }
+}
+
+///|
 /// Kill a freshly spawned process: its group first, then the pid itself. Between
 /// the fork and the child's own setsid() the group does not exist yet, so a group
 /// signal alone can miss and leave the process running, while the pid is always

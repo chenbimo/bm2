@@ -571,7 +571,7 @@ fn Supervisor::check_deadlines(self : Supervisor, now : UInt64) -> Unit {
       if inst.kill_deadline_ms != 0UL && now >= inst.kill_deadline_ms {
         inst.kill_deadline_ms = 0UL
         if inst.alive() {
-          @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGKILL))
+          @proc.signal_tree(inst.pidfd, inst.pid, @proc.SIGKILL)
         }
       }
     }
@@ -951,7 +951,7 @@ fn terminate(
   reason : String,
 ) -> Unit {
   inst.mark_stopping(intent, reason)
-  @utils.discard(() => @proc.kill_group(inst.pid, @proc.SIGTERM))
+  @proc.signal_tree(inst.pidfd, inst.pid, @proc.SIGTERM)
   inst.kill_deadline_ms = @proc.monotonic_ms() + app.stop_timeout_ms.to_uint64()
 }
 
