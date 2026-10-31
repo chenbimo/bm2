@@ -211,6 +211,29 @@ test "notify errors never echo a url, secret or password" {
 }
 
 ///|
+test "a url carrying a second full url is refused" {
+  // 占位符是整体替换:把一条完整地址填进已经带前缀的位置,展开结果就是两段地址
+  // 首尾相连。这种值照样以 https:// 开头,协议那一关放行,只有数 `://` 的次数
+  // 才认得出来。报错不回显地址。
+  let doubled = notify_error(
+    "[notify]\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://open.feishu.cn/open-apis/bot/v2/hook/https://open.feishu.cn/open-apis/bot/v2/hook/abc\"\n",
+  )
+  assert_true(doubled.contains("more than one ://"))
+  assert_false(doubled.contains("open.feishu.cn"))
+  // 一条正常地址只有一个 `://`,照旧通过。
+  let config = @config.parse(
+    project_doc(
+      "[notify]\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://open.feishu.cn/open-apis/bot/v2/hook/abc\"\n",
+    ),
+    "/tmp",
+  )
+  assert_eq(
+    config.notify.reports[0].targets[0].url,
+    "https://open.feishu.cn/open-apis/bot/v2/hook/abc",
+  )
+}
+
+///|
 test "periodic report requires template and instant report rejects it" {
   // cron without template is rejected.
   assert_true(

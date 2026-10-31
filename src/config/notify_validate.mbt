@@ -29,12 +29,19 @@ fn check_members(
 
 ///|
 fn check_web_scheme(url : String, ctx : String) -> Unit raise ConfigError {
-  if url.has_prefix("http://") || url.has_prefix("https://") {
-    return
+  if !url.has_prefix("http://") && !url.has_prefix("https://") {
+    raise ConfigError::InvalidField(
+      "\{ctx}.url must start with http:// or https://",
+    )
   }
-  raise ConfigError::InvalidField(
-    "\{ctx}.url must start with http:// or https://",
-  )
+  // 占位符是整体替换,不是拼接:把一条完整地址填进已经带前缀的 url,展开结果就是
+  // 首尾相连的两段地址。它在协议这一关看不出来——这种值照样以 https:// 开头——
+  // 所以数一数 `://` 出现了几次。错误里不回显地址,它是凭据的一半。
+  if url.split("://").collect().length() > 2 {
+    raise ConfigError::InvalidField(
+      "\{ctx}.url contains more than one ://, a placeholder was probably expanded into a full url",
+    )
+  }
 }
 
 ///|
