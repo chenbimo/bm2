@@ -91,6 +91,20 @@ if [ "$WITH_SOAK" = "1" ] && [ -n "${DEVKIT_SOAK:-}" ]; then
   DEVKIT_ROOT="$root" DEVKIT_BUILD_DIR="$build_dir" bash "$root/$DEVKIT_SOAK"
 fi
 
+# 依赖新鲜度只放进发版档,而且只报告不阻断:上游随时可能发布新版本,拿它当门禁
+# 会让一次与依赖无关的发版莫名失败。看到有更新时,处理方式是升级依赖、跑一遍
+# 快门禁,再发版——不是把这条提示加进 CI。
+if [ "$WITH_SOAK" = "1" ]; then
+  echo "verify: 依赖新鲜度(只报告)"
+  outdated=$(MOON_REGISTRY_API=1 moon update 2>&1 | grep "update available" || true)
+  if [ -n "$outdated" ]; then
+    printf '%s\n' "$outdated"
+    echo "verify: 以上依赖有新版本;升级后重跑快门禁,再发版"
+  else
+    echo "verify: 依赖都在最新版本"
+  fi
+fi
+
 if [ "$WITH_E2E" = "0" ]; then
   echo "verify: fmt/check/测试/构建 ok(--with-e2e 与 --release 是分钟级手动档)"
 else

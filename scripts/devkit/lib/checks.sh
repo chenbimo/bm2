@@ -36,6 +36,29 @@ check_package_metadata() {
   fi
 }
 
+# 本地工具链必须与唯一源钉住的版本一致。
+#
+# 两边跑不同编译器时,连依赖能不能解析都可能不同:async 0.22.6 起依赖
+# moonbitlang/core/async,旧 core 里没有这个包,于是本地(新 core)全绿、CI(旧 core)
+# 在计算构建计划时就红了。所以不一致要在这里停下,而不是等 CI 报错。
+#
+# pin 的权威值是生成出来的 workflow 里的 MOONBIT_INSTALL_VERSION(由
+# moonbit/scripts/devkit.conf 渲染),这里读它,不另立一份清单。
+check_toolchain_pin() {
+  local root="$1" pin local_version
+  pin=$(sed -nE 's/^ *MOONBIT_INSTALL_VERSION: *//p' \
+    "$root/.github/workflows/verify.yml" 2>/dev/null | head -1)
+  [ -n "$pin" ] || return 0
+  local_version=$(moonc -v 2>/dev/null | sed -nE 's/^v([^ ]+).*/\1/p')
+  [ -n "$local_version" ] || return 0
+  if [ "$local_version" != "$pin" ]; then
+    echo "toolchain pin mismatch: CI pins $pin, local moonc is $local_version" >&2
+    echo "  本地与 CI 必须是同一个编译器,否则依赖解析结果都可能不同。" >&2
+    echo "  升级工具链后,把新版本写进 moonbit/scripts/devkit.conf 的 MOONC_VERSION 并 sync。" >&2
+    return 1
+  fi
+}
+
 # 按 DEVKIT_CHECKS 依次执行;未知名字直接报错,防止拼错后静默跳过。
 devkit_run_checks() {
   local root="$1" name
