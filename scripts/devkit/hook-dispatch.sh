@@ -30,19 +30,21 @@ case "$(uname -s)" in
 
     # 不需要 MoonBit 工具链的阶段直接在 Git Bash 里跑,省掉一次 WSL 启动(实测数秒):
     # - commit-msg 只做提交信息格式正则,纯 grep;
-    # - pre-commit 无模块源暂存时只是提前退出(pre-commit.sh 自己判),生成物完整性
+    # - pre-commit 无源码改动时只是提前退出(pre-commit.sh 自己判),生成物完整性
     #   校验(sha256sum -c)在 Git Bash 也能跑。一旦命中 DEVKIT_SRC/moon.mod,仍然进 WSL。
     if [ "$stage" = "commit-msg" ] || [ "$stage" = "pre-commit" ]; then
       need_local=0
       if [ "$stage" = "commit-msg" ]; then
         need_local=1
       else
-        # 读取项目声明:未声明 DEVKIT_SRC 或无源码暂存时,pre-commit.sh 本就地提前返回
+        # 读取项目声明:未声明 DEVKIT_SRC 或无源码改动时,pre-commit.sh 本就地提前返回。
+        # 判的是「与 HEAD 的差异」而不是索引:路径限定提交不写索引,`git diff --cached`
+        # 那一刻恒为空,照它判会把每次提交都当成本地就能收工的提交。
         devkit_src=""
         [ -f "$root/scripts/devkit.conf" ] &&
           devkit_src=$(sed -nE 's/^DEVKIT_SRC="?([^"#]*)"?/\1/p' "$root/scripts/devkit.conf" | head -1)
         if [ -z "$devkit_src" ] ||
-          ! (cd "$root" && git diff --cached --name-only --diff-filter=d | grep -qE "^(${devkit_src}|moon\.mod$)"); then
+          ! (cd "$root" && git diff HEAD --name-only --diff-filter=d | grep -qE "^(${devkit_src}|moon\.mod$)"); then
           need_local=1
         else
           # 命中源码但项目没有 Moon 构建能力位(门户站点:目标/构建全空、无 moon.mod),

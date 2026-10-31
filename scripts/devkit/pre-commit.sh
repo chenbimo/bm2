@@ -19,9 +19,17 @@ devkit_integrity_check "$root"
 devkit_load_conf "$root"
 
 # 只有源码改动才需要编译门;钩子、CI、文档的改动不需要。
+# `git commit -- <路径>` 是部分提交:内容取自工作区,不写索引,所以这一刻
+# `git diff --cached` 恒为空。索引里没有东西时改用「与 HEAD 的差异」判定,
+# 否则本仓库这种路径限定提交永远跳过下面所有检查。
 staged=$(git diff --cached --name-only --diff-filter=d)
+partial=0
+if [ -z "$staged" ]; then
+  staged=$(git diff HEAD --name-only --diff-filter=d)
+  partial=1
+fi
 if [ -z "$staged" ] || ! printf '%s\n' "$staged" | grep -qE "^(${DEVKIT_SRC}|moon\.mod$)"; then
-  echo "pre-commit: no module sources staged, nothing to check"
+  echo "pre-commit: no module sources changed, nothing to check"
   exit 0
 fi
 
@@ -45,42 +53,48 @@ dirty_snapshot() {
   done | sort
 }
 
-dirty_snapshot > "$tmp/before"
-moon fmt --target-dir "$build_dir" >/dev/null
-dirty_snapshot > "$tmp/after"
+if [ "$partial" = 1 ]; then
+  # 部分提交按工作区取内容,fmt 的改写会随这次提交一起进去,既没有要重暂存的
+  # 文件,也不存在「还有别的改动没跟着提交」这件事。
+  moon fmt --target-dir "$build_dir" >/dev/null
+else
+  dirty_snapshot > "$tmp/before"
+  moon fmt --target-dir "$build_dir" >/dev/null
+  dirty_snapshot > "$tmp/after"
 
-awk -F'\t' '
-  NR == FNR { before[$1] = $2; next }
-  {
-    after[$1] = 1
-    if ($1 in before) {
-      if (before[$1] != $2) print "dirty\t" $1
-    } else {
-      print "new\t" $1
+  awk -F'\t' '
+    NR == FNR { before[$1] = $2; next }
+    {
+      after[$1] = 1
+      if ($1 in before) {
+        if (before[$1] != $2) print "dirty\t" $1
+      } else {
+        print "new\t" $1
+      }
     }
-  }
-  END { for (file in before) if (!(file in after)) print "reverted\t" file }
-' "$tmp/before" "$tmp/after" > "$tmp/reformatted"
+    END { for (file in before) if (!(file in after)) print "reverted\t" file }
+  ' "$tmp/before" "$tmp/after" > "$tmp/reformatted"
 
-needs_attention=0
-while IFS=$'\t' read -r kind file; do
-  [ -n "$kind" ] || continue
-  case "$kind" in
-    new)
-      echo "pre-commit: moon fmt reformatted and re-staged: $file"
-      git add -- "$file"
-      ;;
-    reverted)
-      echo "pre-commit: moon fmt normalized back to the committed content: $file"
-      ;;
-    dirty)
-      echo "pre-commit: moon fmt reformatted $file, which also has your own unstaged edits."
-      echo "            git add -- $file   # then commit again"
-      needs_attention=1
-      ;;
-  esac
-done < "$tmp/reformatted"
-[ "$needs_attention" = 0 ] || exit 1
+  needs_attention=0
+  while IFS=$'\t' read -r kind file; do
+    [ -n "$kind" ] || continue
+    case "$kind" in
+      new)
+        echo "pre-commit: moon fmt reformatted and re-staged: $file"
+        git add -- "$file"
+        ;;
+      reverted)
+        echo "pre-commit: moon fmt normalized back to the committed content: $file"
+        ;;
+      dirty)
+        echo "pre-commit: moon fmt reformatted $file, which also has your own unstaged edits."
+        echo "            git add -- $file   # then commit again"
+        needs_attention=1
+        ;;
+    esac
+  done < "$tmp/reformatted"
+  [ "$needs_attention" = 0 ] || exit 1
+fi
 
 echo "pre-commit: checking the module ..."
 if ! module_check "$build_dir"; then
