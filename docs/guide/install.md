@@ -13,7 +13,7 @@ bm2 由两个二进制组成：命令行 `bm2` 与守护进程 `bm2d`。
 - **C 语言工具链。** `cc`、`binutils` 与 libc 头文件，装 bm2 时在本机编译要用。Debian 系装 `build-essential`，RHEL 系装 `gcc make`。
 - **[MoonBit](https://www.moonbitlang.com/)** 工具链：安装与升级 bm2 时需要，运行 bm2 不需要。
 - **[Bun](https://bun.sh/)** `1.4.0` 及以上：`runtime = "bun"` 的项目需要。
-- **[Node.js](https://nodejs.org/)** `24.0.0` 及以上：只有 `runtime = "node"` 的项目需要。
+- **[Node.js](https://nodejs.org/)** `22.12.0` 及以上：只有 `runtime = "node"` 的项目需要。
 
 bm2 只经 MoonBit 的工具链分发，没有预编译包，安装与升级都是在你机器上现编一次。所以 C 工具链是硬前置，缺了 `moon install` 会在编译阶段失败。
 

@@ -55,7 +55,7 @@ http
 
 Node.js 的 `reusePort` 是 `listen` 的选项，不是 `node:cluster` 模块。bm2 不用 `node:cluster`，也不需要应用自己 fork 工作进程。
 
-运行时版本下限与模式无关：Bun `1.4.0`、Node.js `24.0.0`，低于下限在启动前就被拒绝。
+运行时版本下限与模式无关：Bun `1.4.0`、Node.js `22.12.0`，低于下限在启动前就被拒绝。
 
 ## bm2 怎么验证 reusePort
 

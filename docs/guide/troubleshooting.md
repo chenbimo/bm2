@@ -143,7 +143,7 @@ port 3000: already held by a shared listener
 
 - **脚本路径写错。** `script` 相对的是 `cwd`，默认是 `bm2.toml` 所在目录。`bm2 check` 会直接指出文件不存在。
 - **依赖没装。** 应用目录里缺 `node_modules`，或用了 `bun install` 却没在部署机上跑。
-- **运行时版本低于下限。** Bun `1.4.0`、Node.js `24.0.0`。这类失败发生在登记之前，项目根本不会进名册。
+- **运行时版本低于下限。** Bun `1.4.0`、Node.js `22.12.0`。这类失败发生在登记之前，项目根本不会进名册。
 - **环境变量缺失。** 比如 `process.env.DATABASE_URL` 是 `undefined`，启动即抛错。注意模式：`serve` 读 `.env.production`，`dev` 读 `.env.development`。
 - **监听端口写死。** 没读 `BM2_APP_PORT`。fork 模式下多实例会互相抢端口。
 - **应用启动后立刻退出。** 表现为 `quick_exit`，通常是有前置检查没过。
