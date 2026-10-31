@@ -26,7 +26,7 @@ jobs:
           # 安装脚本只把它写进 ~/.bashrc,非交互步骤读不到;显式告诉后续步骤。
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
         env:
-          MOONBIT_INSTALL_VERSION: 0.10.17+d971670cd
+          MOONBIT_INSTALL_VERSION: 0.10.18+6c83a7f62
 
       # 依赖按 moon.mod 缓存,改了依赖才重新拉取。
       - name: Cache moon registry
