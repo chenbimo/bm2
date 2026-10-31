@@ -1,20 +1,19 @@
 name: release
 
-# 打 tag 即发布,四步串行,前一步不过后面不发:
-#   verify → build(x64/arm64) → GitHub Release → moon publish
+# 打 tag 即发布,两步串行:
+#   verify → moon publish
 #
-# 为什么放在一个 workflow 里而不是拆成几个:`needs` 是唯一的顺序保证。
-# 拆开就只能靠 workflow_run 串,失败语义反而更难看清。
+# 库没有编译产物:mooncakes 分发的是源码包,GitHub Release 不挂资产。
+# 所以这里没有 build 与 release job——留一个空转的 job 只会让人怀疑漏了什么。
 #
-# 生成物 · 由 moonbit/scripts 渲染(源:templates/release-binary.yml),手改无效。
+# 生成物 · 由 moonbit/scripts 渲染(源:templates/release-library.yml),手改无效。
 
 on:
   push:
     tags: ['v*']
 
-# gh release 需要写仓库内容;其余步骤只读。
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
@@ -54,112 +53,8 @@ jobs:
       - name: Verify
         run: bash scripts/devkit/verify.sh
 
-  build:
-    needs: verify
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            arch: x64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install MoonBit
-        run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-          # 安装脚本只把它写进 ~/.bashrc,非交互步骤读不到;显式告诉后续步骤。
-          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-        env:
-          MOONBIT_INSTALL_VERSION: 0.10.17+d971670cd
-
-      - name: Cache moon registry
-        uses: actions/cache@v4
-        with:
-          path: .mooncakes
-          key: mooncakes-${{ matrix.arch }}-${{ hashFiles('moon.mod') }}
-          restore-keys: mooncakes-${{ matrix.arch }}-
-
-      - name: Build
-        run: |
-          set -euo pipefail
-          # 注册表索引不在缓存里,少了这一步依赖解析会报 module not found。
-          # verify.sh 自己会跑 update,这里必须显式补上。
-          moon update
-          moon build src/cmd/bm2 src/cmd/bm2d --target native --target-dir _build-release
-
-      # 产物路径随 moon 版本变过(多一层/少一层 build 目录),名字也带 .exe 后缀
-      # (Linux 产物同样如此,文件本身是 ELF)。按名字找,不写死路径;只认文件,
-      # 因为同名的 build/cmd/<名字> 目录也在同一棵树下。
-      - name: Package
-        run: |
-          set -euo pipefail
-          version=$(sed -nE 's/^version = "([^"]+)"/\1/p' moon.mod | head -1)
-          pkg="bm2-v${version}-linux-${{ matrix.arch }}"
-          mkdir -p "dist/$pkg"
-          for name in bm2 bm2d; do
-            found=$(find _build-release -type f \( -name "$name" -o -name "$name.exe" \) | head -1)
-            if [ -z "$found" ]; then
-              echo "binary $name not found in _build-release" >&2
-              exit 1
-            fi
-            # 包内去掉 .exe 后缀:Linux 用户看到的名字应当干净。
-            cp "$found" "dist/$pkg/$name"
-            chmod +x "dist/$pkg/$name"
-          done
-          tar -C dist -czf "dist/$pkg.tar.gz" "$pkg"
-          # 子 shell 里算哈希,免得 cd 之后下面的 ls 找不到 dist。
-          (cd dist && sha256sum "$pkg.tar.gz" > "$pkg.sha256")
-          ls -l dist
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bm2-linux-${{ matrix.arch }}
-          path: |
-            dist/*.tar.gz
-            dist/*.sha256
-          if-no-files-found: error
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      # gh 需要在仓库上下文里跑(它要认 remote 与 tag);--generate-notes 还要
-      # 完整的 tag 历史来算变更区间,所以不省 fetch-depth。
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Checksums
-        run: |
-          set -euo pipefail
-          cd dist
-          sha256sum -- *.tar.gz > SHA256SUMS
-          cat SHA256SUMS
-
-      # 重跑同一次发布时不报错:已有 release 就覆盖资产。
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes dist/*
-          fi
-
   publish:
-    needs: release
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # 仓库级 secret(Settings → Secrets and variables → Actions)。
