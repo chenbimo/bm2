@@ -14,6 +14,7 @@ fn check_config() -> @config.Config {
     instances: 4,
     port: 3020,
     max_memory_mb: 0,
+    max_tree_processes: 512,
     max_restarts: 10,
     restart_delay_ms: 1000,
     min_uptime_ms: 0,

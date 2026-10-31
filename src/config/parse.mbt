@@ -29,11 +29,16 @@ fn env_entries(vars : Map[String, String]) -> Array[(String, String)] {
 let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "exec_mode", "instances", "port", "max_memory_mb",
   "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "notify",
-  "logs", "lang",
+  "logs", "lang", "max_tree_processes",
 ]
 
 ///|
 const DEFAULT_MAX_MEMORY_MB : Int32 = 512
+
+///|
+/// Big enough for any real deployment and small enough that walking a
+/// pathological tree stays cheap.
+const DEFAULT_MAX_TREE_PROCESSES : Int32 = 512
 
 ///|
 const DEFAULT_MAX_RESTARTS : Int32 = 10
@@ -116,6 +121,12 @@ pub fn parse(
       "max_memory_mb",
       "root",
       DEFAULT_MAX_MEMORY_MB,
+    ),
+    max_tree_processes: opt_int(
+      table,
+      "max_tree_processes",
+      "root",
+      DEFAULT_MAX_TREE_PROCESSES,
     ),
     max_restarts: opt_int(table, "max_restarts", "root", DEFAULT_MAX_RESTARTS),
     restart_delay_ms: opt_int(

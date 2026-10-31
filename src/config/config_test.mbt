@@ -28,6 +28,7 @@ test "parses valid bm2.toml" {
   assert_eq(config.instances, 4)
   assert_eq(config.port, 3000)
   assert_eq(config.max_memory_mb, 512)
+  assert_eq(config.max_tree_processes, 512)
   assert_eq(config.max_restarts, 10)
   assert_eq(config.restart_delay_ms, 1000)
   assert_eq(config.min_uptime_ms, 10000)
@@ -512,6 +513,10 @@ test "rejects invalid numeric limits" {
   let cases = [
     ("max_memory_mb = 0", "max_memory_mb must be between 1 and 1048576"),
     ("max_memory_mb = 1048577", "max_memory_mb must be between 1 and 1048576"),
+    ("max_tree_processes = 0", "max_tree_processes must be between 1 and 65536"),
+    (
+      "max_tree_processes = 65537", "max_tree_processes must be between 1 and 65536",
+    ),
     ("max_restarts = -1", "out of range"),
     ("restart_delay_ms = -1", "out of range"),
     ("min_uptime_ms = -1", "out of range"),

@@ -89,6 +89,7 @@ enabled = false
 | `instances` | 是 | — | `1 ~ 1024` |
 | `port` | 是 | — | `1 ~ 65535`，且 `port + instances - 1 <= 65535` |
 | `max_memory_mb` | 否 | `512` | `1 ~ 1048576` |
+| `max_tree_processes` | 否 | `512` | `1 ~ 65536`，内存统计的进程树上限 |
 | `max_restarts` | 否 | `10` | `0 ~ 2147483647` |
 | `restart_delay_ms` | 否 | `1000` | `0 ~ 2147483647` |
 | `min_uptime_ms` | 否 | `10000` | `0 ~ 2147483647` |

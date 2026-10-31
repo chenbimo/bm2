@@ -24,6 +24,10 @@ pub(all) struct Config {
   instances : Int32
   port : Int32
   max_memory_mb : Int32
+  /// How many processes one instance's tree may contain before the memory
+  /// walk stops. Bounds the cost of summing RSS over children the app forked
+  /// itself, so a fork bomb cannot stall a supervision tick.
+  max_tree_processes : Int32
   max_restarts : Int32
   restart_delay_ms : Int32
   min_uptime_ms : Int32

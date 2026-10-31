@@ -33,6 +33,7 @@ fn app_config(
     instances,
     port,
     max_memory_mb,
+    max_tree_processes: 512,
     max_restarts,
     restart_delay_ms,
     min_uptime_ms,

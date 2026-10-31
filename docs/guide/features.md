@@ -32,7 +32,9 @@
 
 `max_memory_mb` 是单实例的内存上限，默认 `512`。
 
-守护进程每 `5s` 采样一次 RSS，超过上限就记 `memory_limit` 事件，然后按异常重启处理：`SIGTERM`，超过 `stop_timeout_ms` 升级 `SIGKILL`，计数进重启预算。
+守护进程每 `5s` 采样一次 RSS，统计的是这个实例的**整棵进程树**：应用自己 fork 出来的 worker 也算在内。只盯主进程会漏掉真正吃内存的那部分。超过上限就记 `memory_limit` 事件，然后按异常重启处理：`SIGTERM`，超过 `stop_timeout_ms` 升级 `SIGKILL`，计数进重启预算。
+
+进程树来自 `/proc/<pid>/task/<tid>/children` 的递归。单棵树最多看 `max_tree_processes` 个进程，默认 `512`，到顶就按已看到的部分统计，不会为了一个 fork 炸弹把守护进程拖死。
 
 它不是容器级隔离。超限那一刻进程已经吃掉了那么多内存，bm2 只能在事后处理。真正的硬隔离要靠 cgroup 或容器。
 

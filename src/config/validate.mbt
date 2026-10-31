@@ -64,6 +64,14 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
       "project \{config.name}: max_memory_mb must be between 1 and 1048576",
     )
   }
+  // The tree walk stops at this count and returns what it has, so a small value
+  // undercounts memory rather than failing. The ceiling keeps one sample from
+  // reading tens of thousands of /proc files on every tick.
+  if config.max_tree_processes < 1 || config.max_tree_processes > 65536 {
+    raise ConfigError::InvalidField(
+      "project \{config.name}: max_tree_processes must be between 1 and 65536",
+    )
+  }
   // max_restarts/restart_delay_ms/min_uptime_ms are guaranteed >= 0 by the
   // parser's range check (0 ..= 2^31-1), so no negative checks are needed.
   // stop_timeout_ms is bounded so CLI request timeouts and daemon settle

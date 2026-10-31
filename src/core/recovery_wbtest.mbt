@@ -17,6 +17,7 @@ fn wb_config(name : String, cwd : String, port : Int32) -> @config.Config {
     instances: 1,
     port,
     max_memory_mb: 512,
+    max_tree_processes: 512,
     max_restarts: 2,
     restart_delay_ms: 100,
     min_uptime_ms: 60000,
