@@ -8,6 +8,10 @@
 # they run is the fast verify only.
 set -euo pipefail
 
+# 表格按表头名解析，宿主的 BM2_LANG 会改写表头；这里钉死英文，
+# 与门禁（verify.sh）保持同一口径。
+export BM2_LANG=en
+
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir=${BM2_BUILD_DIR:-$root/_build-wsl}
 fixtures="$root/scripts/e2e/fixtures"
@@ -81,7 +85,7 @@ sample() { # sample <label>: refresh SAMPLE_* and print them
   SAMPLE_FILES=$(find "$state_dir" -type f 2>/dev/null | wc -l)
   echo "soak $1: daemon_fds=$SAMPLE_FDS daemon_rss_kb=$SAMPLE_RSS state_files=$SAMPLE_FILES"
 }
-# 表格解析与 e2e 共用一份(soak 只用到 row_count)。
+# 表格解析与 e2e 共用一份(soak 用到 row_count 与 online_count)。
 # shellcheck source=scripts/e2e/table.sh
 source "$root/scripts/e2e/table.sh"
 

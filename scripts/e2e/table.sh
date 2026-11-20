@@ -12,6 +12,11 @@ row_count() {
     { if (trim($2) == app) n++ } END { print n + 0 }'
 }
 
+# online_count <app>:该项目的实例里状态为 online 的行数。
+online_count() {
+  col_values "$1" STATUS | awk '$0 == "online"' | wc -l
+}
+
 # col_values <app> <HEADER>:每行一个该列的值。
 col_values() {
   bm2 list "$1" 2>/dev/null | awk -F'│' -v app="$1" -v want="$2" '
