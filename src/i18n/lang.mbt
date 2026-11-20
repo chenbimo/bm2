@@ -14,10 +14,11 @@
 ///|
 /// The languages bm2 speaks. `En` is the default, it is what an unset locale
 /// resolves to, and it is the language the tests assert.
+#derive(Eq, Debug)
 pub(all) enum Lang {
   En
   Zh
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Lang with Debug::{to_repr}

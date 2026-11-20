@@ -2,6 +2,7 @@
 /// One bm2.toml configures exactly one project (single app, one or more
 /// instances). The project name is also the app name and must be unique
 /// among all registered projects.
+#derive(Debug)
 pub(all) struct Config {
   name : String
   /// How this config was loaded: `serve` (production) or `dev` (development).
@@ -47,7 +48,7 @@ pub(all) struct Config {
   /// vars, and it is the same map that `${VAR}` in bm2.toml resolves against,
   /// so the application and the manager can never disagree about a value.
   env : Array[(String, String)]
-} derive(Debug)
+}
 
 ///|
 pub extend Config with Debug::{to_repr}
@@ -63,13 +64,14 @@ pub extend Config with Debug::{to_repr}
 /// day-of-week. Every field is the full expanded set of matching values
 /// (`*` expands to the whole range). Day-of-month and day-of-week may not
 /// both be restricted — that combination is rejected at parse time.
+#derive(Debug, Eq)
 pub(all) struct CronSpec {
   minutes : Array[Int32]
   hours : Array[Int32]
   days_of_month : Array[Int32]
   months : Array[Int32]
   days_of_week : Array[Int32]
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend CronSpec with Debug::{to_repr}
@@ -80,6 +82,7 @@ pub extend CronSpec with Eq::{not_equal, equal}
 ///|
 /// One entry of `[[notify.report]]`. Either instant (has `events`, fires on
 /// events) or periodic (has `cron`, fires on schedule) — never both.
+#derive(Debug)
 pub(all) struct NotifyReport {
   name : String
   label : String?
@@ -92,13 +95,14 @@ pub(all) struct NotifyReport {
   template : String?
   /// Delivery endpoints of this report.
   targets : Array[NotifyEndpoint]
-} derive(Debug)
+}
 
 ///|
 pub extend NotifyReport with Debug::{to_repr}
 
 ///|
 /// One delivery endpoint inside a report: a platform plus its connection.
+#derive(Debug)
 pub(all) struct NotifyEndpoint {
   platform : String
   url : String
@@ -106,7 +110,7 @@ pub(all) struct NotifyEndpoint {
   format : String?
   /// email platform only: recipients.
   mail_to : Array[String]?
-} derive(Debug)
+}
 
 ///|
 pub extend NotifyEndpoint with Debug::{to_repr}
@@ -114,6 +118,7 @@ pub extend NotifyEndpoint with Debug::{to_repr}
 ///|
 /// Which events leave this project, and where they go. Lives inside the project
 /// config: a project's supervision and its reporting are one unit.
+#derive(Debug)
 pub(all) struct NotifyConfig {
   enabled : Bool
   /// Mail channel: send capability configured once, used by every email
@@ -137,7 +142,7 @@ pub(all) struct NotifyConfig {
   threshold_disk_mb : Int32
   threshold_storm : Int32
   reports : Array[NotifyReport]
-} derive(Debug)
+}
 
 ///|
 pub extend NotifyConfig with Debug::{to_repr}
@@ -170,13 +175,14 @@ pub fn NotifyConfig::disabled() -> NotifyConfig {
 
 ///|
 /// Log rotation for one project, from the `[logs]` table.
+#derive(Debug)
 pub(all) struct LogsConfig {
   /// A log rotates once it exceeds this size, in megabytes.
   max_size_mb : Int32
   /// How many archived generations to keep. Zero keeps every generation, so the
   /// only bound on disk usage is the one the operator sets.
   keep : Int32
-} derive(Debug)
+}
 
 ///|
 pub extend LogsConfig with Debug::{to_repr}

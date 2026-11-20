@@ -1,11 +1,11 @@
 import {
   "chensuiyi/bm2/protocol",
-  "moonbitlang/async",
-  "moonbitlang/async/aqueue",
-  "moonbitlang/async/process",
-  "moonbitlang/async/semaphore",
-  "moonbitlang/async/signal",
-  "moonbitlang/async/socket",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/async/process",
+  "moonbitlang/core/async/semaphore",
+  "moonbitlang/core/async/signal",
+  "moonbitlang/core/async/socket",
   "chensuiyi/bm2/config",
   "chensuiyi/bm2/core",
   "chensuiyi/bm2/i18n",
@@ -16,5 +16,16 @@ import {
   "moonbitlang/core/env",
   "moonbitlang/core/encoding/utf8",
 }
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/process",
+    "moonbitlang/core/async/semaphore",
+    "moonbitlang/core/async/signal",
+    "moonbitlang/core/async/socket",
+  ],
+)
 
 pkgtype(kind: "executable")

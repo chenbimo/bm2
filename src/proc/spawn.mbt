@@ -1,4 +1,5 @@
 ///|
+#derive(Debug)
 pub(all) struct SpawnSpec {
   bun_path : String
   script : String
@@ -6,7 +7,7 @@ pub(all) struct SpawnSpec {
   out_log : String
   err_log : String
   env_blob : Bytes
-} derive(Debug)
+}
 
 ///|
 pub extend SpawnSpec with Debug::{to_repr}

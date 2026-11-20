@@ -1,8 +1,8 @@
 import {
-  "moonbitlang/async",
-  "moonbitlang/async/http",
-  "moonbitlang/async/socket",
-  "moonbitlang/async/tls",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/http",
+  "moonbitlang/core/async/socket",
+  "moonbitlang/core/async/tls",
   "moonbitlang/core/debug",
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
@@ -10,3 +10,12 @@ import {
   "moonbitlang/x/crypto",
   "chensuiyi/bm2/utils",
 }
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/http",
+    "moonbitlang/core/async/socket",
+    "moonbitlang/core/async/tls",
+  ],
+)

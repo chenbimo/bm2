@@ -1,8 +1,8 @@
 import {
   "chensuiyi/bm2/protocol",
-  "moonbitlang/async",
-  "moonbitlang/async/http",
-  "moonbitlang/async/socket",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/http",
+  "moonbitlang/core/async/socket",
   "moonbitlang/x/fs",
   "chensuiyi/bm2/config",
   "chensuiyi/bm2/core",
@@ -17,5 +17,13 @@ import {
   "chensuiyi/bm2/i18n",
   "chensuiyi/clitable",
 }
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/http",
+    "moonbitlang/core/async/socket",
+  ],
+)
 
 pkgtype(kind: "executable")

@@ -1,9 +1,16 @@
 import {
   "chensuiyi/bm2/protocol",
-  "moonbitlang/async",
-  "moonbitlang/async/socket",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/socket",
   "moonbitlang/x/crypto",
   "moonbitlang/core/debug",
   "moonbitlang/core/encoding/utf8",
   "chensuiyi/bm2/fsx",
 }
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/socket",
+  ],
+)

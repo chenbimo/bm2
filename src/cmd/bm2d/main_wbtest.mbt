@@ -9,9 +9,19 @@ async fn round_trip(
   _state_dir : String,
   req : @protocol.Request,
 ) -> @protocol.Response {
-  let server = @socket.TcpServer::TcpServer(@socket.Addr::new(2130706433U, 0))
+  let server = @socket.TcpServer::TcpServer(
+    @socket.Addr::Addr(
+      try @socket.IpAddr::IpAddr("127.0.0.1") catch {
+        _ => abort("loopback ip must parse")
+      } noraise {
+        ip => ip
+      },
+      0,
+    ),
+  )
   let commands = sv.commands()
   let outbound = sv.outbound()
+  let answer : Ref[@protocol.Response?] = Ref(None)
   @async.with_task_group(async fn(tg) {
     // Supervision, sped up so the test does not wait out the daemon's cadence.
     ignore(
@@ -55,13 +65,14 @@ async fn round_trip(
     // Client side: token, request, response.
     let client = @socket.Tcp::connect_to_host(
       "127.0.0.1",
-      port=server.addr.port(),
+      port=server.addr.port,
     )
     let resp = @ipc.round_trip(client, "wbtest", req, 5000)
     client.close()
-    tg.return_immediately(resp)
-    resp
+    answer.val = Some(resp)
+    tg.return_immediately()
   })
+  answer.val.unwrap()
 }
 
 ///|

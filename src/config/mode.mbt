@@ -8,10 +8,11 @@
 ///
 /// What the application *does* with NODE_ENV is the application's business.
 /// bm2 guarantees that the value matches the files it read from.
+#derive(Eq, Debug)
 pub(all) enum Mode {
   Development
   Production
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Mode with Debug::{to_repr}

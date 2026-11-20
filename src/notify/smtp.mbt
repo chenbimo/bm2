@@ -1,9 +1,10 @@
 ///|
 /// SMTP-level failures. Messages never contain credentials: they carry the
 /// stage and the server's status line, which is what an operator needs.
+#derive(Debug)
 suberror SmtpFailed {
   SmtpError(String)
-} derive(Debug)
+}
 
 ///|
 pub extend SmtpFailed with @debug.Debug::{to_repr}
@@ -18,11 +19,11 @@ priv enum SmtpWire {
 ///|
 async fn SmtpWire::line(self : SmtpWire) -> String {
   let text = match self {
-    Plain(conn) => conn.read_until("\r\n")
-    Secure(conn) => conn.read_until("\r\n")
+    Plain(conn) => conn.read_until(b"\r\n", include_delimiter=true)
+    Secure(conn) => conn.read_until(b"\r\n", include_delimiter=true)
   }
   match text {
-    Some(line) => line
+    Some(line) => @utf8.decode_lossy(line)
     None => raise SmtpError("connection closed by the server")
   }
 }
@@ -192,7 +193,7 @@ async fn smtp_session(
       break
     }
   }
-  let conn = @socket.Tcp::connect_to_host(host, port~)
+  let conn = @socket.Tcp::connect_to_host(host, port=port.to_uint16())
   let mut wire : SmtpWire = if secure {
     Secure(@tls.Tls::client(conn, host~))
   } else {

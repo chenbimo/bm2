@@ -73,6 +73,7 @@ pub fn Engine::new(
 
 ///|
 /// What happened to one emit call.
+#derive(Debug, Eq)
 pub(all) enum EmitOutcome {
   Queued
   /// Same condition inside the dedupe window; `count` is how many times the
@@ -80,7 +81,7 @@ pub(all) enum EmitOutcome {
   Deduped(count~ : Int32)
   RateLimited
   QueueFull
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend EmitOutcome with Eq::{not_equal, equal}
@@ -176,6 +177,7 @@ pub fn Engine::emit(
 
 ///|
 /// What one pump pass did with the head of the queue.
+#derive(Debug, Eq)
 pub(all) enum PumpOutcome {
   /// Queue empty or waiting out the retry backoff.
   Idle
@@ -188,7 +190,7 @@ pub(all) enum PumpOutcome {
   Failed(attempt~ : Int32)
   /// Every target failed and the attempt budget is spent; the head dropped.
   Exhausted
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend PumpOutcome with Eq::{not_equal, equal}
@@ -197,13 +199,14 @@ pub extend PumpOutcome with Eq::{not_equal, equal}
 pub extend PumpOutcome with @debug.Debug::{to_repr}
 
 ///|
+#derive(Debug)
 pub(all) struct PumpReport {
   remaining : Int32
   outcome : PumpOutcome
   /// Owner of the attempted message, so the host application can attribute
   /// the outcome in its own logs. None when idle.
   owner : String?
-} derive(Debug)
+}
 
 ///|
 pub extend PumpReport with Debug::{to_repr}

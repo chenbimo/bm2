@@ -47,11 +47,11 @@ async fn RuntimeProbe::check(self : RuntimeProbe, runtime : String) -> String? {
     Some(verdict) => verdict
     None => {
       let attempt = async fn() {
-        let (code, out, _err) = @process.collect_output(runtime, ["--version"])
+        let result = @process.run(runtime, ["--version"], stdout=Collect)
         @core.runtime_verdict(
           runtime,
-          code,
-          @utf8.decode_lossy(out.binary()).trim().to_owned(),
+          result.exit_code,
+          result.stdout_text().trim().to_owned(),
         )
       }
       // A cancelled wait kills the helper (only orphan spawns survive their
@@ -142,7 +142,9 @@ async fn run() -> Int32 {
   // gated by a per-daemon shared token (0600 dir, so file reads are
   // owner-only — same trust model as the old unix socket, minus SO_PEERCRED).
   let server = try
-    @socket.TcpServer::TcpServer(@socket.Addr::new(2130706433U, 0))
+    @socket.TcpServer::TcpServer(
+      @socket.Addr::Addr(@socket.IpAddr::IpAddr("127.0.0.1"), 0),
+    )
   catch {
     e => {
       @proc.eprintln("bm2d: " + e.to_string())
@@ -151,7 +153,7 @@ async fn run() -> Int32 {
   } noraise {
     bound => bound
   }
-  let port = server.addr.port()
+  let port = server.addr.port.to_int()
   let token = try @ipc.generate_token() catch {
     _ => {
       @proc.eprintln(@i18n.bm2d_no_token(@i18n.resolve_env()))
@@ -188,49 +190,54 @@ async fn run() -> Int32 {
   // cancels the whole group instead; both paths land in the shutdown code below.
   let outbound = sv.outbound()
   let commands = sv.commands()
-  let outcome = @async.handle_cancellation(async fn() {
-    @async.with_task_group(async fn(tg) {
-      // Four long-lived tasks, each owning its own state and none able to take
-      // another down. Supervision is synchronous: it never waits on the network
-      // and never copies a log, publishing both kinds of work onto a queue
-      // instead; delivery is the only place that touches the network, and
-      // rotation the only place that copies a file. The control plane serves one
-      // connection per task and reaches supervision only through the command
-      // queue. `allow_failure` keeps a failure in one task from cancelling the
-      // others, and each task records its own failures in the event log.
-      let runner = @core.NotifyRunner::new(
-        state_dir,
-        @proc.hostname(),
-        outbound,
-      )
-      let rotator = @core.RotateRunner::new(state_dir, sv.rotations())
-      let exits : @aqueue.Queue[@core.ExitMode] = @aqueue.Queue::Queue(
-        kind=Blocking(EXIT_SIGNAL_CAPACITY),
-      )
-      let gate : @semaphore.Semaphore = @semaphore.Semaphore(
-        MAX_CONTROL_CONNECTIONS,
-      )
-      let probe = RuntimeProbe::new()
-      ignore(tg.spawn(async fn() { tick_loop(sv) }, allow_failure=true))
-      ignore(tg.spawn(async fn() { runner.run() }, allow_failure=true))
-      ignore(tg.spawn(async fn() { rotator.run() }, allow_failure=true))
-      ignore(
-        tg.spawn(async fn() {
-          accept_loop(
-            server, commands, outbound, state_dir, token, exits, gate, probe, tg,
-          )
-        }),
-      )
-      // The group body waits for a served request to ask for an exit; when it
-      // returns, the tasks above are cancelled. A failure in the accept task
-      // (the only one without `allow_failure`) ends the daemon the same way,
-      // exactly as when the accept loop was the body itself.
-      let mode = wait_exit(exits)
-      tg.return_immediately(mode)
-      mode
-    })
-  })
-  match outcome {
+  // 退出请求经外部单元带出组体：0.10.23 的 `with_task_group` 返回 Unit，
+  // 只有取消才会让这个单元停在 None，与原先「被信号取消」的判据一致。
+  let exit_request : Ref[@core.ExitMode?] = Ref(None)
+  ignore(
+    @async.handle_cancellation(async fn() {
+      @async.with_task_group(async fn(tg) {
+        // Four long-lived tasks, each owning its own state and none able to take
+        // another down. Supervision is synchronous: it never waits on the network
+        // and never copies a log, publishing both kinds of work onto a queue
+        // instead; delivery is the only place that touches the network, and
+        // rotation the only place that copies a file. The control plane serves one
+        // connection per task and reaches supervision only through the command
+        // queue. `allow_failure` keeps a failure in one task from cancelling the
+        // others, and each task records its own failures in the event log.
+        let runner = @core.NotifyRunner::new(
+          state_dir,
+          @proc.hostname(),
+          outbound,
+        )
+        let rotator = @core.RotateRunner::new(state_dir, sv.rotations())
+        let exits : @aqueue.Queue[@core.ExitMode] = @aqueue.Queue::Queue(
+          kind=Blocking(EXIT_SIGNAL_CAPACITY),
+        )
+        let gate : @semaphore.Semaphore = @semaphore.Semaphore(
+          MAX_CONTROL_CONNECTIONS,
+        )
+        let probe = RuntimeProbe::new()
+        ignore(tg.spawn(async fn() { tick_loop(sv) }, allow_failure=true))
+        ignore(tg.spawn(async fn() { runner.run() }, allow_failure=true))
+        ignore(tg.spawn(async fn() { rotator.run() }, allow_failure=true))
+        ignore(
+          tg.spawn(async fn() {
+            accept_loop(
+              server, commands, outbound, state_dir, token, exits, gate, probe, tg,
+            )
+          }),
+        )
+        // The group body waits for a served request to ask for an exit; when it
+        // returns, the tasks above are cancelled. A failure in the accept task
+        // (the only one without `allow_failure`) ends the daemon the same way,
+        // exactly as when the accept loop was the body itself.
+        let mode = wait_exit(exits)
+        exit_request.val = Some(mode)
+        tg.return_immediately()
+      })
+    }),
+  )
+  match exit_request.val {
     Some(@core.ExitMode::Detach) => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
       server.close()
@@ -291,7 +298,7 @@ async fn accept_loop(
   exits : @aqueue.Queue[@core.ExitMode],
   gate : @semaphore.Semaphore,
   probe : RuntimeProbe,
-  tg : @async.TaskGroup[@core.ExitMode],
+  tg : @async.TaskGroup,
 ) -> Unit {
   while true {
     let accepted = try server.accept() catch {

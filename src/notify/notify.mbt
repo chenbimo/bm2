@@ -8,9 +8,10 @@
 /// - 库不写日志、不落盘、不依赖任何业务概念,只投递消息并报告结果。
 
 ///|
+#derive(Debug)
 pub suberror NotifyError {
   InvalidPreset(String)
-} derive(Debug)
+}
 
 ///|
 pub impl Show for NotifyError with fn output(self, logger) {
@@ -31,6 +32,7 @@ pub extend NotifyError with @debug.Debug::{to_repr}
 ///|
 /// One notification. `key` is what deduplication keys on; `event` is the
 /// logical event name carried through to generic webhook payloads.
+#derive(Debug)
 pub(all) struct Message {
   event : String
   level : String
@@ -39,7 +41,7 @@ pub(all) struct Message {
   fields : Array[(String, String)]
   ts_ms : UInt64
   key : String
-} derive(Debug)
+}
 
 ///|
 pub extend Message with Debug::{to_repr}
@@ -61,6 +63,7 @@ pub fn Message::new(
 /// One delivery destination. `preset` selects the payload shape (a closed set:
 /// feishu / dingtalk / wecom / slack / discord / webhook / email); the rest are
 /// endpoint and credential fields.
+#derive(Debug)
 pub(all) struct Target {
   name : String
   preset : String
@@ -71,7 +74,7 @@ pub(all) struct Target {
   to : Array[String]?
   username : String?
   password : String?
-} derive(Debug)
+}
 
 ///|
 pub extend Target with Debug::{to_repr}
@@ -79,6 +82,7 @@ pub extend Target with Debug::{to_repr}
 ///|
 /// A rendered request: what the transport hands to the network. Kept separate
 /// from the message so one message can be rendered per target.
+#derive(Debug)
 pub(all) struct Delivery {
   url : String
   http_method : String
@@ -87,7 +91,7 @@ pub(all) struct Delivery {
   body : String
   /// email: the complete RFC5322 message.
   mail : String?
-} derive(Debug)
+}
 
 ///|
 pub extend Delivery with Debug::{to_repr}
@@ -96,10 +100,11 @@ pub extend Delivery with Debug::{to_repr}
 /// Who is sending: appears in message footers (`product @ host`) and in the
 /// SMTP EHLO greeting. Passed in by the caller so the library stays
 /// platform-agnostic.
+#derive(Debug)
 pub(all) struct Context {
   host : String
   product : String
-} derive(Debug)
+}
 
 ///|
 pub extend Context with Debug::{to_repr}

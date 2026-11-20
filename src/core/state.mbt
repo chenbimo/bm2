@@ -40,6 +40,7 @@ pub fn log_event(
 /// Machine-generated per-instance state. Never edited by users, so the
 /// keys keep the struct's snake_case field names. times is optional
 /// so state files written by older versions still load.
+#derive(ToJson, FromJson, Debug, Eq)
 pub(all) struct InstanceState {
   app_name : String
   instance_id : Int32
@@ -53,7 +54,7 @@ pub(all) struct InstanceState {
   last_exit_code : Int32?
   last_signal : Int32?
   last_reason : String?
-} derive(ToJson, FromJson, Debug, Eq)
+}
 
 ///|
 pub extend InstanceState with ToJson::{to_json}
@@ -99,6 +100,7 @@ pub fn state_path(
 /// Registered project: the config path is all a daemon needs to reload
 /// the project's config on startup. Written on `bm2 start`, removed once
 /// the project is killed and fully stopped.
+#derive(ToJson, FromJson, Debug, Eq)
 pub(all) struct ProjectInfo {
   config_path : String
   /// The mode the project was started in. Persisted because a reloaded daemon
@@ -110,7 +112,7 @@ pub(all) struct ProjectInfo {
   /// is persisted, which is what makes `bm2 stop` a real stop rather than a pause
   /// until the next daemon restart.
   stopped : Bool
-} derive(ToJson, FromJson, Debug, Eq)
+}
 
 ///|
 pub extend ProjectInfo with ToJson::{to_json}

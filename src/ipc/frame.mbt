@@ -1,12 +1,13 @@
 ///|
 /// Control-channel failures. `AuthFailed` closes the connection without a
 /// response, so a wrong token looks to its presenter like a closed port.
+#derive(Debug)
 pub suberror IpcError {
   Timeout
   AuthFailed
   Closed(String)
   TooLarge(size~ : Int32, limit~ : Int32)
-} derive(Debug)
+}
 
 ///|
 pub extend IpcError with @debug.Debug::{to_repr}
@@ -161,7 +162,10 @@ fn parse_port(text : String) -> Int32? {
 pub async fn dial_with_token(state_dir : String) -> (@socket.Tcp, String) {
   match read_endpoint(state_dir) {
     Some((port, token)) => {
-      let conn = @socket.Tcp::connect_to_host("127.0.0.1", port~)
+      let conn = @socket.Tcp::connect_to_host(
+        "127.0.0.1",
+        port=port.to_uint16(),
+      )
       (conn, token)
     }
     None => raise Closed("no daemon endpoint file")

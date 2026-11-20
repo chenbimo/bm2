@@ -1,7 +1,11 @@
 import {
   "moonbitlang/core/encoding/utf8",
-  "moonbitlang/async/fs",
-  "moonbitlang/x/path",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/path",
   "chensuiyi/bm2/fsx",
   "chensuiyi/bm2/utils",
 }
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async/fs" ],
+)

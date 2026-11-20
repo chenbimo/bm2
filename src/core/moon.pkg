@@ -1,7 +1,7 @@
 import {
   "chensuiyi/bm2/protocol",
-  "moonbitlang/async",
-  "moonbitlang/async/aqueue",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/aqueue",
   "chensuiyi/bm2/config",
   "chensuiyi/bm2/i18n",
   "chensuiyi/bm2/notify",
@@ -14,3 +14,10 @@ import {
   "moonbitlang/core/encoding/utf8",
   "moonbitlang/x/fs",
 }
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+  ],
+)

@@ -151,12 +151,12 @@ async fn rename_rotate(path : String, keep : Int32) -> Unit {
 /// continues into the now-empty file; the few bytes written during the copy are
 /// lost, the accepted trade-off for fd-held logs.
 async fn copy_truncate(path : String, keep : Int32) -> Unit {
-  let content : Bytes = @fs.read_file(path).binary()
+  let content : Bytes = @fs.read_binary(path)
   shift_chain(path, keep)
   // The copy lands before the source is emptied, and both sides are synced: a
   // crash in between must not lose the content twice.
-  @fs.write_file(path + ".1", content, permission=0o600, sync=Data)
-  @fs.write_file(path, b"", create_mode=TruncateExisting, sync=Data)
+  @fs.write_binary(path + ".1", content, permission=0o600, sync=Data)
+  @fs.write_binary(path, b"", create_mode=TruncateExisting, sync=Data)
 }
 
 ///|

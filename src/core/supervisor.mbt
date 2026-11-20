@@ -100,10 +100,11 @@ pub struct Supervisor {
 ///|
 /// Rolling aggregation for one project's stats reports: the sampled RSS
 /// high-water mark and the automatic restart count since the last push.
+#derive(Debug)
 pub(all) struct StatsWindow {
   peak_kb : Int32
   restarts : Int32
-} derive(Debug)
+}
 
 ///|
 pub extend StatsWindow with Debug::{to_repr}

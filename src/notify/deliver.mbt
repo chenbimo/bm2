@@ -115,8 +115,8 @@ async fn http_deliver(
   let exchange = async fn() {
     match delivery.http_method {
       "GET" => @http.get(delivery.url, headers~)
-      "PUT" => @http.put(delivery.url, delivery.body, headers~)
-      _ => @http.post(delivery.url, delivery.body, headers~)
+      "PUT" => @http.put_text(delivery.url, delivery.body, headers~)
+      _ => @http.post_text(delivery.url, delivery.body, headers~)
     }
   }
   let answer = try @async.with_timeout_opt(timeout_ms, exchange) catch {

@@ -1,4 +1,5 @@
 ///|
+#derive(Debug, Eq)
 pub(all) enum Status {
   Stopped
   Starting
@@ -6,7 +7,7 @@ pub(all) enum Status {
   Restarting
   Errored
   Stopping
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend Status with Debug::{to_repr}
@@ -28,12 +29,13 @@ pub fn Status::as_string(self : Status) -> String {
 
 ///|
 /// What bm2 wants to happen after the current process exits.
+#derive(Debug, Eq)
 pub(all) enum ExitIntent {
   Idle
   Stop
   RestartFresh
   RestartCounted
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend ExitIntent with Debug::{to_repr}
@@ -45,12 +47,13 @@ pub extend ExitIntent with Eq::{not_equal, equal}
 /// Runtime SO_REUSEPORT probe state for cluster instances; the kernel is
 /// asked (via a bind test) whether the app's listener actually shares the
 /// port, so a missing `reusePort` is caught instead of crashing later.
+#derive(Debug, Eq)
 pub(all) enum ReusePortState {
   ReuseOff
   ReusePending
   ReuseOk
   ReuseExclusive
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend ReusePortState with Debug::{to_repr}
@@ -59,6 +62,7 @@ pub extend ReusePortState with Debug::{to_repr}
 pub extend ReusePortState with Eq::{not_equal, equal}
 
 ///|
+#derive(Debug)
 pub(all) struct Instance {
   app_name : String
   cwd : String
@@ -91,7 +95,7 @@ pub(all) struct Instance {
   mut last_rss_kb : Int32
   mut reuseport : ReusePortState
   mut reuseport_deadline_ms : UInt64
-} derive(Debug)
+}
 
 ///|
 pub extend Instance with Debug::{to_repr}

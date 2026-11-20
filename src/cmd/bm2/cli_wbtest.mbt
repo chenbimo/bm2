@@ -75,10 +75,19 @@ async test "a busy daemon is reported instead of being replaced" {
   @fsx.mkdir_p(state_dir)
   // Listening but never accepting requests: connects succeed, no answer
   // ever comes.
-  let server = @socket.TcpServer::TcpServer(@socket.Addr::new(2130706433U, 0))
+  let server = @socket.TcpServer::TcpServer(
+    @socket.Addr::Addr(
+      try @socket.IpAddr::IpAddr("127.0.0.1") catch {
+        _ => abort("loopback ip must parse")
+      } noraise {
+        ip => ip
+      },
+      0,
+    ),
+  )
   @fs.write_string_to_file(
     state_dir + "/" + @ipc.ENDPOINT_FILE,
-    server.addr.port().to_string() + "\nwbtest-token\n",
+    server.addr.port.to_string() + "\nwbtest-token\n",
   )
   let req : @protocol.Request = {
     protocol: Some(@protocol.PROTOCOL_VERSION),

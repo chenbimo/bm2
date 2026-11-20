@@ -1,8 +1,9 @@
 ///|
+#derive(Debug, Eq)
 pub(all) enum ChildExit {
   Exited(Int32)
   Signaled(Int32)
-} derive(Debug, Eq)
+}
 
 ///|
 pub extend ChildExit with Debug::{to_repr}

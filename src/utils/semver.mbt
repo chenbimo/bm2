@@ -1,10 +1,11 @@
 ///|
 /// A semantic version triple.
+#derive(Eq, Debug)
 pub(all) struct Semver {
   major : Int32
   minor : Int32
   patch : Int32
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Semver with Eq::{equal, not_equal}
