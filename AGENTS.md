@@ -4,9 +4,9 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## 工具链
 
-工作区通用铁律（WSL 编译、`_build`/`_build-wsl` 两级目录、wsl 互操作文件通道、git push 只在 Windows、告警档连写、依赖库读源码）见上级 `../AGENTS.md`，本节只写 bm2 自己的。
+工作区通用铁律（WSL 走 remote_host 的 localhost 主机、`_build`/`_build-wsl` 两级目录、git push 只在 Windows、告警档连写、依赖库读源码）见上级 `../AGENTS.md`，本节只写 bm2 自己的。
 
-- Windows 侧自动化调用统一走 `wsl -d Debian --cd /mnt/c/codes/moonbit/bm2 -- bash <脚本>`
+- WSL 命令一律经 remote_host 的 localhost 主机发出：`bash -lc 'cd /mnt/c/codes/moonbit/bm2 && <命令>'`（不是登录 shell 就没有 `moonc`，`-lc` 不能省）
 - **例外:文档站的 node 工具链跑在 Windows 侧**（`docs/` 下 `bun install` / `bun run dev`）：Rollup 与 esbuild 装的是平台专属的原生二进制，`node_modules` 在 Windows 与 WSL 之间不可共用；而文档的交互（浏览器预览）发生在 Windows，工具链就该跟着交互走
 - **产品文案**:人类可读的全部文案集中在 `src/i18n` 文案包,每条消息一个函数、按 `Lang` match,漏一种语言编译不过;加语言时编译器与测试全路带路,不允许任何一处静默回落
 - **语言来源三层**:配置 `lang` 是声明,写不支持的值直接报错;环境与请求里不认识的值退回英文。归属规则:关于某个项目的消息跟项目配置走,全量表、帮助、升级这类跟操作者环境走
