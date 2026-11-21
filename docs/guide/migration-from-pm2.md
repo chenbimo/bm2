@@ -89,15 +89,11 @@ keep = 7
 [notify]
 enabled = true
 lang = "zh"
-events = ["crash", "errored", "memory_limit", "reuseport_missing"]
 
-[[notify.report]]
-name = "故障告警"
-events = ["crash", "errored"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "feishu"
 url = "__BM2_FEISHU_WEBHOOK__"
+events = ["crash", "errored"]
 ```
 
 第三步，把原来的环境变量搬进 `.env` 文件。

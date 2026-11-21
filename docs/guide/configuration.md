@@ -79,29 +79,77 @@ enabled = false
 
 ## 字段总表
 
-| 字段 | 必填 | 默认 | 约束 |
-| --- | --- | --- | --- |
-| `name` | 是 | — | 字母开头，后接字母、数字、下划线 |
-| `cwd` | 否 | 配置文件所在目录 | 绝对路径，必须以 `/` 开头 |
-| `script` | 是 | — | 相对路径，非空，不得是绝对路径，不得含 `..` 段 |
-| `runtime` | 否 | `bun` | `bun` 或 `node` |
-| `exec_mode` | 否 | `cluster` | `cluster` 或 `fork` |
-| `instances` | 是 | — | `1 ~ 1024` |
-| `port` | 是 | — | `1 ~ 65535`，且 `port + instances - 1 <= 65535` |
-| `max_memory_mb` | 否 | `512` | `1 ~ 1048576` |
-| `max_tree_processes` | 否 | `512` | `1 ~ 65536`，内存统计的进程树上限 |
-| `max_restarts` | 否 | `10` | `0 ~ 2147483647` |
-| `restart_delay_ms` | 否 | `1000` | `0 ~ 2147483647` |
-| `min_uptime_ms` | 否 | `10000` | `0 ~ 2147483647` |
-| `stop_timeout_ms` | 否 | `10000` | `1 ~ 60000` |
-| `lang` | 否 | 跟随操作者 | `en` 或 `zh` |
-| `[logs] max_size_mb` | 否 | `10` | `1 ~ 102400` |
-| `[logs] keep` | 否 | `0` | `0 ~ 1000`，`0` 表示代数不限 |
-| `[notify]` | 否 | 关闭 | 见[通知](/guide/notifications) |
+| 字段 | 必填 | 默认 | 约束 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | 是 | — | 字母开头，后接字母、数字、下划线 | 项目名：状态目录下的目录名，也是 `bm2 <命令> <name>` 认的名字 |
+| `cwd` | 否 | 配置文件所在目录 | 绝对路径，必须以 `/` 开头 | 应用的**工作目录**，`script` 与它自己的 `.env` 都相对它解析 |
+| `script` | 是 | — | 相对路径，非空，不得是绝对路径，不得含 `..` 段 | 入口文件，相对 `cwd`；启动命令就是 `<runtime> <script>`，没有参数位 |
+| `runtime` | 否 | `bun` | `bun` 或 `node` | 用什么运行时拉起应用，按 `PATH` 解析 |
+| `exec_mode` | 否 | `cluster` | `cluster` 或 `fork` | `cluster` 让多实例共享一个端口（靠内核 `SO_REUSEPORT`），`fork` 是普通多实例 |
+| `instances` | 是 | — | `1 ~ 1024` | 实例数；`cluster` 下它们平分 `port` 起的端口段 |
+| `port` | 是 | — | `1 ~ 65535`，且 `port + instances - 1 <= 65535` | 起始端口，从它往后每个实例占一个 |
+| `max_memory_mb` | 否 | `512` | `1 ~ 1048576` | 单实例内存上限，超了按异常重启处理，并触发内存类事件 |
+| `max_tree_processes` | 否 | `512` | `1 ~ 65536` | 统计内存时最多走多少个后代进程，防止病态进程树拖慢采样 |
+| `max_restarts` | 否 | `10` | `0 ~ 2147483647` | 重启预算：用完就停手并报 `errored`；`0` 表示首次异常即停 |
+| `restart_delay_ms` | 否 | `1000` | `0 ~ 2147483647` | 异常退出后等多久再拉起，避免崩溃循环打满 CPU |
+| `min_uptime_ms` | 否 | `10000` | `0 ~ 2147483647` | 活够这么久才算「跑起来了」；不到就算一次失败重启，不进预算白名单 |
+| `stop_timeout_ms` | 否 | `10000` | `1 ~ 60000` | 停机时给应用的优雅退出时间，超时升级成 `SIGKILL` |
+| `lang` | 否 | 跟随操作者 | `en` 或 `zh` | 这个项目的输出语言，通知也默认跟它走 |
+| `[logs] max_size_mb` | 否 | `10` | `1 ~ 102400` | 单个日志文件超过它就轮转 |
+| `[logs] keep` | 否 | `0` | `0 ~ 1000` | 轮转后保留几代，`0` 表示代数不限 |
+| `[notify]` | 否 | 关闭 | 见[通知](/guide/notifications) | 事件告警与每日统计，字段见下方子表索引 |
 
 `name` 同时是状态目录下的目录名，所以字符集收得很紧，只允许路径里安全的字符。
 
 `port` 的上限检查先做单值检查、再做范围检查，所以 `port = 2147483647` 这类值不会被加法绕过去。
+
+## 子表字段索引
+
+两张子表的字段不在这张表里展开：默认值与取值范围只写在各自的正文页，这里只做索引，保证从配置页出发不会漏掉任何一个键。
+
+### `[logs]`
+
+| 字段 | 说明 | 详见 |
+| --- | --- | --- |
+| `max_size_mb` | 单个日志文件的轮转阈值 | [状态与日志](/guide/state-and-logs) |
+| `keep` | 轮转后保留的代数，`0` 为不限 | [状态与日志](/guide/state-and-logs) |
+
+### `[notify]`
+
+| 字段 | 说明 |
+| --- | --- |
+| `enabled` | 通知总开关，默认关闭 |
+| `lang` | 发出去的消息用什么语言，默认跟随项目 `lang` |
+| `timeout_ms` | 单个目标的投递硬超时 |
+| `dedupe_window_s` | 同一告警在这个窗口内只说一次，重复只计数 |
+| `max_per_minute` | 每分钟即时上报上限，按项目计 |
+| `queue_size` | 待投递队列深度，满了丢最新的 |
+| `daily_report_hour` | 每日统计在本地时间几点发 |
+| `threshold_rss_percent` | 内存占 `max_memory_mb` 的百分比，到了就报 |
+| `threshold_offline_min` | 实例非 online 持续多久就报 |
+| `threshold_restarts` | 连续异常重启多少次就报 |
+| `start_timeout_ms` | 拉起后端口多久还没监听就算启动超时 |
+| `threshold_disk_mb` | 状态盘剩余空间低于多少就报 |
+| `threshold_storm` | 十分钟窗口内重启次数上限，超了报重启风暴 |
+| `mail_url` | SMTP 地址，所有邮件目标共用这一条通道 |
+| `mail_from` | 发件人地址，用邮件目标时必填 |
+| `mail_username` | 中继需要认证时的用户名 |
+| `mail_password` | 中继需要认证时的密码 |
+
+字段的默认值、取值范围与关闭方式见[通知](/guide/notifications)。
+
+### `[[notify.target]]`
+
+| 字段 | 说明 |
+| --- | --- |
+| `platform` | 投递平台，七选一：feishu / dingtalk / wecom / slack / discord / webhook / email |
+| `url` | 网页平台的地址，`http://` 或 `https://` 开头；邮件目标不写 |
+| `to` | 邮件收件人数组；网页平台不写 |
+| `secret` | 加签密钥或 Bearer 令牌，含义按平台不同 |
+| `format` | 报文形状：text / markdown / card |
+| `events` | 这个目标收哪些事件：不写=全部，列出来=白名单，`!` 前缀=排除 |
+
+写法与示例见[通知](/guide/notifications)。
 
 ## 启动命令怎么拼
 
@@ -151,7 +199,7 @@ max_memory_mb = "__MEM_MB__"   # 同理
 
 ## 未知字段即报错
 
-根级、`[logs]`、`[notify]`、`[[notify.report]]`、`[[notify.report.target]]` 五层都做白名单校验。
+根级、`[logs]`、`[notify]`、`[[notify.target]]` 四层都做白名单校验。
 
 ```toml
 name = "api"
@@ -199,7 +247,7 @@ InvalidField: root has unknown field nope
 | 子表 | 管什么 | 细节 |
 | --- | --- | --- |
 | `[logs]` | 应用日志的轮转大小与保留代数 | [状态与日志](/guide/state-and-logs) |
-| `[notify]` | 事件上报、阈值、周期报告、端点与凭据 | [通知](/guide/notifications) |
+| `[notify]` | 事件上报、阈值、每日统计、目标与凭据 | [通知](/guide/notifications) |
 
 两张子表都属于这个项目：日志是项目的日志，告警是项目的告警。一个项目不会替另一个项目上报。
 
@@ -276,26 +324,18 @@ keep = 7
 [notify]
 enabled = true
 lang = "zh"
-events = ["crash", "errored", "memory_limit", "reuseport_missing", "disk_pressure"]
+daily_report_hour = 9
 threshold_rss_percent = 85
 threshold_disk_mb = 2048
 
-[[notify.report]]
-name = "故障告警"
-events = ["crash", "errored", "memory_limit", "reuseport_missing", "disk_pressure"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "feishu"
 url = "__BM2_FEISHU_WEBHOOK__"
 
-[[notify.report]]
-name = "健康巡检"
-cron = "*/10 * * * *"
-template = "health"
-
-[[notify.report.target]]
-platform = "feishu"
-url = "__BM2_HEALTH_WEBHOOK__"
+[[notify.target]]
+platform = "email"
+to = ["oncall@example.com"]
+events = ["errored", "reuseport_missing"]
 ```
 
 ## 错误长什么样

@@ -14,7 +14,7 @@
 | `bm2 list` | `[name]`、`--json` | 自动拉起 | 实例表，或机器可读 JSON |
 | `bm2 check` | — | 不需要 | 校验当前目录的 `bm2.toml`，含端口探测 |
 | `bm2 reload` | — | 自动拉起 | 换入新的 `bm2d`，应用继续运行 |
-| `bm2 notify` | `[report]` | 自动拉起 | 给本项目的通知目标发一条测试消息 |
+| `bm2 notify` | — | 自动拉起 | 给本项目的全部通知目标发一条测试消息 |
 | `bm2 clean` | `--dry-run` | 不需要 | 清掉状态目录里无主的项目目录 |
 | `bm2 upgrade` | — | 视情况 | 查最新版本、`moon install`、换班 |
 | `bm2 version` | — | 不需要 | 打印版本 |
@@ -231,7 +231,7 @@ bm2 check
 
 ```text
 config ok: project "api", 2 x cluster on port 3000, runtime bun
-notify: 2 report(s), 3 target(s), 1 periodic
+notify: 3 target(s), daily stats at 8:00
 ports 3000~3000: free
 ```
 
@@ -269,19 +269,17 @@ bm2 reload
 ## `notify`
 
 ```bash
-bm2 notify              # 发给本项目所有上报条目的全部目标
-bm2 notify 故障告警      # 只发某一条上报的端点
+bm2 notify              # 发给本项目所有目标
 ```
 
-在项目目录执行，目标来自那份 `bm2.toml`。
-
-参数是 `[[notify.report]]` 的 `name`，不是平台名。写了一个不存在的名字，退出 `1` 并点名它。
+在项目目录执行，目标来自那份 `bm2.toml`。没有参数：能发到全部，才是真的验通了。
 
 几条行为要记住：
 
 - 配置按 **production** 模式加载，所以占位符解析用 `.env.production` 里的值。
-- 必须 `enabled = true` 且至少有一个 `[[notify.report.target]]`，否则直接拒绝并告诉你缺什么。
-- 测试消息**绕过**事件筛选、去重与限流，直接投递。它证明的是端点和凭据可用，不是策略配对了。
+- 必须 `enabled = true` 且至少有一个 `[[notify.target]]`，否则直接拒绝并告诉你缺什么。
+- 测试消息**绕过**事件过滤、去重与限流，直接投递。它证明的是端点和凭据可用，不是策略配对了。
+- 测试消息自带事件键 `notify_test`、名称「测试消息」，在消息里一眼能认出它不是真告警。
 - 多个目标并发投递，所以整条请求的等待上限取决于最慢的一个。
 - 逐目标打印结果，平台名来自 `platform` 字段。
 

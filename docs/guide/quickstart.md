@@ -202,16 +202,12 @@ server {
 [notify]
 enabled = true
 lang = "zh"
-events = ["crash", "errored", "memory_limit", "reuseport_missing"]
 threshold_rss_percent = 80
 
-[[notify.report]]
-name = "故障告警"
-events = ["crash", "errored"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "feishu"
 url = "__BM2_FEISHU_WEBHOOK__"
+events = ["crash", "errored", "memory_limit", "reuseport_missing"]
 ```
 
 真值放在项目目录的 `.env.production` 里，不写进配置。

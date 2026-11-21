@@ -101,34 +101,32 @@ Bun.serve({
 })
 ```
 
-`reusePort: true` 只在 `cluster` 模式下需要，忘了写会在启动后实测到没生效，bm2 会停下整个项目并说明原因，而不是让第二个实例随机发疯。
+`reusePort: true` 只在**多实例**的 `cluster` 模式下需要：那时探测发现没开会停下整个项目并说明原因，而不是让第二个实例随机发疯。单实例的 `cluster` 不共享端口，不要求这一项。
 
 ## 日报与巡检
 
 ![](https://static.yicode.tech/images/202610/1793419096472.png)
 
-通知属于项目，写在同一份 `bm2.toml` 里。
+通知属于项目，写在同一份 `bm2.toml` 里。只有两个概念：**事件**和**目标**——哪些事值得说，说给谁听。
 
 ```toml
 [notify]
 enabled = true
-events = ["crash", "errored", "memory_limit"]
-dedupe_window_s = 3600
 
-[[notify.report]]
-name = "每日统计"
-cron = "0 8 * * *"
-template = "stats"
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "feishu"
 url = "https://open.feishu.cn/open-apis/bot/v2/hook/__FEISHU__"
 ```
 
-- `health` 适合巡检，关注当前状态。
-- `stats` 适合日报，关注这一段时间的增长与重启次数。
-- `cron` 支持分、时、日、月、周五个字段，多个值用逗号列出，不支持区间写法。
+- 目标不写 `events` 就收全部事件。只关心一部分时，`events = ["crash", "oom_kill"]` 是白名单，`events = ["!lifecycle"]` 是排除——两种写法不能混用。
+- 每日统计也是一个事件（`daily_stats`），几点发由 `daily_report_hour` 定，默认 `8`（本地时间整点）；写 `events = ["!daily_stats"]` 就是不要日报。
+- 同一件事在 `dedupe_window_s`（默认 `3600` 秒）内只说一次，重复只计数，下一次带出去。
+- 邮件目标的 SMTP 通道在 `[notify]` 上写一份（`mail_url` / `mail_from` / `mail_username` / `mail_password`），每个邮件目标只写收件人 `to`。
+- `threshold_*` 阈值不写就是推荐值（内存 80%、离线 5 分钟、连续重启 5 次、拉起 30 秒、磁盘 1G、十分钟 20 次），要关掉某一项才写 `0`。
+- 消息本身跟着语言走：中文项目的通知从标题到字段名全中文（`事件: 实例崩溃`、`应用: api`、`运行时长: 0s`），机器读的那一侧仍是语言中立的事件键 `event` 与 `event_name`。
 - 凭据用 `__NAME__` 占位符，真值放 `.env` 或启动环境，不要写进仓库。
+
+改完先 `bm2 check` 看汇总，再 `bm2 notify` 发一条测试消息到所有目标。
 
 ## 命令速查
 
@@ -143,7 +141,7 @@ url = "https://open.feishu.cn/open-apis/bot/v2/hook/__FEISHU__"
 | `bm2 list [name]` | 查看实例表，`--json` 给机器读 |
 | `bm2 check` | 只校验当前目录的 `bm2.toml`，不碰守护进程 |
 | `bm2 reload` | 换入新的守护进程，应用继续运行 |
-| `bm2 notify [target]` | 给本项目的通知目标发一条测试消息 |
+| `bm2 notify` | 给本项目所有通知目标发一条测试消息 |
 | `bm2 upgrade` | 用 `moon install` 换入新版本并让新守护进程接管 |
 | `bm2 kill -y` | 停掉全部项目并退出守护进程 |
 
@@ -176,11 +174,11 @@ port = 3000
 | `min_uptime_ms` | 10000 | 短命进程被误判成崩溃 |
 | `stop_timeout_ms` | 10000 | 停机要等更久（如排空连接） |
 | `[logs]` | 10MB / 代数不限 | 要限制日志磁盘占用 |
-| `[notify]` | 关闭 | 要事件告警与周期上报 |
+| `[notify]` | 关闭 | 要事件告警与每日统计 |
 | `lang` | 跟随操作者环境 | 要钉死输出语言 |
 
-`[notify]` 里的 `threshold_*` 阈值默认都是 0（关闭），不写就不触发——只有配上具体数值，
-`events` 里列出的 threshold 类事件才会有意义。
+`[notify]` 里只写偏离推荐值的那几项：`threshold_*` 不写就是推荐值，写 `0` 才是关闭该项，
+关闭之后对应事件不会出现。
 
 ## 环境变量文件（.env）
 

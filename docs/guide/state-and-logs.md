@@ -179,7 +179,8 @@ jq -c 'select(.event=="reuseport_missing")' ~/.bm2/bm2d.events.jsonl
 | `pid_conflict` | 记录里的 pid 属于别的程序 |
 | `project_removed` | 项目已从名册移除 |
 | `state_save_failed` / `state_load_failed` / `state_discarded` | 状态文件的读写与丢弃 |
-| `notify_sent` / `notify_partial` / `notify_failed` / `notify_target_failed` | 投递结果 |
+| `notify_sent` / `notify_target_failed` | 逐目标的投递结果，detail 带事件、目标与失败原因 |
+| `notify_partial` / `notify_failed` | 整条消息的结果：部分成功，或全部失败要重试（detail 带第几次尝试） |
 | `notify_rate_limited` / `notify_queue_full` / `notify_backlog_dropped` | 通知被限流或丢弃 |
 | `connection_refused` / `auth_failed` | 控制面的拒绝 |
 | `request_received` / `response_sent` / `command_reply_dropped` | 命令的生命周期 |
