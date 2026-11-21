@@ -1,6 +1,6 @@
 ///|
-/// A config fixture with a notify section the summary must count correctly:
-/// one instant report with two targets, one periodic report with one target.
+/// A config fixture with three targets: two take every event, one only takes the
+/// daily stats. The summary must count targets and say whether stats go out.
 fn check_config() -> @config.Config {
   {
     name: "api",
@@ -30,62 +30,37 @@ fn check_config() -> @config.Config {
       dedupe_window_s: 3600,
       max_per_minute: 30,
       queue_size: 128,
-      events: ["crash"],
+      daily_report_hour: 8,
       threshold_rss_percent: 0,
       threshold_offline_min: 0,
       threshold_restarts: 0,
       start_timeout_ms: 0,
       threshold_disk_mb: 0,
       threshold_storm: 0,
-      reports: [
+      targets: [
         {
-          name: "t1",
-          label: None,
-          events: Some(["crash"]),
-          min_level: None,
-          cron: None,
-          cron_text: None,
-          template: None,
-          targets: [
-            {
-              platform: "feishu",
-              url: "https://x/y",
-              secret: None,
-              format: None,
-              mail_to: None,
-            },
-            {
-              platform: "email",
-              url: "",
-              secret: None,
-              format: None,
-              mail_to: Some(["a@b.c"]),
-            },
-          ],
+          platform: "feishu",
+          url: "https://x/y",
+          secret: None,
+          format: None,
+          mail_to: None,
+          filter: @config.EventFilter::All,
         },
         {
-          name: "t2",
-          label: None,
-          events: None,
-          min_level: None,
-          cron: Some({
-            minutes: [0],
-            hours: [8],
-            days_of_month: [1],
-            months: [1],
-            days_of_week: [0, 1, 2, 3, 4, 5, 6],
-          }),
-          cron_text: Some("0 8 * * *"),
-          template: Some("health"),
-          targets: [
-            {
-              platform: "webhook",
-              url: "https://x/z",
-              secret: None,
-              format: None,
-              mail_to: None,
-            },
-          ],
+          platform: "webhook",
+          url: "https://x/z",
+          secret: None,
+          format: None,
+          mail_to: None,
+          filter: @config.EventFilter::Except(["lifecycle"]),
+        },
+        {
+          platform: "email",
+          url: "",
+          secret: None,
+          format: None,
+          mail_to: Some(["a@b.c"]),
+          filter: @config.EventFilter::Only(["daily_stats"]),
         },
       ],
     },
@@ -93,14 +68,14 @@ fn check_config() -> @config.Config {
 }
 
 ///|
-test "check_summary counts reports, targets and periodic entries" {
+test "check_summary counts targets and reports the daily stats schedule" {
   let text = check_summary(check_config(), @i18n.Lang::En)
   // Identity and layout first.
   assert_true(text.contains("project \"api\""))
   assert_true(text.contains("4 x cluster on port 3020"))
   assert_true(text.contains("runtime bun"))
-  // Notify line: 2 reports, 3 targets total, 1 periodic (t2 has a template).
-  assert_true(text.contains("notify: 2 report(s), 3 target(s), 1 periodic"))
+  // Notify line: 3 targets, and one of them takes the daily stats at 08:00.
+  assert_true(text.contains("notify: 3 target(s), daily stats at 8:00"))
 }
 
 ///|

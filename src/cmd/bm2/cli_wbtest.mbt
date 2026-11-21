@@ -94,7 +94,6 @@ async test "a busy daemon is reported instead of being replaced" {
     command: "list",
     app: None,
     config_path: None,
-    notify_target: None,
     force: None,
     lang: None,
   }

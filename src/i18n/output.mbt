@@ -301,15 +301,23 @@ pub fn check_ok(
 ///|
 pub fn check_notify(
   lang : Lang,
-  reports : Int32,
   targets : Int32,
-  periodic : Int32,
+  daily_hour : Int32,
+  daily_on : Bool,
 ) -> String {
   match lang {
     En =>
-      "notify: \{reports} report(s), \{targets} target(s), \{periodic} periodic"
+      if daily_on {
+        "notify: \{targets} target(s), daily stats at \{daily_hour}:00"
+      } else {
+        "notify: \{targets} target(s), no daily stats"
+      }
     Zh =>
-      "通知:\{reports} 条规则,\{targets} 个目标,\{periodic} 条定时"
+      if daily_on {
+        "通知:\{targets} 个目标,每日统计 \{daily_hour} 点"
+      } else {
+        "通知:\{targets} 个目标,不发每日统计"
+      }
   }
 }
 

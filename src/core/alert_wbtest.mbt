@@ -1,7 +1,7 @@
 ///|
-/// Tests for bm2's notification adapter: subscription filtering, policy-driven
-/// dedupe/rate/queue behaviour and the CPU sampler. Rendering, signing and the
-/// engine itself are covered by the notify package's own suite.
+/// Tests for bm2's notification adapter: per-target event filtering, the
+/// policy-driven dedupe/rate/queue behaviour and the CPU sampler. Rendering,
+/// signing and the engine itself are covered by the notify package's own suite.
 
 ///|
 /// Bulk drops are counted, not announced: one event line per reporting window,
@@ -17,25 +17,6 @@ test "bulk drops are reported once per window" {
   // was already reported, so it is the two later ones plus this call.
   assert_eq(window.note(61000UL), Some(3))
   assert_eq(window.note(62000UL), None)
-}
-
-///|
-fn wb_report(
-  events? : Array[String],
-  min_level? : String,
-  cron? : @config.CronSpec,
-  template? : String,
-) -> @config.NotifyReport {
-  {
-    name: "t",
-    label: None,
-    events,
-    min_level,
-    cron,
-    cron_text: None,
-    template,
-    targets: [],
-  }
 }
 
 ///|
@@ -81,25 +62,77 @@ fn wb_notifier(tag : String) -> Notifier {
 }
 
 ///|
+/// 过滤是纯函数：三态各自的判定，以及一个"没人收"的事件不进队列。
+test "event filters decide which targets receive an event" {
+  let all = @config.EventFilter::All
+  let only = @config.EventFilter::Only(["crash"])
+  let except = @config.EventFilter::Except(["lifecycle"])
+  assert_true(all.accepts("lifecycle"))
+  assert_true(all.accepts("daily_stats"))
+  assert_true(only.accepts("crash"))
+  assert_false(only.accepts("lifecycle"))
+  assert_false(except.accepts("lifecycle"))
+  assert_true(except.accepts("daily_stats"))
+  let policy = wb_policy(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"webhook\"\nurl = \"http://127.0.0.1:9/hook\"\nevents = [\"crash\"]\n",
+  )
+  let (notifier, runner) = wb_pair("filter")
+  notifier.emit(policy, "api", wb_message("lifecycle", "info", 1000UL))
+  runner.drain(1000UL)
+  assert_eq(runner.queued(), 0)
+  notifier.emit(policy, "api", wb_message("crash", "warn", 1000UL))
+  runner.drain(1000UL)
+  assert_eq(runner.queued(), 1)
+}
+
+///|
+/// 每条消息都自带事件名，且与项目配的通知语言一致：群里看得到「实例崩溃」，
+/// 而不是靠标题猜它对应配置里的哪个键。
+test "every message carries its event name in the project language" {
+  let msg = @notify.Message::new(
+    "crash",
+    "warn",
+    "api · 实例异常退出",
+    "退出码 1",
+    "crash|api|0",
+    1000UL,
+    fields=[("app", "api")],
+  )
+  let zh = with_event_label("zh", msg)
+  assert_eq(zh.event_label, "实例崩溃")
+  assert_eq(zh.fields[0], ("event", "实例崩溃"))
+  // 事件名占字段区首行，原有字段一个不少。
+  assert_eq(zh.fields[1], ("app", "api"))
+  assert_eq(with_event_label("en", msg).event_label, "Instance crash")
+  // 十一个事件都有名字，且两种语言都不回落到键名。
+  for
+    event in [
+      "crash", "errored", "memory_limit", "oom_kill", "reuseport_missing", "lifecycle",
+      "daemon", "threshold", "disk_pressure", "start_timeout", "daily_stats",
+    ] {
+    assert_true(event_label("zh", event) != event)
+    assert_true(event_label("en", event) != event)
+  }
+  // 不认识的键原样回显，不空着。
+  assert_eq(
+    with_event_label("zh", { ..msg, event: "future_event", }).event_label,
+    "future_event",
+  )
+}
+
+///|
+/// 测试消息是它自己的一类，不再冒充生命周期事件。
+test "the test message reports itself as a test message" {
+  let msg = test_message(1000UL, lang="zh")
+  assert_eq(msg.event, "notify_test")
+  assert_eq(with_event_label("zh", msg).event_label, "测试消息")
+  assert_eq(with_event_label("en", msg).event_label, "Test message")
+}
+
+///|
 test "dedupe counts repeats and the rate limit drops the rest" {
   let policy = wb_policy(
-    (
-      #|[notify]
-      #|enabled = true
-      #|dedupe_window_s = 3600
-      #|max_per_minute = 2
-      #|queue_size = 8
-      #|events = ["crash"]
-      #|
-      #|[[notify.report]]
-      #|name = "t"
-      #|events = ["crash"]
-      #|
-      #|[[notify.report.target]]
-      #|platform = "webhook"
-      #|url = "http://127.0.0.1:9/hook"
-      #|
-    ),
+    "[notify]\nenabled = true\ndedupe_window_s = 3600\nmax_per_minute = 2\nqueue_size = 8\n[[notify.target]]\nplatform = \"webhook\"\nurl = \"http://127.0.0.1:9/hook\"\n",
   )
   let (notifier, runner) = wb_pair("dedupe")
   assert_true(policy.enabled)
@@ -124,23 +157,7 @@ test "dedupe counts repeats and the rate limit drops the rest" {
 ///|
 test "rate limiting and queue overflow are counted, never unbounded" {
   let policy = wb_policy(
-    (
-      #|[notify]
-      #|enabled = true
-      #|dedupe_window_s = 0
-      #|max_per_minute = 1
-      #|queue_size = 2
-      #|events = ["crash"]
-      #|
-      #|[[notify.report]]
-      #|name = "t"
-      #|events = ["crash"]
-      #|
-      #|[[notify.report.target]]
-      #|platform = "webhook"
-      #|url = "http://127.0.0.1:9/hook"
-      #|
-    ),
+    "[notify]\nenabled = true\ndedupe_window_s = 0\nmax_per_minute = 1\nqueue_size = 2\n[[notify.target]]\nplatform = \"webhook\"\nurl = \"http://127.0.0.1:9/hook\"\nevents = [\"crash\"]\n",
   )
   let (notifier, runner) = wb_pair("limit")
   notifier.emit(
@@ -165,14 +182,15 @@ test "rate limiting and queue overflow are counted, never unbounded" {
   runner.drain(1000UL)
   assert_eq(runner.queued(), 1)
   assert_eq(runner.dropped(), 2)
-  // An unsubscribed event never queues at all.
+  // 没有目标接收的事件连队列都不进，也不算丢弃。
   notifier.emit(
     policy,
     "api",
-    @notify.Message::new("report", "info", "r", "b", "s4", 1000UL),
+    @notify.Message::new("lifecycle", "info", "r", "b", "s4", 1000UL),
   )
   runner.drain(1000UL)
   assert_eq(runner.queued(), 1)
+  assert_eq(runner.dropped(), 2)
   // Another project's events queue separately, with its own minute budget.
   notifier.emit(
     policy,
@@ -184,69 +202,15 @@ test "rate limiting and queue overflow are counted, never unbounded" {
 }
 
 ///|
-test "per-report subscriptions and level floors are honoured" {
-  let config = wb_policy(
-    (
-      #|[notify]
-      #|enabled = true
-      #|events = ["crash"]
-      #|
-    ),
-  )
-  let quiet = wb_report(min_level="error")
-  let crashing = wb_report(events=["crash"])
-  let periodic = wb_report(
-    cron=@config.CronSpec::{
-      minutes: [0],
-      hours: [8],
-      days_of_month: [1],
-      months: [1],
-      days_of_week: [0, 1, 2, 3, 4, 5, 6],
-    },
-    template="health",
-  )
-  // Level floor: warn sits below the error floor.
-  assert_false(wants(quiet, config, wb_message("crash", "warn", 1000UL)))
-  assert_true(wants(quiet, config, wb_message("crash", "error", 1000UL)))
-  // Subscription: errored is not in these reports' events list.
-  assert_false(wants(crashing, config, wb_message("errored", "warn", 1000UL)))
-  // No level floor on crashing: any level of a subscribed event passes.
-  assert_true(wants(crashing, config, wb_message("crash", "warn", 1000UL)))
-  // Periodic reports never take events, whatever their own subscription.
-  assert_false(wants(periodic, config, wb_message("crash", "error", 1000UL)))
-}
-
-///|
 async test "a failed delivery reports a reason without the credential" {
   let policy = wb_policy(
-    (
-      #|[notify]
-      #|enabled = true
-      #|queue_size = 4
-      #|events = ["crash"]
-      #|
-      #|[[notify.report]]
-      #|name = "dead"
-      #|events = ["crash"]
-      #|
-      #|[[notify.report.target]]
-      #|platform = "webhook"
-      #|url = "http://127.0.0.1:9/hook?token=SECRET"
-      #|secret = "TOPSECRET"
-      #|
-    ),
+    "[notify]\nenabled = true\nqueue_size = 4\n[[notify.target]]\nplatform = \"webhook\"\nurl = \"http://127.0.0.1:9/hook?token=SECRET\"\nsecret = \"TOPSECRET\"\nevents = [\"crash\"]\n",
   )
   let (notifier, runner) = wb_pair("fail")
-  let endpoints = []
-  for report in policy.reports {
-    for endpoint in report.targets {
-      endpoints.push(endpoint)
-    }
-  }
   let reply = notifier.publish_test(
     "api",
     policy,
-    endpoints,
+    policy.targets,
     @notify.Message::new("crash", "warn", "t", "b", "s", 1000UL),
   )
   // One pass takes the test off the queue and delivers it; the result comes

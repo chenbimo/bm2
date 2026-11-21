@@ -155,6 +155,14 @@ test "the generic preset and email carry a stable documented shape" {
     generic.body.contains("\"fields\":{\"应用\":\"api\",\"端口\":\"3000\"}"),
   )
   assert_true(generic.headers.contains(("Authorization", "Bearer tk")))
+  // 事件的人类可读名称跟着消息走：库不做翻译，传进来什么就原样发出去。
+  let labelled = render_delivery(
+    n_target("webhook", "https://gateway.example/hook"),
+    { ..msg, event_label: "实例崩溃", },
+    n_ctx(),
+  )
+  assert_true(labelled.body.contains("\"event_name\":\"实例崩溃\""))
+  assert_true(labelled.body.contains("\"event\":\"crash\""))
 
   let email = render_delivery(
     n_target(

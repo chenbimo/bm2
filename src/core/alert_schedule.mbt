@@ -126,62 +126,48 @@ pub fn Supervisor::check_notify(self : Supervisor, now_mono : UInt64) -> Unit {
 }
 
 ///|
-/// Periodic reports: every `[[notify.report]]` with a `cron` gets its content
-/// rendered on its own schedule and published to the notify task, which
-/// delivers it straight through — no event queue, no dedupe, no rate limit.
-/// Rendering happens here because supervised state lives here; delivery is the
-/// notify task's job. Nothing in this function waits on the network.
+/// The daily stats report: one render per day, at `daily_report_hour`, published
+/// to every target that subscribes to `daily_stats`. Delivery is the notify
+/// task's job; nothing here waits on the network.
+///
+/// 它不再有 cron：只有"每天整点"这一种周期，多一个 cron 解析器就多一套需要
+/// 解释的边界。
 pub fn Supervisor::check_schedules(
   self : Supervisor,
   now_mono : UInt64,
   now_wall : UInt64,
 ) -> Unit {
-  // Cron granularity is minutes; evaluate once per minute, not on every
-  // 50 ms tick — otherwise a matching minute fires once per tick. The gate is
-  // a duration (monotonic), the cron fields are local wall-clock time.
+  // 每分钟评估一次，而不是每个 50ms tick：否则命中的那一分钟里会重复触发。
   if now_mono >= self.last_schedule_check_ms &&
     now_mono - self.last_schedule_check_ms < NOTIFY_CHECK_INTERVAL_MS {
     return
   }
   self.last_schedule_check_ms = now_mono
+  let parts = match @proc.local_parts(now_wall) {
+    Some(parts) => parts
+    None => return
+  }
+  let (_, _, _, _, hour, minute) = parts
+  if minute != 0 {
+    return
+  }
   for app_name in self.app_names() {
     let policy = self.project_policy(app_name)
     if !policy.enabled {
       continue
     }
-    for report in policy.reports {
-      let cron = match report.cron {
-        Some(cron) => cron
-        None => continue
-      }
-      let parts = match @proc.local_parts(now_wall) {
-        Some(parts) => parts
-        None => continue
-      }
-      if !cron_matches(cron, parts) {
-        continue
-      }
-      let stats = report.template == Some("stats")
-      let message = self.build_report(app_name, policy, now_mono, stats~)
-      self.notify.publish_schedule(app_name, policy, report.targets, message)
+    if hour != policy.daily_report_hour {
+      continue
     }
+    let subscribers = policy.targets.filter(fn(target) {
+      target.filter.accepts("daily_stats")
+    })
+    if subscribers.length() == 0 {
+      continue
+    }
+    let message = self.build_report(app_name, policy, now_mono)
+    self.notify.publish_schedule(app_name, policy, subscribers, message)
   }
-}
-
-///|
-/// Cron match against local-time parts: (year, month, day, weekday, hour,
-/// minute). Every restricted field must contain the current value; the
-/// parser guarantees day-of-month and day-of-week are not both restricted.
-fn cron_matches(
-  spec : @config.CronSpec,
-  parts : (Int32, Int32, Int32, Int32, Int32, Int32),
-) -> Bool {
-  let (_, month, day, weekday, hour, minute) = parts
-  spec.minutes.contains(minute) &&
-  spec.hours.contains(hour) &&
-  spec.days_of_month.contains(day) &&
-  spec.months.contains(month) &&
-  spec.days_of_week.contains(weekday)
 }
 
 ///|

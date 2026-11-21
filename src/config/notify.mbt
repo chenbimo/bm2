@@ -1,9 +1,9 @@
 ///|
-/// The `[notify]` section of a project config: which events leave this
-/// project, where they go, and on what schedule. Nothing here executes
-/// code — every string is either an endpoint, a credential, or a value from
-/// a closed set that validation checks. `${VAR}` expansion already happened
-/// at the tree level before any of this runs.
+/// `[notify]` 段的解析：谁收、收哪些事件、告警阈值。
+///
+/// 只有两层结构：`[notify]` 全局参数 + `[[notify.target]]` 目标列表。每个目标
+/// 自带事件过滤，所以没有继承、没有报告、没有 cron——这些概念曾经存在，代价是
+/// 用户要先想清楚「哪一层覆盖哪一层」才能写对一个地址。
 
 ///|
 fn opt_bool(
@@ -58,19 +58,6 @@ fn opt_string_opt(
 }
 
 ///|
-fn opt_string_array(
-  table : Map[String, @toml.TomlValue],
-  key : String,
-  ctx : String,
-  default : Array[String],
-) -> Array[String] raise ConfigError {
-  match opt_string_array_opt(table, key, ctx) {
-    Some(value) => value
-    None => default
-  }
-}
-
-///|
 fn opt_string_array_opt(
   table : Map[String, @toml.TomlValue],
   key : String,
@@ -100,16 +87,15 @@ fn opt_string_array_opt(
 ///|
 let notifyKeys : Array[String] = [
   "enabled", "lang", "timeout_ms", "dedupe_window_s", "max_per_minute", "queue_size",
-  "events", "threshold_rss_percent", "threshold_offline_min", "threshold_restarts",
+  "daily_report_hour", "threshold_rss_percent", "threshold_offline_min", "threshold_restarts",
   "start_timeout_ms", "threshold_disk_mb", "threshold_storm", "mail_url", "mail_from",
-  "mail_username", "mail_password", "report",
+  "mail_username", "mail_password", "target",
 ]
 
 ///|
-/// Report-level keys plus the seven platform objects. Exactly one platform
-/// object per endpoint.
-let reportKeys : Array[String] = [
-  "name", "label", "events", "min_level", "cron", "template", "target",
+/// One entry of `[[notify.target]]`.
+let targetKeys : Array[String] = [
+  "platform", "url", "events", "secret", "format", "to",
 ]
 
 ///|
@@ -121,58 +107,40 @@ let platforms : Array[String] = [
 ]
 
 ///|
+/// 十类"发生了某事"的事件，加上到点触发的 `daily_stats`。
 let notifyEvents : Array[String] = [
   "crash", "errored", "memory_limit", "reuseport_missing", "lifecycle", "daemon",
-  "threshold", "oom_kill", "disk_pressure", "start_timeout",
+  "threshold", "oom_kill", "disk_pressure", "start_timeout", "daily_stats",
 ]
-
-///|
-let notifyLevels : Array[String] = ["info", "warn", "error"]
 
 ///|
 let notifyFormats : Array[String] = ["text", "markdown", "card"]
 
 ///|
-/// Preset report templates for periodic reports. The set grows over time;
-/// the shape of the table does not.
-let notifyTemplates : Array[String] = ["health", "stats"]
+/// 告警阈值的推荐值：不写就是这些，写 0 才表示关闭该项。
+const DEFAULT_THRESHOLD_RSS_PERCENT : Int32 = 80
 
 ///|
-/// Parse the `[notify]` table of a project config.
-pub fn parse_notify_section(
-  table : Map[String, @toml.TomlValue],
-  default_lang~ : String,
-) -> NotifyConfig raise ConfigError {
-  reject_unknown_keys(table, notifyKeys, "notify")
-  let config : NotifyConfig = {
-    enabled: opt_bool(table, "enabled", "notify", false),
-    lang: opt_lang(table, default=default_lang),
-    timeout_ms: opt_int(table, "timeout_ms", "notify", 5000),
-    dedupe_window_s: opt_int(table, "dedupe_window_s", "notify", 3600),
-    max_per_minute: opt_int(table, "max_per_minute", "notify", 30),
-    queue_size: opt_int(table, "queue_size", "notify", 128),
-    events: opt_string_array(table, "events", "notify", []),
-    threshold_rss_percent: opt_int(table, "threshold_rss_percent", "notify", 0),
-    threshold_offline_min: opt_int(table, "threshold_offline_min", "notify", 0),
-    threshold_restarts: opt_int(table, "threshold_restarts", "notify", 0),
-    start_timeout_ms: opt_int(table, "start_timeout_ms", "notify", 0),
-    threshold_disk_mb: opt_int(table, "threshold_disk_mb", "notify", 0),
-    threshold_storm: opt_int(table, "threshold_storm", "notify", 0),
-    mail_url: opt_string_opt(table, "mail_url", "notify"),
-    mail_from: opt_string_opt(table, "mail_from", "notify"),
-    mail_username: opt_string_opt(table, "mail_username", "notify"),
-    mail_password: opt_string_opt(table, "mail_password", "notify"),
-    reports: parse_reports(table),
-  }
-  validate_notify(config)
-  config
-}
+const DEFAULT_THRESHOLD_OFFLINE_MIN : Int32 = 5
 
 ///|
-/// Notification copy language: whatever `@i18n` speaks. The set is not spelled out
-/// here on purpose — this decides whether the value is one bm2 knows, and the
-/// refusal names the set the same place the rest of the program does.
-///
+const DEFAULT_THRESHOLD_RESTARTS : Int32 = 5
+
+///|
+const DEFAULT_START_TIMEOUT_MS : Int32 = 30000
+
+///|
+const DEFAULT_THRESHOLD_DISK_MB : Int32 = 1024
+
+///|
+const DEFAULT_THRESHOLD_STORM : Int32 = 20
+
+///|
+/// 每日统计的默认整点。只表达"什么时候发"；"发不发"由有没有目标订阅
+/// `daily_stats` 决定。
+const DEFAULT_DAILY_REPORT_HOUR : Int32 = 8
+
+///|
 /// The default is the project's own language rather than a constant: notification
 /// copy is part of the project, so a project that says `lang = "zh"` gets Chinese
 /// notices without a second knob. `[notify] lang` still overrides it, because a
@@ -195,243 +163,205 @@ fn opt_lang(
 }
 
 ///|
-/// Parse the `[[notify.report]]` array: one entry is either instant
-/// (events/min_level) or periodic (cron/template), plus its endpoints.
-fn parse_reports(
+/// Parse the `[notify]` table of a project config.
+pub fn parse_notify_section(
   table : Map[String, @toml.TomlValue],
-) -> Array[NotifyReport] raise ConfigError {
-  match table.get("report") {
-    None => []
-    Some(@toml.TomlArray(items)) => {
-      let reports = []
-      for index, item in items {
-        let ctx = "notify.report[\{index}]"
-        guard item is @toml.TomlTable(fields) else {
-          raise ConfigError::InvalidField("\{ctx} must be a table")
-        }
-        reject_unknown_keys(fields, reportKeys, ctx)
-        let cron = match opt_string_opt(fields, "cron", ctx) {
-          Some(text) => Some(parse_cron(text, ctx))
-          None => None
-        }
-        let template = opt_string_opt(fields, "template", ctx)
-        // cron and template are a pair; events routing is instant-only.
-        if cron is Some(_) && template is None {
-          raise ConfigError::InvalidField(
-            "\{ctx}.cron requires template (health / stats)",
-          )
-        }
-        if cron is None && template is Some(_) {
-          raise ConfigError::InvalidField("\{ctx}.template requires cron")
-        }
-        match template {
-          Some(value) =>
-            if !notifyTemplates.contains(value) {
-              raise ConfigError::InvalidField(
-                "\{ctx}.template has unknown value \{value}",
-              )
-            }
-          None => ()
-        }
-        if cron is Some(_) {
-          if fields.contains("events") {
-            raise ConfigError::InvalidField(
-              "\{ctx}.events is not used by a periodic report",
-            )
-          }
-          if fields.contains("min_level") {
-            raise ConfigError::InvalidField(
-              "\{ctx}.min_level is not used by a periodic report",
-            )
-          }
-        }
-        reports.push({
-          name: req_string(fields, "name", ctx),
-          label: opt_string_opt(fields, "label", ctx),
-          events: opt_string_array_opt(fields, "events", ctx),
-          min_level: opt_string_opt(fields, "min_level", ctx),
-          cron,
-          cron_text: opt_string_opt(fields, "cron", ctx),
-          template,
-          targets: parse_endpoints(fields, ctx),
-        })
-      }
-      reports
-    }
-    Some(_) =>
-      raise ConfigError::InvalidField("report must be an array of tables")
+  default_lang~ : String,
+) -> NotifyConfig raise ConfigError {
+  reject_unknown_keys(table, notifyKeys, "notify")
+  let daily_hour = opt_int(
+    table,
+    "daily_report_hour",
+    "notify",
+    DEFAULT_DAILY_REPORT_HOUR,
+  )
+  if daily_hour < 1 || daily_hour > 23 {
+    raise ConfigError::InvalidField(
+      "notify.daily_report_hour must be between 1 and 23",
+    )
   }
+  let config : NotifyConfig = {
+    enabled: opt_bool(table, "enabled", "notify", false),
+    lang: opt_lang(table, default=default_lang),
+    timeout_ms: opt_int(table, "timeout_ms", "notify", 5000),
+    dedupe_window_s: opt_int(table, "dedupe_window_s", "notify", 3600),
+    max_per_minute: opt_int(table, "max_per_minute", "notify", 30),
+    queue_size: opt_int(table, "queue_size", "notify", 128),
+    daily_report_hour: daily_hour,
+    threshold_rss_percent: opt_int(
+      table,
+      "threshold_rss_percent",
+      "notify",
+      DEFAULT_THRESHOLD_RSS_PERCENT,
+    ),
+    threshold_offline_min: opt_int(
+      table,
+      "threshold_offline_min",
+      "notify",
+      DEFAULT_THRESHOLD_OFFLINE_MIN,
+    ),
+    threshold_restarts: opt_int(
+      table,
+      "threshold_restarts",
+      "notify",
+      DEFAULT_THRESHOLD_RESTARTS,
+    ),
+    start_timeout_ms: opt_int(
+      table,
+      "start_timeout_ms",
+      "notify",
+      DEFAULT_START_TIMEOUT_MS,
+    ),
+    threshold_disk_mb: opt_int(
+      table,
+      "threshold_disk_mb",
+      "notify",
+      DEFAULT_THRESHOLD_DISK_MB,
+    ),
+    threshold_storm: opt_int(
+      table,
+      "threshold_storm",
+      "notify",
+      DEFAULT_THRESHOLD_STORM,
+    ),
+    mail_url: opt_string_opt(table, "mail_url", "notify"),
+    mail_from: opt_string_opt(table, "mail_from", "notify"),
+    mail_username: opt_string_opt(table, "mail_username", "notify"),
+    mail_password: opt_string_opt(table, "mail_password", "notify"),
+    targets: parse_targets(table),
+  }
+  validate_notify(config)
+  config
 }
 
 ///|
-/// Endpoints of one report: `[[notify.report.target]]` elements.
-fn parse_endpoints(
-  fields : Map[String, @toml.TomlValue],
-  ctx : String,
-) -> Array[NotifyEndpoint] raise ConfigError {
-  match fields.get("target") {
+/// `[[notify.target]]` 数组：每个目标的平台、连接与事件过滤。
+fn parse_targets(
+  table : Map[String, @toml.TomlValue],
+) -> Array[NotifyTarget] raise ConfigError {
+  match table.get("target") {
     None => []
     Some(@toml.TomlArray(items)) => {
-      let endpoints = []
+      let targets = []
       for index, item in items {
-        let endpoint_ctx = "\{ctx}.target[\{index}]"
-        guard item is @toml.TomlTable(endpoint) else {
-          raise ConfigError::InvalidField("\{endpoint_ctx} must be a table")
+        let ctx = "notify.target[\{index}]"
+        guard item is @toml.TomlTable(fields) else {
+          raise ConfigError::InvalidField("\{ctx} must be a table")
         }
-        let endpoint_keys = ["platform", "url", "secret", "format", "to"]
-        reject_unknown_keys(endpoint, endpoint_keys, endpoint_ctx)
-        let platform = req_string(endpoint, "platform", endpoint_ctx)
+        reject_unknown_keys(fields, targetKeys, ctx)
+        let platform = req_string(fields, "platform", ctx)
         if !platforms.contains(platform) {
           raise ConfigError::InvalidField(
-            "\{endpoint_ctx}.platform has unknown value \{platform}",
+            "\{ctx}.platform has unknown value \{platform}",
           )
         }
         let is_email = platform == "email"
+        // The mail channel owns the SMTP endpoint; an email target only names
+        // its recipients, so several targets can share one channel. A url here
+        // is a mistake worth naming instead of silently dropping.
         let url = if is_email {
-          "" // the mail channel owns the SMTP endpoint
+          if fields.contains("url") {
+            raise ConfigError::InvalidField("\{ctx}.url is not used by email")
+          }
+          ""
         } else {
-          req_string(endpoint, "url", endpoint_ctx)
+          req_string(fields, "url", ctx)
         }
-        let secret = opt_string_opt(endpoint, "secret", endpoint_ctx)
-        match opt_string_opt(endpoint, "format", endpoint_ctx) {
+        match opt_string_opt(fields, "format", ctx) {
           Some(format) =>
             if !notifyFormats.contains(format) {
               raise ConfigError::InvalidField(
-                "\{endpoint_ctx}.format has unknown value \{format}",
+                "\{ctx}.format has unknown value \{format}",
               )
             }
           None => ()
         }
-        let mail_to = match endpoint.get("to") {
-          None => None
-          Some(@toml.TomlArray(items)) => {
-            let recipients = []
-            for recipient in items {
-              guard recipient is @toml.TomlString(text) else {
-                raise ConfigError::InvalidField(
-                  "\{endpoint_ctx}.to must be strings",
-                )
-              }
-              recipients.push(text)
+        let mail_to = match opt_string_array_opt(fields, "to", ctx) {
+          Some(recipients) => {
+            if recipients.length() == 0 {
+              raise ConfigError::InvalidField(
+                "\{ctx}.to must name at least one recipient",
+              )
             }
             Some(recipients)
           }
-          Some(_) =>
-            raise ConfigError::InvalidField(
-              "\{endpoint_ctx}.to must be an array",
-            )
+          None => None
         }
-        endpoints.push({
+        if is_email && mail_to is None {
+          raise ConfigError::InvalidField("\{ctx}.to is required for email")
+        }
+        targets.push({
           platform,
           url,
-          secret,
-          format: opt_string_opt(endpoint, "format", endpoint_ctx),
+          secret: opt_string_opt(fields, "secret", ctx),
+          format: opt_string_opt(fields, "format", ctx),
           mail_to,
+          filter: parse_event_filter(fields, ctx),
         })
       }
-      endpoints
+      targets
     }
     Some(_) =>
       raise ConfigError::InvalidField(
-        "\{ctx}.target must be an array of tables",
+        "notify.target must be an array of tables",
       )
   }
 }
 
 ///|
-/// Digits-only text to a non-negative Int; None on any other character.
-fn digits_to_int(text : StringView) -> Int32? {
-  let mut value = 0
-  for c in text {
-    let v = c.to_int()
-    if v < 48 || v > 57 {
-      return None
-    }
-    value = value * 10 + (v - 48)
-  }
-  Some(value)
-}
-
-///|
-/// Expand one cron field: `*` (whole range), `*/n` (stepped), a number, or
-/// a comma list of numbers. `base` and `max` define the field's range.
-fn cron_field(
-  text : StringView,
-  base : Int32,
-  max : Int32,
+/// `events` 的三种写法：不写 = 全部；普通项 = 白名单；`!` 前缀 = 排除式。
+/// 混写直接报错——两种语义相反，混在一起就只能靠"谁先谁后"解释，而那种规则
+/// 没人记得住。
+fn parse_event_filter(
+  fields : Map[String, @toml.TomlValue],
   ctx : String,
-  what : String,
-) -> Array[Int32] raise ConfigError {
-  let values : Array[Int32] = []
-  for part in text.split(",") {
-    if part == "*" {
-      for v in base..<=max {
-        values.push(v)
-      }
-      continue
-    }
-    if part.has_prefix("*/") {
-      let step = match digits_to_int(part[2:]) {
-        Some(v) => v
-        None =>
-          raise ConfigError::InvalidField(
-            "\{ctx} cron \{what} has invalid step",
-          )
-      }
-      guard step >= 1 else {
-        raise ConfigError::InvalidField(
-          "\{ctx} cron \{what} step must be at least 1",
-        )
-      }
-      let mut v = base
-      while v <= max {
-        values.push(v)
-        v += step
-      }
-      continue
-    }
-    match digits_to_int(part) {
-      Some(v) =>
-        if v >= base && v <= max {
-          values.push(v)
-        } else {
-          raise ConfigError::InvalidField(
-            "\{ctx} cron \{what} value \{v} must be between \{base} and \{max}",
-          )
-        }
-      None =>
-        raise ConfigError::InvalidField("\{ctx} cron \{what} has invalid value")
+) -> EventFilter raise ConfigError {
+  let items = match opt_string_array_opt(fields, "events", ctx) {
+    None => return EventFilter::All
+    Some(items) => items
+  }
+  if items.length() == 0 {
+    raise ConfigError::InvalidField(
+      "\{ctx}.events must list at least one event (omit it to take all)",
+    )
+  }
+  let included : Array[String] = []
+  let excluded : Array[String] = []
+  for item in items {
+    if item.has_prefix("!") {
+      let name = item[1:].to_owned()
+      check_event_name(name, ctx)
+      excluded.push(name)
+    } else {
+      check_event_name(item, ctx)
+      included.push(item)
     }
   }
-  values
+  if included.length() > 0 && excluded.length() > 0 {
+    raise ConfigError::InvalidField(
+      "\{ctx}.events cannot mix plain names and !exclusions",
+    )
+  }
+  if excluded.length() > 0 {
+    EventFilter::Except(excluded)
+  } else {
+    EventFilter::Only(included)
+  }
 }
 
 ///|
-/// Parse a standard five-field cron: minute hour day-of-month month
-/// day-of-week. Supports `*`, `*/n`, numbers and comma lists. Day-of-month
-/// and day-of-week may not both be restricted.
-pub fn parse_cron(text : String, ctx : String) -> CronSpec raise ConfigError {
-  let parts = text.split(" ").collect()
-  guard parts.length() == 5 else {
-    raise ConfigError::InvalidField(
-      "\{ctx}.cron must have five fields (minute hour day month weekday)",
-    )
+fn check_event_name(name : String, ctx : String) -> Unit raise ConfigError {
+  if !notifyEvents.contains(name) {
+    raise ConfigError::InvalidField("\{ctx}.events has unknown event \{name}")
   }
-  let minutes = cron_field(parts[0], 0, 59, ctx, "minute")
-  let hours = cron_field(parts[1], 0, 23, ctx, "hour")
-  // Both restricted (neither is `*`) is the classic confusing cron case.
-  let dom_limited = !(parts[2] == "*")
-  let dow_limited = !(parts[4] == "*")
-  if dom_limited && dow_limited {
-    raise ConfigError::InvalidField(
-      "\{ctx}.cron restricts both day-of-month and day-of-week; leave one of them as *",
-    )
+}
+
+///|
+/// 一个目标是否接收某事件。纯函数，路由与测试共用。
+pub fn EventFilter::accepts(self : EventFilter, event : String) -> Bool {
+  match self {
+    All => true
+    Only(names) => names.contains(event)
+    Except(names) => !names.contains(event)
   }
-  let days = cron_field(parts[2], 1, 31, ctx, "day-of-month")
-  let months = cron_field(parts[3], 1, 12, ctx, "month")
-  // Weekday: cfg 0 and 7 both mean Sunday, 1~6 = Monday..Saturday; stored
-  // in tm_wday convention (0=Sunday..6=Saturday).
-  let weekdays_raw = cron_field(parts[4], 0, 7, ctx, "day-of-week")
-  let weekdays = weekdays_raw.map(fn(w) { w % 7 })
-  { minutes, hours, days_of_month: days, months, days_of_week: weekdays, }
 }

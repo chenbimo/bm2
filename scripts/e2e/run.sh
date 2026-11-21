@@ -652,20 +652,16 @@ cat >> "$ACC/plain/bm2.toml" <<EOF
 [notify]
 enabled = true
 dedupe_window_s = 3600
-events = ["crash", "errored"]
 
-[[notify.report]]
-name = "local"
-events = ["crash", "errored"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "webhook"
 url = "http://127.0.0.1:4321/hook"
+events = ["crash", "errored"]
 EOF
 check "bm2 notify delivers a test message" "webhook: sent" "$(cd "$ACC/plain" && bm2 notify 2>&1)"
-contains "test message reached the webhook" "$ACC/notify/received.log" '"event":"lifecycle"'
+contains "test message reached the webhook" "$ACC/notify/received.log" '"event":"notify_test"'
+contains "test message carries its event name" "$ACC/notify/received.log" '"event_name":"Test message"'
 contains "test message names the host" "$ACC/notify/received.log" '"host"'
-check "unknown target is rejected" 1 "$(cd "$ACC/plain" && bm2 notify nosuch >/dev/null 2>&1; echo $?)"
 
 # A crash loop repeats one signature: the dedupe window must collapse it.
 write_project notif notif 4331 crash.ts 1 1000
@@ -674,15 +670,11 @@ cat >> "$ACC/notif/bm2.toml" <<EOF
 [notify]
 enabled = true
 dedupe_window_s = 3600
-events = ["crash", "errored"]
 
-[[notify.report]]
-name = "local"
-events = ["crash", "errored"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "webhook"
 url = "http://127.0.0.1:4321/hook"
+events = ["crash", "errored"]
 EOF
 (cd "$ACC/notif" && bm2 serve >/dev/null)
 sleep 10
@@ -690,6 +682,7 @@ check "one crash notice despite the loop" 1 "$(grep -c '"event":"crash"' "$ACC/n
 check "errored notice delivered" 1 "$(grep -c '"event":"errored"' "$ACC/notify/received.log" || true)"
 contains "notice carries the app name" "$ACC/notify/received.log" '"app":"notif"'
 contains "notice carries the exit code" "$ACC/notify/received.log" 'exit code 1'
+contains "notice carries the event name" "$ACC/notify/received.log" '"event_name":'
 bm2 remove -f notif >/dev/null 2>&1 || true
 kill "$RECEIVER" 2>/dev/null
 pkill -f "bun .*notify/receiver.ts" 2>/dev/null
@@ -768,30 +761,22 @@ cat >> "$ACC/alpha/bm2.toml" <<EOF
 [notify]
 enabled = true
 dedupe_window_s = 3600
-events = ["crash"]
 
-[[notify.report]]
-name = "dead"
-events = ["crash"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "webhook"
 url = "http://127.0.0.1:4391/hook"
+events = ["crash"]
 EOF
 cat >> "$ACC/beta/bm2.toml" <<EOF
 
 [notify]
 enabled = true
 dedupe_window_s = 3600
-events = ["crash"]
 
-[[notify.report]]
-name = "dead"
-events = ["crash"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "webhook"
 url = "http://127.0.0.1:4392/hook"
+events = ["crash"]
 EOF
 (cd "$ACC/alpha" && bm2 serve >/dev/null)
 (cd "$ACC/beta" && bm2 serve >/dev/null)
@@ -872,24 +857,22 @@ stop_timeout_ms = 1000
 enabled = true
 timeout_ms = 2000
 
-[[notify.report]]
-name = "mixed"
-events = ["crash"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "webhook"
 url = "http://127.0.0.1:4323/hook"
+events = ["crash"]
 
-[[notify.report.target]]
+[[notify.target]]
 platform = "webhook"
 url = "http://127.0.0.1:4324/hook"
+events = ["crash"]
 EOF
 (cd "$ACC/mixed" && bm2 notify) >"$ACC/mixed-out.txt" 2>&1
 check "a partial delivery exits non-zero" 1 "$?"
 contains "the live target reports success" "$ACC/mixed-out.txt" "sent"
 contains "the dead target reports failure" "$ACC/mixed-out.txt" "failed"
 check "the live target received the message" 1 \
-  "$(grep -c '"event":"lifecycle"' "$ACC/live-hook.log" || true)"
+  "$(grep -c '"event":"notify_test"' "$ACC/live-hook.log" || true)"
 kill "$HOOK" 2>/dev/null
 
 echo "===== AG. notification retry: fail twice, deliver once ====="
@@ -925,15 +908,11 @@ cat >> "$ACC/flaky/bm2.toml" <<EOF
 enabled = true
 # One alert for the whole crash loop, so the retry counters stay readable.
 dedupe_window_s = 3600
-events = ["crash"]
 
-[[notify.report]]
-name = "flaky"
-events = ["crash"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "webhook"
 url = "http://127.0.0.1:4322/hook"
+events = ["crash"]
 EOF
 (cd "$ACC/flaky" && bm2 serve >/dev/null)
 # 0s fail, 5s fail, 20s succeed: wait past the last backoff.
@@ -991,13 +970,10 @@ mail_from = "bm2@example.com"
 mail_username = "relay-user"
 mail_password = "SMTP-SECRET-PW"
 
-[[notify.report]]
-name = "mail"
-events = ["crash"]
-
-[[notify.report.target]]
+[[notify.target]]
 platform = "email"
 to = ["ops@example.com"]
+events = ["crash"]
 EOF
 NOTIFY_OUT=$(cd "$ACC/mail" && bm2 notify 2>&1 || true)
 printf '%s\n' "$NOTIFY_OUT" > "$ACC/notify-out.txt"

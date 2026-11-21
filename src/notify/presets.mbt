@@ -235,6 +235,8 @@ fn render_generic(
   ignore(format)
   let body = @utils.jobj([
     ("event", @utils.jstr(msg.event)),
+    // 事件的人类可读名称，与收件人语言一致；机器仍以 `event` 为键。
+    ("event_name", @utils.jstr(msg.event_label)),
     ("level", @utils.jstr(msg.level)),
     ("title", @utils.jstr(msg.title)),
     ("body", @utils.jstr(msg.body)),

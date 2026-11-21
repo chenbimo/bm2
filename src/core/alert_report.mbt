@@ -231,14 +231,13 @@ fn format_percent(percent : Double) -> String {
 }
 
 ///|
-/// The periodic report for one project: every instance on one line, plus the
-/// project's own shape. Reports always carry the full picture.
+/// The daily stats report for one project: every instance on one line, plus the
+/// project's own shape. It always carries the full picture.
 fn Supervisor::build_report(
   self : Supervisor,
   app_name : String,
   policy : @config.NotifyConfig,
   now_mono : UInt64,
-  stats~ : Bool,
 ) -> @notify.Message {
   let lines = []
   let mut online = 0
@@ -276,30 +275,12 @@ fn Supervisor::build_report(
     Some(kb) => fields.push(("disk_free", (kb / 1048576).to_string() + "GB"))
     None => ()
   }
-  let stats_window = if stats {
-    Some(self.take_stats_window(app_name))
-  } else {
-    None
-  }
-  if stats {
-    match stats_window {
-      Some(w) => {
-        fields.push(("peak_mb", (w.peak_kb / 1024).to_string()))
-        fields.push(("restarts", w.restarts.to_string()))
-      }
-      None => ()
-    }
-  }
-  let (title, rendered_body) = render_msg(
-    policy.lang,
-    if stats {
-      StatsReport(app_name)
-    } else {
-      HealthReport(app_name, lines.length() == 0)
-    },
-  )
+  let stats_window = self.take_stats_window(app_name)
+  fields.push(("peak_mb", (stats_window.peak_kb / 1024).to_string()))
+  fields.push(("restarts", stats_window.restarts.to_string()))
+  let (title, rendered_body) = render_msg(policy.lang, StatsReport(app_name))
   @notify.Message::new(
-    "report",
+    "daily_stats",
     if other > 0 {
       "warn"
     } else {
@@ -311,11 +292,7 @@ fn Supervisor::build_report(
     } else {
       lines.join("\n")
     },
-    if stats {
-      "stats|" + app_name
-    } else {
-      "report|" + app_name
-    },
+    "daily_stats|" + app_name,
     // The message timestamp is wall-clock time: it is what the recipient
     // sees, and what platform signatures are computed over.
     @utils.now_ms(),

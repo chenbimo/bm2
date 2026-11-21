@@ -268,7 +268,8 @@ test "boolean fields take a quoted placeholder" {
   ]
   let dir = env_dir("bool", files)
   let config = @config.parse(
-    VALID_DOC + "\n[notify]\nenabled = \"__NOTIFY_ON__\"\n",
+    VALID_DOC +
+    "\n[notify]\nenabled = \"__NOTIFY_ON__\"\n[[notify.target]]\nplatform = \"webhook\"\nurl = \"https://h/a\"\n",
     dir,
   )
   assert_true(config.notify.enabled)

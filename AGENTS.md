@@ -27,8 +27,8 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 - `docs/` — 手册(VitePress,中文单语;英文待实现稳定后再补)。依赖与构建在 Windows 侧跑,配置读 `moon.mod` 取版本与仓库地址,页面里不写版本号。部署在 `bm2.moonbitlang.dev`(子域名根路径,`base` 为 `/`),托管于 Cloudflare Pages 项目 `moonbit-bm2`,推送到 `main` 且 `docs/**` 或 `moon.mod` 有改动时自动重建;构建环境变量 `BUN_VERSION` 与 `SKIP_DEPENDENCY_INSTALL=1` 必设,值与原因见工作区规范 `NEW-PROJECT.md`。VitePress 精确锁在 alpha（当前取值看 `docs/package.json`）：依赖树从 126 个包降到 36 个，但 alpha 的破坏性变更**可能静默生效**（已遇到 `lastUpdatedText` 被移除且不报错），升级时逐个核对配置键；等 npm 的 `latest` 变成 2.x 再改成 `^2`
 - `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
-- `src/config` — bm2.toml 解析与校验(`[notify]` 订阅过滤也在此层)
-- `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 报告)
+- `src/config` — bm2.toml 解析与校验(`[notify]` 的事件过滤也在此层)
+- `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 按目标过滤投递)
 - `src/fsx` — 文件读写、原子写、锁与有界读(含 C 桩)
 - `src/ipc` — 长度前缀帧与子命令的收发(经 loopback TCP + 共享令牌)
 - `src/log` — 事件日志与按大小轮转(大小与代数由 `[logs]` 配置,轮转走异步文件 API,不经过 `@fsx` 的 C 桩)
@@ -52,7 +52,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## bm2d 监督循环(严格遵守)
 
-- tick(50ms)内新增的周期性检查**必须自带时间闸**(参考 `check_notify` 的 `NOTIFY_CHECK_INTERVAL_MS` 模式):cron 分钟粒度检查用 60s 闸,重扫描用各自间隔闸;无闸的周期检查不予合入
+- tick(50ms)内新增的周期性检查**必须自带时间闸**(参考 `check_notify` 的 `NOTIFY_CHECK_INTERVAL_MS` 模式):按分钟对齐的检查用 60s 闸,重扫描用各自间隔闸;无闸的周期检查不予合入
 - 到期/事件型检查(deadline/pending/removals 等)不加闸,但必须保证重复调用幂等
 - **tick 内只发布,不做事**:通知投进 `Outbound` 队列、由 notify 任务投递与重试,日志轮转只发布一份待扫清单、由 rotate 任务用异步文件 API 执行(拷贝、改名、截断都不在 tick 里);`Supervisor::tick` 不含任何 await 点,网络与磁盘都不能拖慢监督心跳
 - **控制面只经命令队列进入监督任务**:`bm2` 的请求变成 `Command` 投进 `Supervisor.commands`,由 tick 开头排空并就地应答;apps / instances / 重启预算只有监督任务一个写者(`bm2 notify` 例外:它只往通知队列投一条测试消息,不读被监督状态)
@@ -126,4 +126,5 @@ git config core.hooksPath .githooks
 - 注销项目必须清干净按项目状态:内存 map、通知队列与限流/去重状态一并回收,同名项目重新注册不得继承上一代的数字
 - 通知的端点与凭据(`url`/`secret`/`username`/`password`)不得进入事件、状态、日志与 CLI 输出;校验错误只报字段名与 `target[i]` 下标
 - 通知投递失败只记事件,绝不改变监督行为
+- **新增或改名事件时三处同步**:`src/config/notify.mbt` 的事件闭集、`src/core/alert_lang.mbt` 的 `event_label`(中英各一条,缺一条就等于群里看到裸键名)、`docs/guide/notifications.md` 的事件表。名称是给人看的,事件键仍是语言中立的那一份,过滤与报文只认键
 - 网络能力(HTTP/SMTP)由内联的 notify 库提供,bm2 内不自实现、不引入 curl

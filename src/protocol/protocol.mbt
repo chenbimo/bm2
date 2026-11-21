@@ -31,9 +31,6 @@ pub(all) struct Request {
   app : String?
   /// Config path of the caller's project; used by `start` to register it.
   config_path : String?
-  /// Notification target name; used by `notify` to test one destination
-  /// instead of all of them.
-  notify_target : String?
   /// `remove`: retire the project without waiting for a graceful stop, and let
   /// the caller purge its state directory afterwards.
   force : Bool?

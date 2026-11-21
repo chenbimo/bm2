@@ -25,7 +25,6 @@ pub enum Bm2Msg {
   OomKill(String, Int32, Int32, Int32)
   DiskPressure(Int32, Int32)
   StartTimeout(Int32, Int32)
-  HealthReport(String, Bool)
   StatsReport(String)
   DaemonAdopted(Int32)
 }
@@ -46,6 +45,54 @@ pub fn render_msg(lang : String, msg : Bm2Msg) -> (String, String) {
   match language {
     @i18n.Lang::En => render_en(msg)
     @i18n.Lang::Zh => render_zh(msg)
+  }
+}
+
+///|
+/// The human name of an event, in the notification language.
+///
+/// The event key itself stays language-neutral: it is what `events` filters
+/// match and what machine payloads carry. This name is only what a person reads
+/// in a chat group, so a notice says which of the eleven events it is instead of
+/// leaving that to be inferred from the title.
+///
+/// An unknown key is echoed back rather than blanked: a message with a strange
+/// event name is still more useful than one with no event line at all.
+pub fn event_label(lang : String, event : String) -> String {
+  let language = @i18n.Lang::from_name(lang).unwrap_or(@i18n.Lang::En)
+  match language {
+    @i18n.Lang::En =>
+      match event {
+        "crash" => "Instance crash"
+        "errored" => "Restart budget exhausted"
+        "memory_limit" => "Memory limit exceeded"
+        "oom_kill" => "Killed by the kernel OOM"
+        "reuseport_missing" => "reusePort missing"
+        "lifecycle" => "Lifecycle"
+        "daemon" => "Daemon"
+        "threshold" => "Threshold alert"
+        "disk_pressure" => "Disk pressure"
+        "start_timeout" => "Start timeout"
+        "daily_stats" => "Daily statistics"
+        "notify_test" => "Test message"
+        _ => event
+      }
+    @i18n.Lang::Zh =>
+      match event {
+        "crash" => "实例崩溃"
+        "errored" => "自愈失败"
+        "memory_limit" => "内存超限"
+        "oom_kill" => "内核 OOM 击杀"
+        "reuseport_missing" => "端口复用缺失"
+        "lifecycle" => "项目启停"
+        "daemon" => "守护进程"
+        "threshold" => "阈值告警"
+        "disk_pressure" => "磁盘压力"
+        "start_timeout" => "启动超时"
+        "daily_stats" => "每日统计"
+        "notify_test" => "测试消息"
+        _ => event
+      }
   }
 }
 
@@ -136,8 +183,6 @@ fn render_en(msg : Bm2Msg) -> (String, String) {
         "Port never started listening",
         "No listener on port \{port} within \{timeout_ms}ms of spawn; the app may be stuck before bind().",
       )
-    HealthReport(app, empty) =>
-      ("bm2 health report · \{app}", if empty { "No instances." } else { "" })
     StatsReport(app) => ("bm2 statistics · \{app}", "")
     DaemonAdopted(online) =>
       ("bm2d started", "Adopted this project: \{online} online instance(s).")
@@ -231,8 +276,6 @@ fn render_zh(msg : Bm2Msg) -> (String, String) {
         "端口始终未监听",
         "spawn 后 \{timeout_ms}ms 内端口 \{port} 仍无监听；应用可能卡在 bind 之前。",
       )
-    HealthReport(app, empty) =>
-      ("bm2 健康报告 · \{app}", if empty { "暂无实例。" } else { "" })
     StatsReport(app) => ("bm2 统计报告 · \{app}", "")
     DaemonAdopted(online) =>
       ("bm2d 已启动", "已接管本项目：\{online} 个实例在线。")

@@ -178,50 +178,14 @@ pub fn test_message(now : UInt64, lang~ : String = "en") -> @notify.Message {
     @i18n.notify_test_title(notify_lang),
     @i18n.notify_test_body(notify_lang),
   )
-  @notify.Message::new("lifecycle", "info", title, body, "notify-test", now)
+  @notify.Message::new("notify_test", "info", title, body, "notify-test", now)
 }
 
 ///|
-fn level_rank(level : String) -> Int32 {
-  match level {
-    "error" => 2
-    "warn" => 1
-    _ => 0
-  }
-}
-
-///|
-/// Which reports receive one event: the global gate, the report's own
-/// override, and the level floor. Periodic reports (cron) never take events.
-fn wants(
-  report : @config.NotifyReport,
-  policy : @config.NotifyConfig,
-  msg : @notify.Message,
-) -> Bool {
-  if report.cron is Some(_) {
-    return false
-  }
-  let events = match report.events {
-    Some(events) => events
-    None => policy.events
-  }
-  if !events.contains(msg.event) {
-    return false
-  }
-  match report.min_level {
-    Some(minimum) => level_rank(msg.level) >= level_rank(minimum)
-    None => true
-  }
-}
-
-///|
-/// bm2.toml 的 target 携带订阅字段(events/min_level/report/label),投递用不到;
-/// 转换为库的中立 Target。
-/// Build a library target from a config endpoint. Email endpoints borrow the
-/// send capability from the project's mail channel; their own config only
-/// ever carries recipients.
+/// 把配置里的目标换成投递用的中立 Target。邮件目标借用项目的 mail 通道；
+/// 目标自己只带收件人。
 fn lib_target(
-  endpoint : @config.NotifyEndpoint,
+  endpoint : @config.NotifyTarget,
   mail_url : String?,
   mail_from : String?,
   mail_username : String?,
@@ -258,13 +222,14 @@ fn lib_target(
 }
 
 ///|
-fn lib_endpoints(
-  endpoints : Array[@config.NotifyEndpoint],
+/// 把一组目标转换成投递用列表。
+fn lib_targets(
+  targets : Array[@config.NotifyTarget],
   policy : @config.NotifyConfig,
 ) -> Array[@notify.Target] {
-  endpoints.map(fn(endpoint) {
+  targets.map(fn(target) {
     lib_target(
-      endpoint,
+      target,
       policy.mail_url,
       policy.mail_from,
       policy.mail_username,
@@ -274,22 +239,22 @@ fn lib_endpoints(
 }
 
 ///|
-/// Flatten the endpoints of several reports into one delivery list.
-fn flatten_endpoints(
-  reports : Array[@config.NotifyReport],
-) -> Array[@config.NotifyEndpoint] {
-  let out = []
-  for report in reports {
-    for endpoint in report.targets {
-      out.push(endpoint)
-    }
+/// 给消息补上事件的人类可读名称：字段区首行是它，机器读的那一侧仍是 `event`
+/// 与 webhook payload 里的 `event_name`。名称按项目配的通知语言渲染，与标题、
+/// 正文同一套。
+fn with_event_label(lang : String, msg : @notify.Message) -> @notify.Message {
+  let label = event_label(lang, msg.event)
+  let fields : Array[(String, String)] = []
+  fields.push(("event", label))
+  for pair in msg.fields {
+    fields.push(pair)
   }
-  out
+  { ..msg, event_label: label, fields, }
 }
 
 ///|
-/// The single entry point for events: subscription, deduplication, rate limit,
-/// then the queue. Callers describe what happened; policy lives here.
+/// The single entry point for events: per-target filtering, deduplication,
+/// rate limit, then the queue. Callers describe what happened; policy lives here.
 pub fn Notifier::emit(
   self : Notifier,
   policy : @config.NotifyConfig,
@@ -299,11 +264,10 @@ pub fn Notifier::emit(
   if !policy.enabled {
     return
   }
-  if !policy.events.contains(msg.event) {
-    return
-  }
-  let instant = policy.reports.filter(fn(report) { wants(report, policy, msg) })
-  if instant.length() == 0 {
+  let chosen = policy.targets.filter(fn(target) {
+    target.filter.accepts(msg.event)
+  })
+  if chosen.length() == 0 {
     return
   }
   self.publish(
@@ -311,20 +275,21 @@ pub fn Notifier::emit(
       owner: app,
       key: msg.key,
       policy,
-      targets: lib_endpoints(flatten_endpoints(instant), policy),
-      message: msg,
+      targets: lib_targets(chosen, policy),
+      message: with_event_label(policy.lang, msg),
     }),
   )
 }
 
 ///|
-/// Publish one periodic report. Periodic delivery has no dedupe and no rate
-/// limit by design: the schedule already says how often it should arrive.
+/// Publish one periodic report (the daily stats). Periodic delivery has no
+/// dedupe and no rate limit by design: the clock already says how often it
+/// should arrive.
 pub fn Notifier::publish_schedule(
   self : Notifier,
   app : String,
   policy : @config.NotifyConfig,
-  endpoints : Array[@config.NotifyEndpoint],
+  targets : Array[@config.NotifyTarget],
   msg : @notify.Message,
 ) -> Unit {
   self.publish(
@@ -332,8 +297,8 @@ pub fn Notifier::publish_schedule(
       owner: app,
       key: msg.key,
       policy,
-      targets: lib_endpoints(endpoints, policy),
-      message: msg,
+      targets: lib_targets(targets, policy),
+      message: with_event_label(policy.lang, msg),
     }),
   )
 }
@@ -350,7 +315,7 @@ pub fn publish_test(
   outbound : @aqueue.Queue[Outbound],
   app : String,
   policy : @config.NotifyConfig,
-  endpoints : Array[@config.NotifyEndpoint],
+  targets : Array[@config.NotifyTarget],
   msg : @notify.Message,
 ) -> @aqueue.Queue[Array[(String, String?)]] {
   let reply : @aqueue.Queue[Array[(String, String?)]] = @aqueue.Queue::Queue(
@@ -360,8 +325,8 @@ pub fn publish_test(
     owner: app,
     key: msg.key,
     policy,
-    targets: lib_endpoints(endpoints, policy),
-    message: msg,
+    targets: lib_targets(targets, policy),
+    message: with_event_label(policy.lang, msg),
   }
   let accepted = try outbound.try_put(Test(alert, reply)) catch {
     _ => false
@@ -386,10 +351,10 @@ pub fn Notifier::publish_test(
   self : Notifier,
   app : String,
   policy : @config.NotifyConfig,
-  endpoints : Array[@config.NotifyEndpoint],
+  targets : Array[@config.NotifyTarget],
   msg : @notify.Message,
 ) -> @aqueue.Queue[Array[(String, String?)]] {
-  publish_test(self.outbound, app, policy, endpoints, msg)
+  publish_test(self.outbound, app, policy, targets, msg)
 }
 
 ///|

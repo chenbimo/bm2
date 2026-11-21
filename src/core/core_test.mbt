@@ -202,10 +202,9 @@ async test "ticks publish alerts instead of delivering them" {
   let root = "/tmp/bm2-core-test-publish"
   let dir = make_app_dir(root, "api", "exit 1\n")
   let doc = "name = \"api\"\nscript = \"fixture.sh\"\ninstances = 1\nport = 4124\n" +
-    "[notify]\nenabled = true\nqueue_size = 4\nevents = [\"crash\"]\n" +
-    "[[notify.report]]\nname = \"t\"\nevents = [\"crash\"]\n" +
-    "[[notify.report.target]]\nplatform = \"webhook\"\n" +
-    "url = \"http://127.0.0.1:9/hook\"\n"
+    "[notify]\nenabled = true\nqueue_size = 4\n" +
+    "[[notify.target]]\nplatform = \"webhook\"\n" +
+    "url = \"http://127.0.0.1:9/hook\"\nevents = [\"crash\"]\n"
   let policy = @config.parse(doc, dir).notify
   let sv = make_sv(
     root,
@@ -558,7 +557,6 @@ test "protocol request and response round-trip" {
     command: "start",
     app: Some("api"),
     config_path: Some("/srv/blog/bm2.toml"),
-    notify_target: None,
     force: None,
     lang: None,
   }
@@ -570,7 +568,6 @@ test "protocol request and response round-trip" {
     lang: None,
     app: None,
     config_path: None,
-    notify_target: None,
   }
   assert_eq(@protocol.decode_request(@protocol.encode_request(bare)), bare)
   let resp = @protocol.Response::ok("started", [])

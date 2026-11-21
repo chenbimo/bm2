@@ -30,21 +30,17 @@ fn check_summary(config : @config.Config, lang : @i18n.Lang) -> String {
     ),
   )
   if config.notify.enabled {
-    let mut targets = 0
-    let mut periodic = 0
-    for report in config.notify.reports {
-      targets += report.targets.length()
-      if report.cron is Some(_) {
-        periodic += 1
-      }
-    }
+    let targets = config.notify.targets
+    let daily_on = targets.any(fn(target) {
+      target.filter.accepts("daily_stats")
+    })
     buf.write_string(
       "\n" +
       @i18n.check_notify(
         lang,
-        config.notify.reports.length(),
-        targets,
-        periodic,
+        targets.length(),
+        config.notify.daily_report_hour,
+        daily_on,
       ),
     )
   } else {

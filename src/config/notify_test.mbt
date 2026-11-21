@@ -1,15 +1,19 @@
 ///|
-/// The `[notify]` section is part of bm2.toml, so it is rejected or accepted by
-/// the same project parse the CLI and the daemon use. Notification settings get
-/// the same treatment as the rest of the file: closed sets, explicit bounds, and
-/// messages that name the field without ever echoing a credential.
+/// `[notify]` 的解析与校验：目标、事件过滤、阈值默认值。
+///
+/// 每个用例都走真实的项目解析路径（`@config.parse`），因为配置的约束就该在
+/// 用户写错的那一刻报出来，而不是等到投递时。
 
 ///|
-/// One project document with the given notification section appended, so each
-/// case exercises the real parse path rather than a parser of its own.
+/// One project document with the given notification section appended.
 fn project_doc(notify_section : String) -> String {
   "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\n" +
   notify_section
+}
+
+///|
+fn parse_notify(notify_section : String) -> @config.NotifyConfig raise {
+  @config.parse(project_doc(notify_section), "/srv/yicode").notify
 }
 
 ///|
@@ -18,484 +22,242 @@ fn notify_error(notify_section : String) -> String raise {
 }
 
 ///|
-test "parses reports with endpoints, schedules and mail channel" {
-  let config = @config.parse(
-    project_doc(
-      (
-        #|[notify]
-        #|enabled = true
-        #|lang = "zh"
-        #|dedupe_window_s = 60
-        #|events = ["crash", "errored", "lifecycle"]
-        #|
-        #|mail_url = "smtps://smtp.example.com:465"
-        #|mail_from = "bm2@example.com"
-        #|
-        #|[[notify.report]]
-        #|name = "故障告警"
-        #|events = ["crash", "errored"]
-        #|min_level = "warn"
-        #|
-        #|[[notify.report.target]]
-        #|platform = "feishu"
-        #|url = "https://hook.example/feishu-a"
-        #|secret = "sign-a"
-        #|
-        #|[[notify.report.target]]
-        #|platform = "email"
-        #|to = ["ops@example.com"]
-        #|
-        #|[[notify.report]]
-        #|name = "健康巡检"
-        #|cron = "*/5 * * * *"
-        #|template = "health"
-        #|
-        #|[[notify.report.target]]
-        #|platform = "feishu"
-        #|url = "https://hook.example/feishu-b"
-        #|
-      ),
-    ),
-    "/srv/yicode",
+test "thresholds default to the recommended values" {
+  let notify = parse_notify(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"webhook\"\nurl = \"https://h/a\"\n",
   )
-  let notify = config.notify
-  assert_true(notify.enabled)
-  assert_eq(notify.lang, "zh")
-  assert_eq(notify.events.length(), 3)
-  assert_eq(notify.mail_from, Some("bm2@example.com"))
-  assert_eq(notify.reports.length(), 2)
-  let alert = notify.reports[0]
-  assert_eq(alert.name, "故障告警")
-  assert_eq(alert.events, Some(["crash", "errored"]))
-  assert_eq(alert.cron, None)
-  assert_eq(alert.targets.length(), 2)
-  assert_eq(alert.targets[0].platform, "feishu")
-  assert_eq(alert.targets[0].url, "https://hook.example/feishu-a")
-  assert_eq(alert.targets[0].secret, Some("sign-a"))
-  assert_eq(alert.targets[1].mail_to.unwrap().length(), 1)
-  let poll = notify.reports[1]
-  assert_eq(poll.cron_text, Some("*/5 * * * *"))
-  assert_eq(poll.template, Some("health"))
-  assert_eq(poll.events, None)
+  assert_eq(notify.threshold_rss_percent, 80)
+  assert_eq(notify.threshold_offline_min, 5)
+  assert_eq(notify.threshold_restarts, 5)
+  assert_eq(notify.start_timeout_ms, 30000)
+  assert_eq(notify.threshold_disk_mb, 1024)
+  assert_eq(notify.threshold_storm, 20)
+  assert_eq(notify.daily_report_hour, 8)
 }
 
 ///|
-test "a project without a notify section reports nothing" {
+test "a project without a notify section is silent" {
   let config = @config.parse(project_doc(""), "/srv/yicode")
-  assert_false(config.notify.enabled)
-  assert_eq(config.notify.reports.length(), 0)
+  assert_true(!config.notify.enabled)
+  assert_eq(config.notify.targets.length(), 0)
 }
 
 ///|
-test "notify rejects unknown keys, platforms and enum values" {
-  assert_true(
-    notify_error("[notify]\nenabled = true\nnope = 1\n").contains(
-      "unknown field nope",
-    ),
-  )
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"a\"\ncron = \"0 8 * * *\"\ntemplate = \"health\"\n\n[[notify.report.target]]\nplatform = \"carrier-pigeon\"\nurl = \"https://x/y\"\n",
-    ).contains("platform has unknown value carrier-pigeon"),
-  )
-  assert_true(
-    notify_error("[notify]\nevents = [\"explode\"]\n").contains(
-      "unknown value explode",
-    ),
-  )
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"webhook\"\nurl = \"https://x/y\"\nformat = \"pdf\"\n",
-    ).contains("unknown value pdf"),
-  )
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"webhook\"\nurl = \"https://x/y\"\nmin_level = \"fatal\"\n",
-    ).contains("unknown field min_level"),
-  )
-  assert_true(
-    notify_error("[notify]\nthreshold_disk_mb = 1048577\n").contains(
-      "notify.threshold_disk_mb must be between",
-    ),
-  )
-  assert_true(
-    notify_error("[notify]\ntimeout_ms = 10\n").contains(
-      "notify.timeout_ms must be between",
-    ),
-  )
-  assert_true(
-    notify_error("[notify]\nqueue_size = 0\n").contains(
-      "notify.queue_size must be between",
-    ),
-  )
+test "enabled without a target is rejected" {
+  let message = notify_error("[notify]\nenabled = true\n")
+  assert_true(message.contains("no [[notify.target]]"))
 }
 
 ///|
-test "notify enforces per-platform endpoint rules" {
-  // Web endpoints need http(s); email endpoints need recipients and a
-  // configured mail channel.
-  assert_true(
-    notify_error(
-      "[notify]\nmail_url = \"smtps://smtp.example.com:465\"\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"webhook\"\nurl = \"smtp://x:25\"\n",
-    ).contains("must start with"),
-  )
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"email\"\nto = [\"d@e.f\"]\n",
-    ).contains("notify has no mail_url"),
-  )
-  assert_true(
-    notify_error(
-      "[notify]\nmail_url = \"smtps://smtp.example.com:465\"\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"email\"\n",
-    ).contains("email.to is required"),
-  )
-  assert_true(
-    notify_error(
-      "[notify]\nmail_url = \"smtps://smtp.example.com:465\"\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\nto = [\"d@e.f\"]\n",
-    ).contains("to is not used by this platform"),
-  )
-  // Exactly one platform object per endpoint.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\n\n[notify.report.target.feishu]\nurl = \"https://x/y\"\n",
-    ).contains("unknown field feishu"),
-  )
-  assert_true(
-    notify_error("[notify]\n\n[[notify.report]]\nname = \"a\"\n").contains(
-      "at least one",
-    ),
-  )
-}
-
-///|
-test "an email target requires a mail_from" {
-  // Without mail_from the From header would be empty, which is the first thing
-  // a relay refuses — so the config layer refuses it up front.
-  assert_true(
-    notify_error(
-      "[notify]\nmail_url = \"smtps://smtp.example.com:465\"\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"email\"\nto = [\"ops@example.com\"]\n",
-    ).contains("mail_from"),
-  )
-  // With it the same document is accepted.
-  let config = @config.parse(
-    project_doc(
-      "[notify]\nmail_url = \"smtps://smtp.example.com:465\"\nmail_from = \"bm2@example.com\"\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"email\"\nto = [\"ops@example.com\"]\n",
-    ),
-    BASE_DIR,
-  )
-  assert_eq(config.notify.reports.length(), 1)
-}
-
-///|
-test "notify errors never echo a url, secret or password" {
-  let message = notify_error(
+test "a single target parses with all of its connection fields" {
+  let notify = parse_notify(
     (
       #|[notify]
+      #|enabled = true
+      #|lang = "zh"
       #|
-      #|[[notify.report]]
-      #|name = "leaky"
-      #|
-      #|[[notify.report.target]]
-      #|platform = "carrier-pigeon"
-      #|url = "https://gateway.example/hook?token=URLSECRET"
-      #|secret = "TOPSECRET"
-      #|mail_password = "PASSSECRET"
+      #|[[notify.target]]
+      #|platform = "feishu"
+      #|url = "https://hook.example/a"
+      #|secret = "sign"
+      #|format = "markdown"
       #|
     ),
   )
-  assert_true(message.contains("notify.report[0]"))
-  assert_false(message.contains("URLSECRET"))
-  assert_false(message.contains("TOPSECRET"))
-  assert_false(message.contains("PASSSECRET"))
-  assert_false(message.contains("gateway.example"))
+  assert_true(notify.enabled)
+  assert_eq(notify.lang, "zh")
+  assert_eq(notify.targets.length(), 1)
+  let target = notify.targets[0]
+  assert_eq(target.platform, "feishu")
+  assert_eq(target.url, "https://hook.example/a")
+  assert_eq(target.secret, Some("sign"))
+  assert_eq(target.format, Some("markdown"))
 }
 
 ///|
-test "a url carrying a second full url is refused" {
-  // 占位符是整体替换:把一条完整地址填进已经带前缀的位置,展开结果就是两段地址
-  // 首尾相连。这种值照样以 https:// 开头,协议那一关放行,只有数 `://` 的次数
-  // 才认得出来。报错不回显地址。
-  let doubled = notify_error(
-    "[notify]\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://open.feishu.cn/open-apis/bot/v2/hook/https://open.feishu.cn/open-apis/bot/v2/hook/abc\"\n",
+test "omitting events takes every event" {
+  let notify = parse_notify(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\n",
   )
-  assert_true(doubled.contains("more than one ://"))
-  assert_false(doubled.contains("open.feishu.cn"))
-  // 一条正常地址只有一个 `://`,照旧通过。
-  let config = @config.parse(
-    project_doc(
-      "[notify]\n\n[[notify.report]]\nname = \"a\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://open.feishu.cn/open-apis/bot/v2/hook/abc\"\n",
-    ),
-    "/tmp",
+  assert_eq(notify.targets[0].filter, @config.EventFilter::All)
+}
+
+///|
+test "plain names are a whitelist" {
+  let notify = parse_notify(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\nevents = [\"crash\", \"errored\"]\n",
   )
   assert_eq(
-    config.notify.reports[0].targets[0].url,
-    "https://open.feishu.cn/open-apis/bot/v2/hook/abc",
+    notify.targets[0].filter,
+    @config.EventFilter::Only(["crash", "errored"]),
   )
 }
 
 ///|
-test "periodic report requires template and instant report rejects it" {
-  // cron without template is rejected.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\ncron = \"*/5 * * * *\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\n",
-    ).contains("cron requires template"),
+test "bang names are an exclusion list" {
+  let notify = parse_notify(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\nevents = [\"!lifecycle\", \"!daemon\"]\n",
   )
-  // template without cron is rejected.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\ntemplate = \"health\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\n",
-    ).contains("template requires cron"),
-  )
-  // Unknown template preset is rejected.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\ncron = \"*/5 * * * *\"\ntemplate = \"weekly_summary\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\n",
-    ).contains("unknown value weekly_summary"),
-  )
-  // Periodic reports take no event routing.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\ncron = \"*/5 * * * *\"\ntemplate = \"health\"\nevents = [\"crash\"]\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\n",
-    ).contains("events is not used by a periodic report"),
-  )
-  // A valid periodic report parses with its schedule.
-  let config = @config.parse(
-    project_doc(
-      (
-        #|[notify]
-        #|enabled = true
-        #|
-        #|[[notify.report]]
-        #|name = "health"
-        #|cron = "*/5 * * * *"
-        #|template = "health"
-        #|
-        #|[[notify.report.target]]
-        #|platform = "feishu"
-        #|url = "https://x/y"
-      ),
-    ),
-    "/srv/yicode",
-  )
-  let report = config.notify.reports[0]
-  assert_eq(report.template, Some("health"))
-  assert_eq(report.cron_text, Some("*/5 * * * *"))
-  let spec = report.cron.unwrap()
-  // */5 expands to [0,5,10,...,55]
-  assert_eq(spec.minutes.length(), 12)
-  assert_eq(spec.minutes[0], 0)
-  assert_eq(spec.minutes[1], 5)
-  assert_eq(spec.hours.length(), 24)
+  let filter = notify.targets[0].filter
+  assert_eq(filter, @config.EventFilter::Except(["lifecycle", "daemon"]))
+  assert_true(filter.accepts("crash"))
+  assert_true(!filter.accepts("lifecycle"))
 }
 
 ///|
-test "cron rejects malformed fields and the double day restriction" {
-  // Four fields instead of five.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\ncron = \"*/5 * * *\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\n",
-    ).contains("five fields"),
+test "an empty events array is rejected" {
+  let message = notify_error(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\nevents = []\n",
   )
-  // Step syntax works.
-  let config = @config.parse(
-    project_doc(
-      (
-        #|[notify]
-        #|
-        #|[[notify.report]]
-        #|name = "t"
-        #|cron = "0 */6 * * *"
-        #|template = "health"
-        #|
-        #|[[notify.report.target]]
-        #|platform = "feishu"
-        #|url = "https://x/y"
-      ),
-    ),
-    "/srv/yicode",
+  assert_true(message.contains("list at least one event"))
+}
+
+///|
+test "mixing plain names and exclusions is rejected" {
+  let message = notify_error(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\nevents = [\"crash\", \"!daemon\"]\n",
   )
-  let spec = config.notify.reports[0].cron.unwrap()
-  assert_eq(spec.hours.length(), 4)
-  // Day-of-month and day-of-week both restricted is rejected.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\ncron = \"0 8 1 * 1\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\n",
-    ).contains("both day-of-month and day-of-week"),
+  assert_true(message.contains("cannot mix"))
+}
+
+///|
+test "an unknown event name is rejected" {
+  let message = notify_error(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\nevents = [\"explosion\"]\n",
   )
-  // Out-of-range values are rejected.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\ncron = \"0 25 * * *\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"https://x/y\"\n",
-    ).contains("must be between"),
+  assert_true(message.contains("unknown event explosion"))
+}
+
+///|
+test "daily_stats is a valid event name" {
+  let notify = parse_notify(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\nevents = [\"daily_stats\"]\n",
+  )
+  assert_eq(
+    notify.targets[0].filter,
+    @config.EventFilter::Only(["daily_stats"]),
   )
 }
 
 ///|
-test "new threshold fields parse, default off and validate their ranges" {
-  let config = @config.parse(
-    project_doc(
-      (
-        #|[notify]
-        #|enabled = true
-        #|start_timeout_ms = 30000
-        #|threshold_disk_mb = 1024
-        #|threshold_storm = 10
-        #|events = ["crash", "oom_kill", "disk_pressure", "start_timeout"]
-      ),
-    ),
-    "/srv/yicode",
+test "daily_report_hour only accepts 1 through 23" {
+  let ok_low = parse_notify(
+    "[notify]\nenabled = true\ndaily_report_hour = 1\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\n",
   )
-  assert_eq(config.notify.start_timeout_ms, 30000)
-  assert_eq(config.notify.threshold_disk_mb, 1024)
-  assert_eq(config.notify.threshold_storm, 10)
-  assert_eq(config.notify.events.length(), 4)
-  // Absent means disabled.
-  let plain = @config.parse(
-    project_doc(
-      (
-        #|[notify]
-        #|enabled = true
-      ),
-    ),
-    "/srv/yicode",
+  assert_eq(ok_low.daily_report_hour, 1)
+  let ok_high = parse_notify(
+    "[notify]\nenabled = true\ndaily_report_hour = 23\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\n",
   )
-  assert_eq(plain.notify.start_timeout_ms, 0)
-  assert_eq(plain.notify.threshold_disk_mb, 0)
-  assert_eq(plain.notify.threshold_storm, 0)
-  // Ranges are enforced.
-  assert_true(
-    notify_error("[notify]\nstart_timeout_ms = 600001\n").contains(
-      "start_timeout_ms must be between",
-    ),
+  assert_eq(ok_high.daily_report_hour, 23)
+  let zero = notify_error(
+    "[notify]\nenabled = true\ndaily_report_hour = 0\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\n",
   )
-  assert_true(
-    notify_error("[notify]\nthreshold_disk_mb = 1048577\n").contains(
-      "threshold_disk_mb must be between",
-    ),
+  assert_true(zero.contains("daily_report_hour"))
+  let too_late = notify_error(
+    "[notify]\nenabled = true\ndaily_report_hour = 24\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\n",
   )
-  assert_true(
-    notify_error("[notify]\nthreshold_storm = 1001\n").contains(
-      "threshold_storm must be between",
-    ),
-  )
-  // The new events are known values; a typo stays rejected.
-  assert_true(
-    notify_error("[notify]\nevents = [\"oom_killed\"]\n").contains(
-      "unknown value oom_killed",
-    ),
-  )
+  assert_true(too_late.contains("daily_report_hour"))
 }
 
 ///|
-test "parse expands __VAR__ anywhere in the notify tree" {
-  @env.set_env_var("BM2_TEST_HOOK", "https://hook.example/from-env")
-  @env.set_env_var("BM2_TEST_KEY", "sign-key")
-  @env.set_env_var("BM2_TEST_MAIL", "smtps://smtp.example.com:465")
-  let config = @config.parse(
-    project_doc(
-      (
-        #|[notify]
-        #|enabled = true
-        #|mail_url = "__BM2_TEST_MAIL__"
-        #|
-        #|[[notify.report]]
-        #|name = "t"
-        #|
-        #|[[notify.report.target]]
-        #|platform = "feishu"
-        #|url = "__BM2_TEST_HOOK__"
-        #|secret = "__BM2_TEST_KEY__"
-      ),
+test "email target borrows the mail channel and carries recipients" {
+  let notify = parse_notify(
+    (
+      #|[notify]
+      #|enabled = true
+      #|mail_url = "smtps://smtp.example.com:465"
+      #|mail_from = "bm2@example.com"
+      #|
+      #|[[notify.target]]
+      #|platform = "email"
+      #|to = ["ops@example.com", "boss@example.com"]
+      #|events = ["crash"]
+      #|
     ),
-    "/srv/yicode",
   )
-  assert_eq(config.notify.mail_url, Some("smtps://smtp.example.com:465"))
-  let endpoint = config.notify.reports[0].targets[0]
-  assert_eq(endpoint.url, "https://hook.example/from-env")
-  assert_eq(endpoint.secret, Some("sign-key"))
-  @env.unset_env_var("BM2_TEST_HOOK")
-  @env.unset_env_var("BM2_TEST_KEY")
-  @env.unset_env_var("BM2_TEST_MAIL")
-  // With the variable gone the same config fails, naming the variable.
-  assert_true(
-    notify_error(
-      "[notify]\n\n[[notify.report]]\nname = \"t\"\n\n[[notify.report.target]]\nplatform = \"feishu\"\nurl = \"__BM2_TEST_HOOK__\"\n",
-    ).contains("BM2_TEST_HOOK which is not set"),
-  )
+  let target = notify.targets[0]
+  assert_eq(target.url, "")
+  assert_eq(target.mail_to, Some(["ops@example.com", "boss@example.com"]))
 }
 
 ///|
-/// The notification copy language is the project's unless the project says
-/// otherwise for notify alone: notices are part of the project's voice, so one
-/// language in bm2.toml is enough to make them Chinese.
-test "notify copy follows the project language until told otherwise" {
-  let inherits = @config.parse(
-    project_doc(
-      (
-        #|lang = "zh"
-        #|[notify]
-        #|enabled = true
-      ),
-    ),
-    "/srv/yicode",
+test "email target without recipients is rejected" {
+  let message = notify_error(
+    "[notify]\nenabled = true\nmail_url = \"smtps://smtp.example.com:465\"\nmail_from = \"bm2@example.com\"\n[[notify.target]]\nplatform = \"email\"\n",
   )
-  assert_eq(inherits.notify.lang, "zh")
-  let overrides = @config.parse(
-    project_doc(
-      (
-        #|lang = "zh"
-        #|[notify]
-        #|enabled = true
-        #|lang = "en"
-      ),
-    ),
-    "/srv/yicode",
-  )
-  assert_eq(overrides.notify.lang, "en")
+  assert_true(message.contains(".to is required for email"))
 }
 
 ///|
-test "notify lang is a closed set defaulting to en" {
-  let config = @config.parse(
-    project_doc(
-      (
-        #|[notify]
-        #|enabled = true
-        #|lang = "zh"
-      ),
-    ),
-    "/srv/yicode",
+test "email target without the mail channel is rejected" {
+  let message = notify_error(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"email\"\nto = [\"ops@example.com\"]\n",
   )
-  assert_eq(config.notify.lang, "zh")
-  let plain = @config.parse(
-    project_doc(
-      (
-        #|[notify]
-        #|enabled = true
-      ),
-    ),
-    "/srv/yicode",
-  )
-  assert_eq(plain.notify.lang, "en")
-  assert_true(
-    notify_error("[notify]\nlang = \"fr\"\n").contains(
-      "notify.lang is not supported: fr",
-    ),
-  )
+  assert_true(message.contains("no mail_url"))
 }
 
 ///|
-/// A language bm2 does not speak is refused, and the refusal quotes the value so a
-/// typo is visible. It deliberately does not list what is supported: that roster
-/// would be a second place to maintain, and it would have to be updated the day a
-/// language is added — which is the one moment nobody wants a message to lie.
-test "an unsupported language is refused by name" {
-  let notify_msg = notify_error("[notify]\nlang = \"fr\"\n")
-  assert_true(notify_msg.contains("notify.lang is not supported: fr"))
-  assert_true(
-    parse_error(
-      "name = \"blog\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\nlang = \"zh_CN\"\n",
-    ).contains("root.lang is not supported: zh_CN"),
+test "email target may not carry a url" {
+  let message = notify_error(
+    "[notify]\nenabled = true\nmail_url = \"smtps://smtp.example.com:465\"\nmail_from = \"bm2@example.com\"\n[[notify.target]]\nplatform = \"email\"\nto = [\"ops@example.com\"]\nurl = \"https://h/a\"\n",
+  )
+  assert_true(message.contains("url is not used by email"))
+}
+
+///|
+test "a web target needs an http url" {
+  let message = notify_error(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"hook.example/a\"\n",
+  )
+  assert_true(message.contains("http://"))
+}
+
+///|
+test "a web target may not carry recipients" {
+  let message = notify_error(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\nto = [\"ops@example.com\"]\n",
+  )
+  assert_true(message.contains("to is not used"))
+}
+
+///|
+test "an unknown platform is rejected" {
+  let message = notify_error(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"telegram\"\nurl = \"https://h/a\"\n",
+  )
+  assert_true(message.contains("unknown value telegram"))
+}
+
+///|
+test "an unknown key inside a target is rejected" {
+  let message = notify_error(
+    "[notify]\nenabled = true\n[[notify.target]]\nplatform = \"feishu\"\nurl = \"https://h/a\"\nmin_level = \"error\"\n",
+  )
+  assert_true(message.contains("min_level"))
+}
+
+///|
+test "several targets are parsed independently" {
+  let notify = parse_notify(
+    (
+      #|[notify]
+      #|enabled = true
+      #|
+      #|[[notify.target]]
+      #|platform = "feishu"
+      #|url = "https://h/ops"
+      #|
+      #|[[notify.target]]
+      #|platform = "webhook"
+      #|url = "https://h/stats"
+      #|events = ["daily_stats"]
+      #|
+    ),
+  )
+  assert_eq(notify.targets.length(), 2)
+  assert_eq(notify.targets[0].filter, @config.EventFilter::All)
+  assert_eq(
+    notify.targets[1].filter,
+    @config.EventFilter::Only(["daily_stats"]),
   )
 }

@@ -180,7 +180,7 @@ async fn run() -> Int32 {
     }
   }
   // start targets the project itself (single-app config); kill filters by
-  // name; notify takes a notification target name; kill -y has no target.
+  // name; notify takes no positional argument; kill -y has no target.
   let app : String? = if mode is Some(_) {
     match config {
       Some(cfg) => Some(cfg.name)
@@ -191,7 +191,6 @@ async fn run() -> Int32 {
   } else {
     app_arg
   }
-  let notify_target : String? = if command == "notify" { app_arg } else { None }
   // Requests must wait out the slowest possible daemon operation (a full
   // restart waiting on stop_timeout) plus margin, so a slow-but-healthy
   // daemon is never mistaken for a dead one. Without a config here the
@@ -247,7 +246,6 @@ async fn run() -> Int32 {
     command,
     app,
     config_path: request_config_path,
-    notify_target,
     force: Some(force_flag),
     lang: Some(lang.name()),
   }

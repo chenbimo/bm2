@@ -617,53 +617,24 @@ async fn cmd_notify(
   // notify language already follows the project's `lang`, so answering in the
   // terminal's language instead would put a third language on one screen.
   let lang = @i18n.of_request(Some(policy.lang))
-  let mut has_endpoint = false
-  for report in policy.reports {
-    if report.targets.length() > 0 {
-      has_endpoint = true
-    }
-  }
-  if !policy.enabled || !has_endpoint {
+  if !policy.enabled || policy.targets.length() == 0 {
     return @protocol.Response::error(
       @i18n.notify_not_enabled(lang, config.name),
     )
   }
-  let endpoints = []
-  for report in policy.reports {
-    if req.notify_target is Some(want) && report.name != want {
-      continue
-    }
-    for endpoint in report.targets {
-      endpoints.push(endpoint)
-    }
-  }
-  if endpoints.is_empty() {
-    return @protocol.Response::error(
-      match req.notify_target {
-        Some(name) => @i18n.unknown_notify_target(lang, name)
-        None => @i18n.no_notify_targets(lang)
-      },
-    )
-  }
+  // 测试发送到全部目标，不看 events 过滤：它的用途是逐条验证通道是否通。
+  let targets = policy.targets
   let reply = @core.publish_test(
     outbound,
     config.name,
     policy,
-    endpoints,
+    targets,
     @core.test_message(@utils.now_ms(), lang=policy.lang),
   )
   let results = match wait_notify_results(reply, test_wait_budget_ms(policy)) {
     Some(results) => results
     None =>
       return @protocol.Response::error(@i18n.notify_delivery_timeout(lang))
-  }
-  if results.length() == 0 {
-    return @protocol.Response::error(
-      match req.notify_target {
-        Some(name) => @i18n.unknown_notify_target(lang, name)
-        None => @i18n.no_notify_targets(lang)
-      },
-    )
   }
   let lines = []
   let mut failed = 0

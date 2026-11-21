@@ -8,7 +8,6 @@ async fn request_detach(state_dir : String) -> Bool {
     command: "reload",
     app: None,
     config_path: None,
-    notify_target: None,
     force: None,
     lang: None,
   }
@@ -131,7 +130,6 @@ async fn poll_settled(
     command: "list",
     app,
     config_path: None,
-    notify_target: None,
     force: None,
     lang: None,
   }

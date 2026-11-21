@@ -171,8 +171,8 @@ pub fn arg_project_to_remove(lang : Lang) -> String {
 }
 
 ///|
-/// `kill` / `list` / `notify` share this one: in the first two it narrows the
-/// answer to a project, in the last it narrows a test to a target.
+/// `kill` / `list` narrow their answer to a project; `notify` sends to every
+/// configured target, so it takes no positional argument.
 pub fn arg_limit_to_project(lang : Lang) -> String {
   match lang {
     En => "Limit to this project"

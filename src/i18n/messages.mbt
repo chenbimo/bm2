@@ -183,22 +183,6 @@ pub fn notify_delivery_timeout(lang : Lang) -> String {
 }
 
 ///|
-pub fn unknown_notify_target(lang : Lang, name : String) -> String {
-  match lang {
-    En => "unknown notification target: " + name
-    Zh => "未知的通知目标:" + name
-  }
-}
-
-///|
-pub fn no_notify_targets(lang : Lang) -> String {
-  match lang {
-    En => "no notification targets configured"
-    Zh => "没有配置通知目标"
-  }
-}
-
-///|
 /// Refusing a test delivery to a project that turned notifications off: name the
 /// two things to change, so the answer is a fix rather than a lookup.
 pub fn notify_not_enabled(lang : Lang, app : String) -> String {
@@ -206,11 +190,11 @@ pub fn notify_not_enabled(lang : Lang, app : String) -> String {
     En =>
       "project " +
       app +
-      " has no notifications enabled: set [notify].enabled = true and add at least one [[notify.report.target]] in bm2.toml"
+      " has no notifications enabled: set [notify].enabled = true and add at least one [[notify.target]] in bm2.toml"
     Zh =>
       "项目 " +
       app +
-      " 没有启用通知:请在 bm2.toml 里设置 [notify].enabled = true,并至少添加一个 [[notify.report.target]]"
+      " 没有启用通知:请在 bm2.toml 里设置 [notify].enabled = true,并至少添加一个 [[notify.target]]"
   }
 }
 

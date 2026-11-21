@@ -32,9 +32,12 @@ pub extend NotifyError with @debug.Debug::{to_repr}
 ///|
 /// One notification. `key` is what deduplication keys on; `event` is the
 /// logical event name carried through to generic webhook payloads.
+/// `event_label` is that same event in the recipient's language — the library
+/// stays language-free, the caller hands in the already-translated name.
 #derive(Debug)
 pub(all) struct Message {
   event : String
+  event_label : String
   level : String
   title : String
   body : String
@@ -55,8 +58,9 @@ pub fn Message::new(
   key : String,
   ts_ms : UInt64,
   fields~ : Array[(String, String)] = [],
+  event_label~ : String = "",
 ) -> Message {
-  { event, level, title, body, fields, ts_ms, key, }
+  { event, event_label, level, title, body, fields, ts_ms, key, }
 }
 
 ///|

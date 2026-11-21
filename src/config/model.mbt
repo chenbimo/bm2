@@ -53,64 +53,46 @@ pub extend Config with Debug::{to_repr}
 /// echoed in errors, events or CLI output.
 
 ///|
-/// A parsed standard five-field cron: minute, hour, day-of-month, month,
-/// day-of-week. Every field is the full expanded set of matching values
-/// (`*` expands to the whole range). Day-of-month and day-of-week may not
-/// both be restricted — that combination is rejected at parse time.
+/// 一个目标收哪些事件。
+///
+/// 不写 `events` 是 `All`；写普通项是白名单 `Only`；写 `!` 前缀是排除式
+/// `Except`。白名单与排除式不能混写——两者语义相反，混在一起就得解释
+/// 「谁先谁后」，而那种规则没人记得住。
 #derive(Debug, Eq)
-pub(all) struct CronSpec {
-  minutes : Array[Int32]
-  hours : Array[Int32]
-  days_of_month : Array[Int32]
-  months : Array[Int32]
-  days_of_week : Array[Int32]
+pub(all) enum EventFilter {
+  All
+  Only(Array[String])
+  Except(Array[String])
 }
 
 ///|
-pub extend CronSpec with Debug::{to_repr}
+pub extend EventFilter with Debug::{to_repr}
 
 ///|
-pub extend CronSpec with Eq::{not_equal, equal}
+pub extend EventFilter with Eq::{not_equal, equal}
 
 ///|
-/// One entry of `[[notify.report]]`. Either instant (has `events`, fires on
-/// events) or periodic (has `cron`, fires on schedule) — never both.
+/// One delivery target: a platform, its connection, and which events it takes.
 #derive(Debug)
-pub(all) struct NotifyReport {
-  name : String
-  label : String?
-  /// Instant only: which events this report receives (within the gate).
-  events : Array[String]?
-  min_level : String?
-  /// Periodic only: schedule + which preset template to render.
-  cron : CronSpec?
-  cron_text : String?
-  template : String?
-  /// Delivery endpoints of this report.
-  targets : Array[NotifyEndpoint]
-}
-
-///|
-pub extend NotifyReport with Debug::{to_repr}
-
-///|
-/// One delivery endpoint inside a report: a platform plus its connection.
-#derive(Debug)
-pub(all) struct NotifyEndpoint {
+pub(all) struct NotifyTarget {
   platform : String
   url : String
   secret : String?
   format : String?
-  /// email platform only: recipients.
+  /// email platform only: recipients. The send capability itself lives on
+  /// `NotifyConfig` so it is configured once for the whole project.
   mail_to : Array[String]?
+  filter : EventFilter
 }
 
 ///|
-pub extend NotifyEndpoint with Debug::{to_repr}
+pub extend NotifyTarget with Debug::{to_repr}
 
 ///|
-/// Which events leave this project, and where they go. Lives inside the project
-/// config: a project's supervision and its reporting are one unit.
+/// 谁收通知、收到哪些事件，以及告警的判定阈值。
+///
+/// 只有两个概念：**事件**（11 类，含每日统计 `daily_stats`）与 **目标**
+/// （`NotifyTarget`）。目标自己带过滤，所以不需要继承，也不需要报告这一层。
 #derive(Debug)
 pub(all) struct NotifyConfig {
   enabled : Bool
@@ -127,14 +109,16 @@ pub(all) struct NotifyConfig {
   dedupe_window_s : Int32
   max_per_minute : Int32
   queue_size : Int32
-  events : Array[String]
+  /// 每日统计的整点（1..23）。它只回答「什么时候发」；「发不发」由有没有
+  /// 目标订阅 `daily_stats` 决定——所以没人订阅时这里留着也不报错。
+  daily_report_hour : Int32
   threshold_rss_percent : Int32
   threshold_offline_min : Int32
   threshold_restarts : Int32
   start_timeout_ms : Int32
   threshold_disk_mb : Int32
   threshold_storm : Int32
-  reports : Array[NotifyReport]
+  targets : Array[NotifyTarget]
 }
 
 ///|
@@ -155,14 +139,14 @@ pub fn NotifyConfig::disabled() -> NotifyConfig {
     dedupe_window_s: 3600,
     max_per_minute: 30,
     queue_size: 128,
-    events: [],
+    daily_report_hour: 8,
     threshold_rss_percent: 0,
     threshold_offline_min: 0,
     threshold_restarts: 0,
     start_timeout_ms: 0,
     threshold_disk_mb: 0,
     threshold_storm: 0,
-    reports: [],
+    targets: [],
   }
 }
 
