@@ -1,12 +1,11 @@
 ///|
 /// Minimum runtime versions bm2 supports; a start is refused when the real binary
-/// is older. Node's floor is the release that made `listen({ reusePort })` work
-/// (v22.12.0); Bun's is the oldest line bm2 still supports, its `Bun.serve`
-/// `reusePort` being far older than that.
+/// is older. Node's floor is 24: the line bm2 ships against. Bun's is the oldest
+/// line bm2 still supports, its `Bun.serve` `reusePort` being far older.
 const MIN_BUN : String = "1.4.0"
 
 ///|
-const MIN_NODE : String = "22.12.0"
+const MIN_NODE : String = "24.0.0"
 
 ///|
 /// How long a `<runtime> --version` probe may take. The wait itself belongs to the

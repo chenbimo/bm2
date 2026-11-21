@@ -171,6 +171,36 @@ max_size_mb = 10
 keep = 0                      # 0 表示归档代数不限
 ```
 
+## 环境变量文件（.env）
+
+**`.env` 归运行时，不归 bm2。** bm2 只注入自己的基线，业务的环境变量由 bun / node 自己加载：
+
+- **bun**：开箱即用。它按 `.env` → `.env.<NODE_ENV>` → `.env.local` → `.env.<NODE_ENV>.local` 的顺序加载，后者覆盖前者。
+- **node**：不会自动读。要么在启动命令里显式给 `--env-file`，要么由应用自己 `process.loadEnvFile()`。bm2 的配置里没有参数位（`script` 只是脚本路径），传不了 `--env-file`。
+- bm2 按模式写 `NODE_ENV`（`bm2 dev` → development，`bm2 serve` → production），运行时据此挑文件。
+
+bm2 自己也会读一遍 `.env`，但**只用于两件事**，不注入业务进程：
+
+1. `bm2.toml` 里的 `__NAME__` 占位符（例如通知地址、SMTP 密码）
+2. 校验 `NODE_ENV`：`.env` 里写了与模式冲突的值会直接报错
+
+读取位置是 **`bm2.toml` 所在目录**；而运行时读的是**应用的 cwd**。两者不同（用 `cwd` 字段指到别处）时，以 cwd 为准——那是运行时的规则。
+
+注入给实例的只有基线：`PATH`/`HOME`/`TMPDIR`、`BM2_*` 前缀变量，外加 `BM2_APP_NAME`/`BM2_APP_PORT`/`NODE_ENV` 这些保留变量。shell 里其它变量不会被继承。
+
+Node 项目在自己的 `package.json` 里补上加载参数即可（顺序与 Bun 一致，后者覆盖前者）：
+
+```json
+"dev": "node --env-file=.env --env-file=.env.development --env-file-if-exists=.env.local --env-file-if-exists=.env.development.local src/index.js",
+"start": "node --env-file=.env --env-file=.env.production --env-file-if-exists=.env.local --env-file-if-exists=.env.production.local src/index.js"
+```
+
+- `--env-file-if-exists` 需要 Node 22.9 及以上（Node 24 已是正式特性）；更老的版本只能全用 `--env-file`，那就得保证文件存在
+- 生产机上不要留 `.env.local`，它会在 `.env.production` 之后把线上值覆盖掉
+- Node 的 `--env-file` 不做 `$VAR` 展开，值里的 `$` 会原样保留；Bun 会展开。同一份文件要在两个运行时下都稳定，值里就别依赖 `$`
+
+`.env` 的解析语义以 Bun 为准（引号、注释、`$VAR` / `${VAR:-默认}`、单层展开、逐文件作用域），实现是独立库 [`chensuiyi/dotenv`](https://github.com/chenbimo/dotenv)，bm2 引它来解析自己那两件事。
+
 ## 与 pm2 的对比
 
 | 对比项 | bm2 | pm2 |
@@ -187,7 +217,7 @@ keep = 0                      # 0 表示归档代数不限
 
 - Linux，内核 `5.4` 及以上，pidfd 进程跟踪与退出码需要它。
 - `runtime = "bun"` 需要 Bun `1.4.0` 及以上。
-- `runtime = "node"` 需要 Node.js `22.12.0` 及以上。
+- `runtime = "node"` 需要 Node.js `24.0.0` 及以上。
 - 只有安装与升级 bm2 时需要 MoonBit 工具链，运行 bm2 不需要。
 
 版本下限在启动那一刻实测，低于下限会直接拒绝启动并说清缺什么，而不是让实例反复崩溃给你看。

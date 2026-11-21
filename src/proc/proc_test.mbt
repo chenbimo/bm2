@@ -155,16 +155,13 @@ test "instance_env_blob contains reserved vars" {
 }
 
 ///|
-/// NODE_ENV comes from the caller — the mode the project was started in — and
-/// the reserved block is written last, so a project's own env cannot override
-/// it even if it tries.
-test "instance_env_blob takes NODE_ENV from the mode, not from the app env" {
+/// 实例环境里没有项目自己的变量：`.env` 由运行时自己加载，bm2 只给基线与保留变量。
+test "instance_env_blob carries only the baseline and reserved vars" {
   let text = @utf8.decode(
-    @proc.instance_env_blob("myapp", 0, 5000, node_env="development", extra=[
-      ("NODE_ENV", "production"),
-    ]),
+    @proc.instance_env_blob("myapp", 0, 5000, node_env="development"),
   )
   assert_true(text.contains("NODE_ENV=development"))
+  assert_true(text.contains("BM2_APP_NAME=myapp"))
 }
 
 ///|

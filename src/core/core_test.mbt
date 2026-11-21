@@ -39,7 +39,6 @@ fn app_config(
     min_uptime_ms,
     stop_timeout_ms,
     notify: notify.unwrap_or(@config.NotifyConfig::disabled()),
-    env: [],
   }
 }
 

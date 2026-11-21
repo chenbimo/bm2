@@ -3,20 +3,23 @@ let whitelist : Array[String] = ["PATH", "HOME", "TMPDIR"]
 
 ///|
 /// Minimal instance environment: whitelisted vars from the daemon's own
-/// environment, the project's own scanned vars, then the reserved app vars —
-/// encoded as a NUL-separated "KEY=VALUE" blob with a trailing extra NUL for
-/// spawn. Reserved vars are written last, so nothing can override them.
+/// environment, then the reserved app vars — encoded as a NUL-separated
+/// "KEY=VALUE" blob with a trailing extra NUL for spawn. Reserved vars are
+/// written last, so nothing can override them.
+///
+/// The project's own `.env` is deliberately absent: it belongs to the runtime,
+/// which loads it itself (Bun natively, Node via `--env-file` or a launcher).
+/// bm2 reads those files only to resolve `__NAME__` placeholders in bm2.toml.
 ///
 /// NODE_ENV is reserved rather than the application's to set: `bm2 serve` and
-/// `bm2 dev` mean production and development, and the config loader has already
-/// refused any `.env` file that claims otherwise. The value is passed in as a
-/// string so this layer stays free of config types.
+/// `bm2 dev` mean production and development, and the config loader refuses any
+/// `.env` file that claims otherwise. The value is passed in as a string so this
+/// layer stays free of config types.
 pub fn instance_env_blob(
   app_name : String,
   instance_id : Int32,
   port : Int32,
   node_env~ : String,
-  extra~ : Array[(String, String)] = [],
 ) -> Bytes {
   let reserved = [
     ("BM2_APP_NAME", app_name),
@@ -25,7 +28,7 @@ pub fn instance_env_blob(
     ("BM2_APP_PORT", port.to_string()),
     ("NODE_ENV", node_env),
   ]
-  build_blob(reserved, extra~)
+  build_blob(reserved)
 }
 
 ///|
@@ -56,16 +59,9 @@ fn select_entries(vars : Map[String, String]) -> Array[(String, String)] {
 }
 
 ///|
-fn build_blob(
-  reserved : Array[(String, String)],
-  extra~ : Array[(String, String)] = [],
-) -> Bytes {
+fn build_blob(reserved : Array[(String, String)]) -> Bytes {
   let buf = StringBuilder()
   for entry in select_entries(@env.get_env_vars()) {
-    let (name, value) = entry
-    write_entry(buf, name, value)
-  }
-  for entry in extra {
     let (name, value) = entry
     write_entry(buf, name, value)
   }

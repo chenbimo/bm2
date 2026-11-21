@@ -108,21 +108,8 @@ fn cleanup_env_dir(dir : String, files : Array[(String, String)]) -> Unit {
 }
 
 ///|
-/// 从注入数组里取一个键。顺序不保证,所以不能按下标读。
-fn injected(entries : Array[(String, String)], key : String) -> String {
-  let mut found = ""
-  for pair in entries {
-    if pair.0 == key {
-      found = pair.1
-    }
-  }
-  found
-}
-
-///|
-/// 扫描结果既是注入给实例的环境,也是 `__VAR__` 的解析源——同一份 map,所以应用和
-/// 管理者不可能对同一个名字读出不同的值。
-test ".env files feed both the injected environment and placeholders" {
+/// `.env` 只服务 `__VAR__` 占位符，不再注入到实例环境。同名键后加载的覆盖先加载的。
+test ".env files feed placeholders only" {
   let files : Array[(String, String)] = [
     (".env", "SHARED=base\n"),
     (".env.production", "MYSQL_HOST=db.internal\n"),
@@ -140,11 +127,7 @@ test ".env files feed both the injected environment and placeholders" {
     ),
     dir,
   )
-  // 三个文件合并:同名键后加载的覆盖先加载的。
-  assert_eq(config.env.length(), 2)
-  assert_eq(injected(config.env, "SHARED"), "local")
-  assert_eq(injected(config.env, "MYSQL_HOST"), "db.internal")
-  // 同一个值也解析进了配置里的占位符。
+  // 占位符从 .env 取值。
   assert_eq(config.cwd, "/srv/db.internal")
   cleanup_env_dir(dir, files)
 }
@@ -158,14 +141,25 @@ test ".env files: mode selects the mode-specific file" {
     (".env.development", "TARGET=dev\n"),
   ]
   let dir = env_dir("mode", files)
-  let production = @config.parse(VALID_DOC, dir, mode=@config.Mode::Production)
-  let development = @config.parse(
-    VALID_DOC,
+  let doc =
+    #|name = "blog"
+    #|script = "index.ts"
+    #|instances = 1
+    #|port = 3000
+    #|cwd = "/srv/__TARGET__"
+    #|
+  let production : @config.Config = @config.parse(
+    doc,
+    dir,
+    mode=@config.Mode::Production,
+  )
+  let development : @config.Config = @config.parse(
+    doc,
     dir,
     mode=@config.Mode::Development,
   )
-  assert_eq(injected(production.env, "TARGET"), "prod")
-  assert_eq(injected(development.env, "TARGET"), "dev")
+  assert_eq(production.cwd, "/srv/prod")
+  assert_eq(development.cwd, "/srv/dev")
   cleanup_env_dir(dir, files)
 }
 
@@ -187,10 +181,10 @@ test ".env files: a malformed file names the file and the line" {
 }
 
 ///|
-/// 一个 .env 文件都没有也是正常的:项目环境就是空的。
+/// 一个 .env 文件都没有也是正常的:占位符无处可取,不带的文档照常解析。
 test ".env files: absent files are not an error" {
   let plain = @config.parse(VALID_DOC, "/tmp/bm2-env-absent")
-  assert_eq(plain.env.length(), 0)
+  assert_eq(plain.name, "blog")
 }
 
 ///|

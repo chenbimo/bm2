@@ -30,11 +30,12 @@ test "runtime_verdict judges a missing runtime, a bad exit and a version" {
   // At the floor and above it: accepted.
   assert_eq(runtime_verdict("bun", 0, "1.4.0"), None)
   assert_eq(runtime_verdict("bun", 0, "1.9.3"), None)
-  // node has its own floor: 22.12 is the first release whose `listen` honours
-  // reusePort, so the 22.x line below it must be refused.
-  assert_eq(runtime_verdict("node", 0, "22.12.0"), None)
-  assert_true(runtime_verdict("node", 0, "22.11.0") is Some(_))
-  assert_true(runtime_verdict("node", 0, "24.0.0") is None)
+  // node has its own floor: 24.0.0 is the line bm2 ships against, so the whole
+  // 22.x and 23.x range must be refused.
+  assert_true(runtime_verdict("node", 0, "22.12.0") is Some(_))
+  assert_true(runtime_verdict("node", 0, "23.11.1") is Some(_))
+  assert_eq(runtime_verdict("node", 0, "24.0.0"), None)
+  assert_eq(runtime_verdict("node", 0, "26.13.1"), None)
 }
 
 ///|

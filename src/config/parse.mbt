@@ -15,17 +15,6 @@ fn effective_instances(configured : Int32, mode : Mode) -> Int32 {
 }
 
 ///|
-/// The scanned project environment, as the key/value array the injector takes.
-/// Injection only cares which keys exist; keys have no order dependency.
-fn env_entries(vars : Map[String, String]) -> Array[(String, String)] {
-  let out : Array[(String, String)] = []
-  for pair in vars.iter() {
-    out.push(pair)
-  }
-  out
-}
-
-///|
 let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "exec_mode", "instances", "port", "max_memory_mb",
   "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "notify",
@@ -76,10 +65,17 @@ pub fn parse(
   base_dir : String,
   mode~ : Mode = Production,
 ) -> Config raise ConfigError {
-  // Scanned first: this one map feeds both the injection into instances and the
-  // ${VAR} expansion below, so an application and the manager that supervises it
-  // can never read different values for the same name.
-  let vars = scan_env_files(base_dir, mode)
+  // 扫一遍 `.env`，但**不**注入到业务进程：业务的环境变量由 bun / node 自己加载。
+  // 这份 map 只服务两件事：`bm2.toml` 的 `__NAME__` 占位符，以及下面的 NODE_ENV 一致性校验。
+  let vars = try
+    @dotenv.load_strict(base_dir, mode.as_string(), fn(name) {
+      @env.get_env_var(name)
+    })
+  catch {
+    e => raise ConfigError::InvalidDocument(e.describe())
+  } noraise {
+    loaded => loaded
+  }
   // NODE_ENV belongs to the reserved set: bm2 decides it from the mode. A file
   // may restate the same value (most `.env.production` files do) but not
   // contradict it — otherwise "which environment am I in?" would depend on which
@@ -151,7 +147,6 @@ pub fn parse(
     logs: opt_logs(table),
     mode,
     lang: opt_project_lang(table),
-    env: env_entries(vars),
   }
   validate(config)
   config

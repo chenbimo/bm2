@@ -89,7 +89,6 @@ fn check_config() -> @config.Config {
         },
       ],
     },
-    env: [],
   }
 }
 

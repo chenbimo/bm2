@@ -19,7 +19,6 @@ fn wb_setup(root : String, port : Int32) -> Supervisor raise {
     stop_timeout_ms: 200,
     notify: @config.NotifyConfig::disabled(),
     logs: @config.LogsConfig::builtin(),
-    env: [],
   }
   let sv = Supervisor::new(state_dir=root + "/state", bun_path="/bin/sh")
   sv.register(config, root + "/bm2.toml")
@@ -434,7 +433,6 @@ test "a project's language wins over the caller's" {
     stop_timeout_ms: 200,
     notify: @config.NotifyConfig::disabled(),
     logs: @config.LogsConfig::builtin(),
-    env: [],
   }
   sv.register(zh_config, root + "/zh.toml")
   let ask = fn(name : String?, lang : String?) -> @protocol.Request {

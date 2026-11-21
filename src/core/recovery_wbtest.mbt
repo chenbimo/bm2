@@ -24,7 +24,6 @@ fn wb_config(name : String, cwd : String, port : Int32) -> @config.Config {
     stop_timeout_ms: 500,
     notify: @config.NotifyConfig::disabled(),
     logs: @config.LogsConfig::builtin(),
-    env: [],
   }
 }
 

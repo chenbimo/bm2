@@ -41,13 +41,6 @@ pub(all) struct Config {
   /// Kept per project because the logs are per project: one noisy app must not
   /// decide how long another one's history is.
   logs : LogsConfig
-  /// The project environment, scanned from the `.env` files next to bm2.toml:
-  /// `.env`, `.env.<mode>`, `.env.local`, `.env.<mode>.local`, later wins.
-  ///
-  /// Injected into every instance after the whitelist and before the reserved
-  /// vars, and it is the same map that `${VAR}` in bm2.toml resolves against,
-  /// so the application and the manager can never disagree about a value.
-  env : Array[(String, String)]
 }
 
 ///|

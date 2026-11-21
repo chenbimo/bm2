@@ -729,7 +729,6 @@ fn Supervisor::spawn_instance(
         inst.instance_id,
         inst.port,
         node_env=app.mode.as_string(),
-        extra=app.env,
       ),
     })
   catch {
