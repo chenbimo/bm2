@@ -151,25 +151,36 @@ url = "https://open.feishu.cn/open-apis/bot/v2/hook/__FEISHU__"
 
 ## 配置速查
 
+**能省就省**：没写出来的字段一律取默认值，默认值就是绝大多数项目该用的值。最小可用配置只有四项：
+
 ```toml
 name = "api"                  # 项目名，也是状态目录下的目录名
-cwd = "/srv/api"              # 默认是 bm2.toml 所在目录
-script = "src/index.ts"       # 相对 cwd
-runtime = "bun"               # bun 或 node
-exec_mode = "cluster"         # cluster 或 fork
+script = "index.js"           # 相对 cwd
 instances = 2
 port = 3000
-max_memory_mb = 512           # 单实例内存上限，算整棵进程树
-max_tree_processes = 512      # 内存统计的进程树上限
-max_restarts = 10             # 连续异常重启预算，0 表示首次异常即停止自愈
-restart_delay_ms = 1000
-min_uptime_ms = 10000
-stop_timeout_ms = 10000
-
-[logs]
-max_size_mb = 10
-keep = 0                      # 0 表示归档代数不限
 ```
+
+`cwd` 默认就是 `bm2.toml` 所在目录，两者一致时不用写。
+
+其余字段按需添加，括号里是默认值：
+
+| 字段 | 默认 | 什么时候才需要写 |
+| --- | --- | --- |
+| `cwd` | 配置文件所在目录 | 应用不在配置文件旁边 |
+| `runtime` | `bun` | 用 Node 跑：`runtime = "node"`（需 Node ≥ 24） |
+| `exec_mode` | `cluster` | 单实例且需要 fork 语义 |
+| `max_memory_mb` | 512 | 服务吃得多，或要让内存预警更早/更晚触发 |
+| `max_tree_processes` | 512 | 进程树很深，默认统计上限不够 |
+| `max_restarts` | 10 | 想更快放弃自愈（`0` = 首次异常即停） |
+| `restart_delay_ms` | 1000 | 重启太密或太慢 |
+| `min_uptime_ms` | 10000 | 短命进程被误判成崩溃 |
+| `stop_timeout_ms` | 10000 | 停机要等更久（如排空连接） |
+| `[logs]` | 10MB / 代数不限 | 要限制日志磁盘占用 |
+| `[notify]` | 关闭 | 要事件告警与周期上报 |
+| `lang` | 跟随操作者环境 | 要钉死输出语言 |
+
+`[notify]` 里的 `threshold_*` 阈值默认都是 0（关闭），不写就不触发——只有配上具体数值，
+`events` 里列出的 threshold 类事件才会有意义。
 
 ## 环境变量文件（.env）
 
