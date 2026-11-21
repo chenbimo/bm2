@@ -181,14 +181,6 @@ pub fn arg_limit_to_project(lang : Lang) -> String {
 }
 
 ///|
-pub fn arg_test_only_target(lang : Lang) -> String {
-  match lang {
-    En => "Test only this target"
-    Zh => "只测试这个目标"
-  }
-}
-
-///|
 pub fn kill_needs_confirmation(lang : Lang) -> String {
   match lang {
     En => "refusing to stop bm2d and all apps; use 'bm2 kill -y' to confirm"

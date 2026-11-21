@@ -67,9 +67,7 @@ async fn run() -> Int32 {
       ),
       @argparse.Command("check", about=@i18n.help_check(lang)),
       @argparse.Command("reload", about=@i18n.help_reload(lang)),
-      @argparse.Command("notify", about=@i18n.help_notify(lang), positionals=[
-        optional_name(@i18n.arg_test_only_target(lang)),
-      ]),
+      @argparse.Command("notify", about=@i18n.help_notify(lang)),
       @argparse.Command("clean", about=@i18n.help_clean(lang), flags=[
         @argparse.FlagArg("dry-run", about=@i18n.help_dry_run(lang)),
       ]),
