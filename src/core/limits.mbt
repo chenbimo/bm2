@@ -47,7 +47,9 @@ fn Supervisor::check_reuseport(self : Supervisor, now : UInt64) -> Unit {
       Some(app) => app
       None => continue
     }
-    if app.exec_mode != "cluster" {
+    // 单实例不共享端口，内核不需要 SO_REUSEPORT：这种项目没写 reusePort
+    // 不是错误，别拿多实例的规矩去停它。
+    if app.exec_mode != "cluster" || app.instances < 2 {
       continue
     }
     for inst in arr {
@@ -149,13 +151,16 @@ fn Supervisor::check_memory(self : Supervisor) -> Unit {
       if inst.status is Online {
         match @proc.tree_rss_kb(inst.pid, app.max_tree_processes) {
           Some(kb) => {
+            // 每次采样都记住最近一次真实 RSS：OOM 判定靠的就是它。
+            // 只在超限时记，等于让"接近上限却被内核杀掉"永远判不出来——
+            // 那种情况 RSS 从没越过上限，这里就一直是 0。
+            inst.last_rss_kb = kb
             self.notify.record_rss(
               inst.app_name + "/" + inst.instance_id.to_string(),
               kb,
             )
             self.record_stats_peak(inst.app_name, kb)
             if kb.to_int64() > app.max_memory_mb.to_int64() * 1024L {
-              inst.last_rss_kb = kb
               log_event(
                 self.state_dir,
                 "bm2d.events.jsonl",

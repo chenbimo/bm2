@@ -126,7 +126,9 @@ pub fn Instance::new(config : @config.Config, instance_id : Int32) -> Instance {
     last_signal: None,
     last_reason: None,
     last_rss_kb: 0,
-    reuseport: if config.exec_mode == "cluster" {
+    // 单实例的 cluster 不共享端口，内核用不到 SO_REUSEPORT：直接标成无需探测，
+    // 只有多实例才真的存在"端口能不能被加入"这个问题。
+    reuseport: if config.exec_mode == "cluster" && config.instances > 1 {
       ReusePending
     } else {
       ReuseOff

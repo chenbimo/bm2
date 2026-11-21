@@ -127,4 +127,6 @@ git config core.hooksPath .githooks
 - 通知的端点与凭据(`url`/`secret`/`username`/`password`)不得进入事件、状态、日志与 CLI 输出;校验错误只报字段名与 `target[i]` 下标
 - 通知投递失败只记事件,绝不改变监督行为
 - **新增或改名事件时三处同步**:`src/config/notify.mbt` 的事件闭集、`src/core/alert_lang.mbt` 的 `event_label`(中英各一条,缺一条就等于群里看到裸键名)、`docs/guide/notifications.md` 的事件表。名称是给人看的,事件键仍是语言中立的那一份,过滤与报文只认键
+- **新增消息字段时补 `field_label`**:字段键属于人类可读文案,中文项目的消息里不允许出现英文键;`src/core/alert_lang.mbt` 的 `field_label` 未收录的键会原样透出,所以新字段必须同时补中英两侧(`_ => key` 是兜底,不是免修)
+- **投递结果按目标记录**:`notify_sent` / `notify_target_failed` 的 detail 必须带事件、目标与(失败时)原因,才知道是哪个端点没收到、为什么;只记 attempt 次数等于把排障信息丢掉
 - 网络能力(HTTP/SMTP)由内联的 notify 库提供,bm2 内不自实现、不引入 curl

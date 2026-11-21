@@ -52,7 +52,9 @@ fn Supervisor::mark_online(
   // Each generation samples its own RSS: without this the OOM heuristic could
   // compare a SIGKILL against a peak from the generation before it.
   inst.last_rss_kb = 0
-  inst.reuseport = if app.exec_mode == "cluster" {
+  // 只有多实例的 cluster 才真的共享端口：单实例直接标成无需探测，
+  // 否则它会一直停在 pending，看着像漏检查。
+  inst.reuseport = if app.exec_mode == "cluster" && app.instances > 1 {
     ReusePending
   } else {
     ReuseOff

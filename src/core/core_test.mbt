@@ -119,6 +119,27 @@ async test "clean exit after min uptime restarts without count" {
 }
 
 ///|
+/// 单实例的 cluster 不共享端口，就别拿"必须开 reusePort"去要求它：
+/// 它从一开始就不该进入探测态，否则应用会被误判为配置错误并停掉整个项目。
+test "a single-instance cluster never waits on a reuseport probe" {
+  let one = app_config("api", "/tmp", 4165, instances=1, exec_mode="cluster")
+  assert_eq(
+    @core.Instance::new(one, 0).reuseport,
+    @core.ReusePortState::ReuseOff,
+  )
+  let two = app_config("api", "/tmp", 4165, instances=2, exec_mode="cluster")
+  assert_eq(
+    @core.Instance::new(two, 0).reuseport,
+    @core.ReusePortState::ReusePending,
+  )
+  let forked = app_config("api", "/tmp", 4165, instances=2)
+  assert_eq(
+    @core.Instance::new(forked, 0).reuseport,
+    @core.ReusePortState::ReuseOff,
+  )
+}
+
+///|
 test "cluster mode shares one port across instances" {
   let cluster = app_config(
     "api",

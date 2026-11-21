@@ -206,6 +206,13 @@ pub(all) struct PumpReport {
   /// Owner of the attempted message, so the host application can attribute
   /// the outcome in its own logs. None when idle.
   owner : String?
+  /// The logical event of the attempted message. Empty when idle.
+  event : String
+  /// Per-target outcome of this pass: target name plus a credential-free
+  /// reason, `None` when that target accepted the message. The caller logs
+  /// these one by one — a single "attempt failed" line cannot tell an
+  /// unreachable endpoint from a rejected payload.
+  results : Array[(String, String?)]
 }
 
 ///|
@@ -223,7 +230,13 @@ pub async fn Engine::pump(self : Engine, now : UInt64) -> PumpReport {
   let index = match picked {
     Some(index) => index
     None =>
-      return { remaining: self.queue.length(), outcome: Idle, owner: None, }
+      return {
+        remaining: self.queue.length(),
+        outcome: Idle,
+        owner: None,
+        event: "",
+        results: [],
+      }
   }
   let queued = self.queue[index]
   self.last_owner = Some(queued.owner)
@@ -261,7 +274,13 @@ pub async fn Engine::pump(self : Engine, now : UInt64) -> PumpReport {
       Failed(attempt=queued.attempts)
     }
   }
-  { remaining: self.queue.length(), outcome, owner: Some(queued.owner), }
+  {
+    remaining: self.queue.length(),
+    outcome,
+    owner: Some(queued.owner),
+    event: queued.message.event,
+    results,
+  }
 }
 
 ///|

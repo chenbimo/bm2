@@ -239,15 +239,16 @@ fn lib_targets(
 }
 
 ///|
-/// 给消息补上事件的人类可读名称：字段区首行是它，机器读的那一侧仍是 `event`
-/// 与 webhook payload 里的 `event_name`。名称按项目配的通知语言渲染，与标题、
-/// 正文同一套。
+/// 给消息补上人类可读的名称：字段区的键与事件名都按项目配的通知语言渲染，
+/// 中文项目看到的是「事件: 实例崩溃」「应用: api」，机器读的那一侧仍然是
+/// `event`、`event_name` 与原有的英文字段键。字段值本身不动，它是数据。
 fn with_event_label(lang : String, msg : @notify.Message) -> @notify.Message {
   let label = event_label(lang, msg.event)
   let fields : Array[(String, String)] = []
-  fields.push(("event", label))
+  fields.push((field_label(lang, "event"), label))
   for pair in msg.fields {
-    fields.push(pair)
+    let (key, value) = pair
+    fields.push((field_label(lang, key), value))
   }
   { ..msg, event_label: label, fields, }
 }

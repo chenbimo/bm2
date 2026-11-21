@@ -100,10 +100,14 @@ test "every message carries its event name in the project language" {
   )
   let zh = with_event_label("zh", msg)
   assert_eq(zh.event_label, "实例崩溃")
-  assert_eq(zh.fields[0], ("event", "实例崩溃"))
-  // 事件名占字段区首行，原有字段一个不少。
-  assert_eq(zh.fields[1], ("app", "api"))
+  // 中文项目的字段区全是中文名：事件名占首行，其余字段跟在后面。
+  assert_eq(zh.fields[0], ("事件", "实例崩溃"))
+  assert_eq(zh.fields[1], ("应用", "api"))
   assert_eq(with_event_label("en", msg).event_label, "Instance crash")
+  // 英文项目的字段键保持原样，脚本与既有消费方不用改。
+  let en = with_event_label("en", msg)
+  assert_eq(en.fields[0], ("event", "Instance crash"))
+  assert_eq(en.fields[1], ("app", "api"))
   // 十一个事件都有名字，且两种语言都不回落到键名。
   for
     event in [
@@ -118,6 +122,42 @@ test "every message carries its event name in the project language" {
     with_event_label("zh", { ..msg, event: "future_event", }).event_label,
     "future_event",
   )
+}
+
+///|
+/// 字段名同样跟随项目语言：中文项目看到的是「应用」「运行时长」，
+/// 英文项目保持原来的键。未收录的键原样回显，不空着。
+fn field_label_cases() -> Array[(String, String)] {
+  [
+    ("event", "事件"),
+    ("app", "应用"),
+    ("project", "项目"),
+    ("host", "主机"),
+    ("instance", "实例"),
+    ("mode", "模式"),
+    ("port", "端口"),
+    ("PID", "进程号"),
+    ("status", "状态"),
+    ("starts", "启动次数"),
+    ("crashes", "崩溃次数"),
+    ("uptime", "运行时长"),
+    ("online", "在线"),
+    ("abnormal", "异常"),
+    ("load1", "1 分钟负载"),
+    ("disk_free", "磁盘余量"),
+    ("peak_mb", "内存峰值"),
+    ("restarts", "自动重启"),
+  ]
+}
+
+///|
+test "field names follow the notification language" {
+  for pair in field_label_cases() {
+    let (key, zh) = pair
+    assert_eq(field_label("zh", key), zh)
+    assert_eq(field_label("en", key), key)
+  }
+  assert_eq(field_label("zh", "unknown_key"), "unknown_key")
 }
 
 ///|

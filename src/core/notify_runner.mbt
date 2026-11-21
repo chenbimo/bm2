@@ -229,8 +229,30 @@ async fn NotifyRunner::deliver_deferred(self : NotifyRunner) -> Unit {
 
 ///|
 /// Deliver at most one queued instant alert and record what happened to it.
+///
+/// Two levels of record, because they answer different questions. Per target
+/// first — `notify_sent` / `notify_target_failed` with the event, the target and
+/// the reason — which is what tells you whether a chat group actually got the
+/// message. Then, only when the whole message has to be retried or was dropped,
+/// one line about the attempt itself.
 async fn NotifyRunner::pump(self : NotifyRunner, now : UInt64) -> Unit {
   let report = self.engine.pump(now)
+  for pair in report.results {
+    let (target, failure) = pair
+    log_event(
+      self.state_dir,
+      "bm2d.events.jsonl",
+      match failure {
+        None => "notify_sent"
+        Some(_) => "notify_target_failed"
+      },
+      app=report.owner,
+      detail=match failure {
+        None => report.event + ": " + target
+        Some(reason) => report.event + ": " + target + ": " + reason
+      },
+    )
+  }
   let detail = match report.outcome {
     Partial => Some("partial delivery")
     Failed(attempt~) => Some("attempt \{attempt}/3")

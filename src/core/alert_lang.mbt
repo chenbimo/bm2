@@ -30,6 +30,43 @@ pub enum Bm2Msg {
 }
 
 ///|
+/// The human name of one message field, in the recipient's language.
+///
+/// Field keys are part of what a person reads in a chat group, so a Chinese
+/// project sees `应用: api` rather than `app: api`. English keeps the original
+/// keys, which are also what scripts and payload consumers already match on.
+/// An unknown key is echoed back rather than dropped.
+pub fn field_label(lang : String, key : String) -> String {
+  let language = @i18n.Lang::from_name(lang).unwrap_or(@i18n.Lang::En)
+  match language {
+    @i18n.Lang::En => key
+    @i18n.Lang::Zh =>
+      match key {
+        "event" => "事件"
+        "app" => "应用"
+        "project" => "项目"
+        "host" => "主机"
+        "instance" => "实例"
+        "instances" => "实例数"
+        "mode" => "模式"
+        "port" => "端口"
+        "PID" => "进程号"
+        "status" => "状态"
+        "starts" => "启动次数"
+        "crashes" => "崩溃次数"
+        "uptime" => "运行时长"
+        "online" => "在线"
+        "abnormal" => "异常"
+        "load1" => "1 分钟负载"
+        "disk_free" => "磁盘余量"
+        "peak_mb" => "内存峰值"
+        "restarts" => "自动重启"
+        _ => key
+      }
+  }
+}
+
+///|
 /// Turn a message into (title, body) in the given language.
 ///
 /// The language arrives as the string a config stores and is turned into a `Lang`
