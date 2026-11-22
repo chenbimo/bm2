@@ -107,7 +107,6 @@ async fn run() -> Int32 {
     Some(values) if values.length() > 0 => Some(values[0])
     _ => None
   }
-  let mode = @config.Mode::of_command(command)
   let app_arg : String? = match sub.values.get("name") {
     Some(names) if names.length() > 0 => Some(names[0])
     _ =>
@@ -161,16 +160,13 @@ async fn run() -> Int32 {
       }
     None => cwd + "/bm2.toml"
   }
+  // `start` 与 `restart` 会读配置并拉起进程，其余命令只按名字找已登记的项目。
+  let starts = command == "start" || command == "restart"
   // Only start needs a local bm2.toml: list/kill/reload address the
   // daemon's registered projects from any directory.
-  let config = try {
-    match mode {
-      Some(mode) => @config.load(config_path, mode~)
-      None => @config.load(config_path)
-    }
-  } catch {
+  let config = try @config.load(config_path) catch {
     e => {
-      if mode is Some(_) {
+      if starts {
         @proc.eprintln("bm2: " + e.to_string())
         return 1
       }
@@ -183,7 +179,7 @@ async fn run() -> Int32 {
   // ran above, and the filesystem cross-check (script presence) must pass
   // too, otherwise the project would enter a pointless crash-retry loop
   // against a script that was never there.
-  if mode is Some(_) {
+  if starts {
     match config {
       Some(cfg) =>
         match check_project(cfg, @fs.path_exists, lang) {
@@ -198,7 +194,7 @@ async fn run() -> Int32 {
   }
   // start targets the project itself (single-app config); kill filters by
   // name; notify takes no positional argument; kill -y has no target.
-  let app : String? = if mode is Some(_) {
+  let app : String? = if starts {
     match config {
       Some(cfg) => Some(cfg.name)
       None => None
@@ -239,7 +235,7 @@ async fn run() -> Int32 {
   // because no single project could own it.
   let scoped_lang = match config {
     Some(cfg) =>
-      if mode is Some(_) || app == Some(cfg.name) {
+      if starts || app == Some(cfg.name) {
         match cfg.lang {
           Some(configured) => configured
           None => lang
@@ -253,7 +249,7 @@ async fn run() -> Int32 {
   // start carries the caller's config path so the daemon can register the
   // project; notify needs it to find the project's targets; other commands
   // leave it unset.
-  let request_config_path : String? = if mode is Some(_) || command == "notify" {
+  let request_config_path : String? = if starts || command == "notify" {
     Some(config_path)
   } else {
     None

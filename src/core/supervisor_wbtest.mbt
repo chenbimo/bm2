@@ -3,7 +3,6 @@ fn wb_setup(root : String, port : Int32) -> Supervisor raise {
   @fsx.mkdir_p(root)
   let config : @config.Config = {
     name: "wbapp",
-    mode: @config.Mode::Production,
     lang: None,
     cwd: root,
     script: "x.sh",
@@ -416,7 +415,6 @@ test "a project's language wins over the caller's" {
   // A second project that states its own language, registered beside the first.
   let zh_config : @config.Config = {
     name: "zhapp",
-    mode: @config.Mode::Production,
     lang: Some(@i18n.Lang::Zh),
     cwd: root,
     script: "x.sh",

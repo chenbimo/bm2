@@ -5,11 +5,6 @@
 #derive(Debug)
 pub(all) struct Config {
   name : String
-  /// How this config was loaded: `serve` (production) or `dev` (development).
-  /// It selected which `.env` files were scanned and it is the value NODE_ENV
-  /// must equal, so it travels with the config rather than being re-derived
-  /// further down.
-  mode : Mode
   /// The language this project's own copy is written in, when it states one.
   ///
   /// None means "follow whoever is looking": the operator's environment for what

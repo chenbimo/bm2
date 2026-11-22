@@ -30,7 +30,7 @@ test "English is the contract for the command surface" {
 test "the list header has the same columns in both languages" {
   let en = @i18n.list_headers(@i18n.Lang::En)
   let zh = @i18n.list_headers(@i18n.Lang::Zh)
-  assert_eq(en.length(), 11)
+  assert_eq(en.length(), 10)
   assert_eq(zh.length(), en.length())
 }
 
@@ -80,7 +80,6 @@ test "of_request answers English when the name is absent or unknown" {
 test "unrecognised values print as they came" {
   assert_eq(@i18n.status_value(@i18n.Lang::Zh, "invented"), "invented")
   assert_eq(@i18n.exec_value(@i18n.Lang::Zh, "invented"), "invented")
-  assert_eq(@i18n.mode_value(@i18n.Lang::Zh, "invented"), "invented")
   assert_eq(@i18n.status_value(@i18n.Lang::Zh, "running"), "运行中")
 }
 

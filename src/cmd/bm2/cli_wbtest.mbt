@@ -69,13 +69,12 @@ async test "a busy daemon is reported instead of being replaced" {
 test "the list table keeps a full grid of columns" {
   for lang in [@i18n.Lang::En, @i18n.Lang::Zh] {
     let header = @i18n.list_headers(lang)
-    assert_eq(header.length(), 11)
+    assert_eq(header.length(), 10)
     let row = [
       "api",
       "0",
       "12345",
       "3020",
-      @i18n.mode_value(lang, "production"),
       @i18n.exec_value(lang, "cluster"),
       @i18n.status_value(lang, "running"),
       "3",

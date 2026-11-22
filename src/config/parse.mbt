@@ -1,20 +1,4 @@
 ///|
-/// The instance count that will actually run: development is always one.
-///
-/// A development session is one process on one port, so the configured count is
-/// not honored there. It is not dropped silently either — the mode is part of the
-/// project's identity, and `bm2 list --json` reports both the mode and the
-/// instance count that came out of it. The port range the config has to stay
-/// inside is checked against this number rather than the written one, because
-/// this is the layout that will exist.
-fn effective_instances(configured : Int32, mode : Mode) -> Int32 {
-  match mode {
-    Development => 1
-    Production => configured
-  }
-}
-
-///|
 let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "exec_mode", "instances", "port", "max_memory_mb",
   "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "notify",
@@ -57,18 +41,19 @@ const DEFAULT_LOG_KEEP_FILES : Int32 = 10
 /// omitted `cwd` defaults to it, and the project's `.env` files are looked up
 /// beside it.
 ///
-/// `mode` decides which mode-specific env files load. `serve` means production
-/// and `dev` means development — the same action with a different environment —
-/// so production is what a plain service start assumes.
-pub fn parse(
-  doc : String,
-  base_dir : String,
-  mode~ : Mode = Production,
-) -> Config raise ConfigError {
+
+///|
+/// bm2 只管部署，所以只有一种运行环境：production。`.env` 的扫描顺序与
+/// NODE_ENV 都用这个值。
+pub const NODE_ENV_VALUE : String = "production"
+
+///|
+/// `pub` for the one caller that has to spell the same mode the daemon does.
+pub fn parse(doc : String, base_dir : String) -> Config raise ConfigError {
   // 扫一遍 `.env`，但**不**注入到业务进程：业务的环境变量由 bun / node 自己加载。
   // 这份 map 只服务两件事：`bm2.toml` 的 `__NAME__` 占位符，以及下面的 NODE_ENV 一致性校验。
   let vars = try
-    @dotenv.load_strict(base_dir, mode.as_string(), fn(name) {
+    @dotenv.load_strict(base_dir, NODE_ENV_VALUE, fn(name) {
       @env.get_env_var(name)
     })
   catch {
@@ -76,14 +61,14 @@ pub fn parse(
   } noraise {
     loaded => loaded
   }
-  // NODE_ENV belongs to the reserved set: bm2 decides it from the mode. A file
-  // may restate the same value (most `.env.production` files do) but not
-  // contradict it — otherwise "which environment am I in?" would depend on which
-  // file happened to be read last.
+  // NODE_ENV belongs to the reserved set: bm2 decides it. A file may restate the
+  // same value (most `.env.production` files do) but not contradict it —
+  // otherwise "which environment am I in?" would depend on which file happened
+  // to be read last.
   match vars.get("NODE_ENV") {
-    Some(found) if found != mode.as_string() =>
+    Some(found) if found != NODE_ENV_VALUE =>
       raise ConfigError::InvalidField(
-        "NODE_ENV is \{mode.as_string()} in this mode, but a .env file sets \{found}",
+        "NODE_ENV is \{NODE_ENV_VALUE} in this mode, but a .env file sets \{found}",
       )
     _ => ()
   }
@@ -110,7 +95,7 @@ pub fn parse(
     script: req_string(table, "script", "root"),
     runtime: opt_string(table, "runtime", "root", "bun"),
     exec_mode: opt_string(table, "exec_mode", "root", "cluster"),
-    instances: effective_instances(req_int(table, "instances", "root"), mode),
+    instances: req_int(table, "instances", "root"),
     port: req_int(table, "port", "root"),
     max_memory_mb: opt_int(
       table,
@@ -145,7 +130,6 @@ pub fn parse(
     ),
     notify: opt_notify(table, default_lang=project_lang_name(table)),
     logs: opt_logs(table),
-    mode,
     lang: opt_project_lang(table),
   }
   validate(config)

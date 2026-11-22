@@ -7,10 +7,6 @@ fn print_list(
     println(@i18n.no_instances(lang))
     return
   }
-  // MODE is how the project was started (development / production); EXEC is how
-  // its instances share the port (cluster / fork). Two different facts that both
-  // answer "how is this running", and the column called MODE used to hold the
-  // second one, so neither could be read off the table.
   let header = @i18n.list_headers(lang)
   let rows = []
   for info in instances {
@@ -30,7 +26,6 @@ fn print_list(
       info.instance_id.to_string(),
       pid,
       info.port.to_string(),
-      @i18n.mode_value(lang, info.mode),
       @i18n.exec_value(lang, info.exec_mode),
       @i18n.status_value(lang, info.status),
       info.times.to_string(),

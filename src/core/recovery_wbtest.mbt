@@ -8,7 +8,6 @@
 fn wb_config(name : String, cwd : String, port : Int32) -> @config.Config {
   {
     name,
-    mode: @config.Mode::Production,
     lang: None,
     cwd,
     script: "fixture.sh",

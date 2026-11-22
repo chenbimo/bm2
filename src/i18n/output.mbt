@@ -1,4 +1,3 @@
-///|
 /// What the CLI prints when a command succeeds or a step fails, other than the
 /// daemon's own answers (those live in `messages.mbt`).
 ///
@@ -185,29 +184,14 @@ pub fn list_headers(lang : Lang) -> Array[String] {
   match lang {
     En =>
       [
-        "NAME", "ID", "PID", "PORT", "MODE", "EXEC", "STATUS", "TIMES", "MEMORY",
-        "UPTIME", "CWD",
+        "NAME", "ID", "PID", "PORT", "EXEC", "STATUS", "TIMES", "MEMORY", "UPTIME",
+        "CWD",
       ]
     Zh =>
       [
-        "名称", "实例", "PID", "端口", "模式", "执行", "状态", "次数",
-        "内存", "运行时长", "目录",
+        "名称", "实例", "PID", "端口", "执行", "状态", "次数", "内存",
+        "运行时长", "目录",
       ]
-  }
-}
-
-///|
-/// How the project was started: `development` for `bm2 dev`, `production` for
-/// `bm2 serve`.
-pub fn mode_value(lang : Lang, mode : String) -> String {
-  match lang {
-    En => mode
-    Zh =>
-      match mode {
-        "development" => "开发"
-        "production" => "生产"
-        other => other
-      }
   }
 }
 

@@ -56,10 +56,6 @@ pub extend Request with Eq::{not_equal, equal}
 #derive(ToJson, FromJson, Debug, Eq)
 pub(all) struct InstanceInfo {
   app_name : String
-  /// The mode this instance's project was started in. It decided which `.env`
-  /// files were read and it is the instance's NODE_ENV. A project-level fact
-  /// repeated on every row, because the listing is what an operator reads.
-  mode : String
   cwd : String
   instance_id : Int32
   pid : Int32

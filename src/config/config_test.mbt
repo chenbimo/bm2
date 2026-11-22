@@ -36,20 +36,6 @@ test "parses valid bm2.toml" {
 }
 
 ///|
-/// 开发模式永远单实例:配置里的实例数只在 serve 下生效。
-test "development mode runs a single instance" {
-  let development = @config.parse(
-    VALID_DOC,
-    BASE_DIR,
-    mode=@config.Mode::Development,
-  )
-  assert_eq(development.mode, @config.Mode::Development)
-  assert_eq(development.instances, 1)
-  // 同一份文档在生产模式下仍是 4 个:实例数没有被改写,只是开发模式不采用它。
-  assert_eq(@config.parse(VALID_DOC, BASE_DIR).instances, 4)
-}
-
-///|
 test "cwd defaults to the config directory" {
   let config = @config.parse(
     (
@@ -133,12 +119,11 @@ test ".env files feed placeholders only" {
 }
 
 ///|
-/// 模式决定带模式名的那两份文件。
-test ".env files: mode selects the mode-specific file" {
+/// 固定的生产环境:带模式名的那份 `.env.production` 会覆盖通用 `.env`。
+test ".env files: production overlay wins" {
   let files : Array[(String, String)] = [
     (".env", "SHARED=base\n"),
     (".env.production", "TARGET=prod\n"),
-    (".env.development", "TARGET=dev\n"),
   ]
   let dir = env_dir("mode", files)
   let doc =
@@ -148,18 +133,8 @@ test ".env files: mode selects the mode-specific file" {
     #|port = 3000
     #|cwd = "/srv/__TARGET__"
     #|
-  let production : @config.Config = @config.parse(
-    doc,
-    dir,
-    mode=@config.Mode::Production,
-  )
-  let development : @config.Config = @config.parse(
-    doc,
-    dir,
-    mode=@config.Mode::Development,
-  )
-  assert_eq(production.cwd, "/srv/prod")
-  assert_eq(development.cwd, "/srv/dev")
+  let config : @config.Config = @config.parse(doc, dir)
+  assert_eq(config.cwd, "/srv/prod")
   cleanup_env_dir(dir, files)
 }
 

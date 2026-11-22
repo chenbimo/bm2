@@ -463,15 +463,15 @@ async fn preflight_runtime(
   probe : RuntimeProbe,
   req : @protocol.Request,
 ) -> String? {
-  let mode = match @config.Mode::of_command(req.command) {
-    Some(mode) => mode
-    None => return None
+  // 只有 start 会拉起进程，也只有它需要运行时预检。
+  if req.command != "start" {
+    return None
   }
   let path = match req.config_path {
     Some(path) => path
     None => return None
   }
-  let config = try @config.load(path, mode~) catch {
+  let config = try @config.load(path) catch {
     _ => return None
   } noraise {
     loaded => loaded

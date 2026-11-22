@@ -124,7 +124,6 @@ pub fn Supervisor::start_app(
     @utils.discard(() => {
       save_project(self.state_dir, app_name, {
         config_path: project.config_path,
-        mode: project.config.mode.as_string(),
         stopped: false,
       })
     })
@@ -255,7 +254,6 @@ pub fn Supervisor::pause_app(
     @utils.discard(() => {
       save_project(self.state_dir, app_name, {
         config_path: project.config_path,
-        mode: project.config.mode.as_string(),
         stopped: true,
       })
     })
