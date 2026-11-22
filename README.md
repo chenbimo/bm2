@@ -4,7 +4,7 @@
 
 Node.js 与 Bun 项目的进程管理器。
 
-两个原生二进制，空闲常驻 2.6 MB，日志与告警都在里面。
+两个原生二进制，空载常驻 4 MB，日志与告警都在里面。
 
 ![bm2 架构与执行流程](assets/bm2-flow.svg)
 
@@ -13,11 +13,12 @@ Node.js 与 Bun 项目的进程管理器。
 - [背景](#背景)
 - [应用场景](#应用场景)
 - [快速上手](#快速上手)
-- [命令速查](#命令速查)
-- [配置文件](#配置文件)
+- [命令](#命令)
+- [配置](#配置)
 - [多实例与网关](#多实例与网关)
 - [环境变量](#环境变量)
 - [日志](#日志)
+- [事件](#事件)
 - [通知上报](#通知上报)
 - [状态目录](#状态目录)
 - [常见问题](#常见问题)
@@ -39,7 +40,7 @@ Node.js 项目部署到服务器，需要一个进程管理器负责三件事。
 
 日志轮转要另装插件；看管进程被系统杀掉时，业务进程跟着一起停。
 
-bm2 是 MoonBit 编译出的原生二进制，不依赖运行时，空闲常驻 2.6 MB。
+bm2 是 MoonBit 编译出的原生二进制，不依赖运行时，空载常驻 4 MB。
 
 多实例分发交给内核 `SO_REUSEPORT`，日志轮转与告警都在二进制内部。
 
@@ -98,10 +99,9 @@ port = 3000
 ### 启动
 
 ```bash
-bm2 serve        # 生产模式：登记、拉起实例、写状态
+bm2 serve        # 登记、拉起实例、写状态
 bm2 list         # 看实例表
 bm2 logs api -f  # 跟随日志
-bm2 dev          # 开发模式：单实例、前台跟日志
 ```
 
 应用监听 bm2 分配的端口，不要写死。
@@ -114,41 +114,173 @@ Bun.serve({ port, reusePort: true, fetch: () => new Response("ok") })
 
 `reusePort` 只在多实例共用端口时需要；`instances = 1` 时可以去掉。
 
-## 命令速查
+## 命令
 
-| 命令 | 说明 |
-| --- | --- |
-| `bm2 serve` | 生产模式：登记项目、拉起实例、写状态 |
-| `bm2 dev` | 开发模式：单实例、前台跟随日志 |
-| `bm2 dev --no-follow` | 同上，只看启动结果，不跟日志 |
-| `bm2 list` | 实例表：PID、端口、状态、内存、运行时长 |
-| `bm2 list <name>` | 只看某个项目 |
-| `bm2 list --json` | 机器可读格式，给脚本用 |
-| `bm2 check` | 只校验当前目录的 `bm2.toml`，顺带探端口 |
-| `bm2 stop [name]` | 停下实例，保留登记，随时能再起 |
-| `bm2 remove [name]` | 退役：停下、注销、交还名字，日志保留 |
-| `bm2 remove [name] -f` | 退役并删掉状态目录与日志 |
-| `bm2 logs <name>` | 看日志，`-e` 只看错误，`-f` 持续跟随 |
-| `bm2 clean` | 清掉状态目录里无主的旧项目 |
-| `bm2 clean --dry-run` | 只列出会删什么，不动手 |
-| `bm2 reload` | 换入新的看管进程，应用继续跑 |
-| `bm2 upgrade` | 升级 bm2 本身，服务不中断 |
-| `bm2 notify` | 给本项目所有通知目标发一条测试消息 |
-| `bm2 kill -y` | 停掉全部项目并退出看管进程 |
+一条命令一行说明，配一段真实输出。所有命令都在项目目录里执行。
 
-`stop` 是暂停，`remove` 是退役。
+### bm2 serve
 
-`[name]` 不写时，用当前目录 `bm2.toml` 里的项目。
+生产模式：登记项目、拉起实例、写状态。改了 `bm2.toml` 之后重跑一次即可生效。
 
-`remove` 默认保留日志，加 `-f` 才连日志一起删。
+```bash
+bm2 serve
+```
 
-`reload` 与 `upgrade` 都不重启应用，区别在换的是什么。
+```text
+┌────────┬──────┬────────┬──────┬──────┬──────┬────────┬──────┬───────┬──────────┬────────────────────┐
+│ 名称   │ 实例 │    PID │ 端口 │ 模式 │ 执行 │ 状态   │ 次数 │  内存 │ 运行时长 │ 目录               │
+├────────┼──────┼────────┼──────┼──────┼──────┼────────┼──────┼───────┼──────────┼────────────────────┤
+│ bench  │    0 │ 108176 │ 4601 │ 生产 │ 独立 │ online │ 1    │ 25 MB │ 0s       │ /tmp/bm2-bench/app │
+└────────┴──────┴────────┴──────┴──────┴──────┴────────┴──────┴───────┴──────────┴────────────────────┘
+```
 
-`reload` 换看管进程，改了 bm2 相关配置、或装了新运行时之后用。
+### bm2 dev
 
-`upgrade` 换 bm2 二进制本身。
+开发模式：单实例、前台跟随日志，Ctrl+C 只停止跟随，应用继续跑。
 
-## 配置文件
+```bash
+bm2 dev
+bm2 dev --no-follow   # 只看启动结果
+```
+
+模式决定两件事：实例数为 1，`NODE_ENV` 为 `development`。
+
+### bm2 list
+
+看所有项目的实例表，也可以只看一个。
+
+```bash
+bm2 list
+bm2 list api
+bm2 list --json
+```
+
+```text
+│ 名称  │ 实例 │    PID │ 端口 │ 模式 │ 执行 │ 状态   │ 次数 │  内存 │ 运行时长 │
+│ bench │    0 │ 108176 │ 4601 │ 生产 │ 独立 │ online │ 1    │ 26 MB │ 1h 12m   │
+```
+
+`--json` 给脚本用，每行一个实例对象。
+
+### bm2 logs
+
+看项目日志，所有实例合并在一个文件里。
+
+```bash
+bm2 logs api        # 普通日志
+bm2 logs api -e     # 错误日志，含崩溃与重启记录
+bm2 logs api -f     # 持续跟随
+```
+
+```text
+2026-11-22T14:35:12.345Z [0] GET /api/user/profile 200 12ms
+2026-11-22T14:35:13.900Z [bm2] 实例 0 pid=4021 原因=exit_code 退出码=1 重启次数=1
+```
+
+### bm2 stop
+
+停下实例，保留登记。之后再 `bm2 serve` 就回来了。
+
+```bash
+bm2 stop
+bm2 stop api
+```
+
+停止是持久的：停止标记写进登记信息，看管进程重启也不会把它带回来。
+
+### bm2 remove
+
+退役：停下、注销、交还名字。日志默认保留。
+
+```bash
+bm2 remove api       # 日志留着，随时能翻
+bm2 remove api -f    # 连状态目录与日志一起删
+```
+
+`remove` 与 `stop` 的区别：前者之后这个名字可以给别的项目用，后者不行。
+
+### bm2 clean
+
+清掉状态目录里没有登记信息的残留目录。
+
+```bash
+bm2 clean --dry-run   # 先看会删哪些
+bm2 clean
+```
+
+### bm2 check
+
+只校验当前目录的 `bm2.toml`，顺带探端口是否可用。
+
+```bash
+bm2 check
+```
+
+```text
+配置正常:项目 "bench",1 个独立实例,端口 4601,运行时 bun
+通知:未启用
+端口 4601~4601:空闲
+```
+
+字段写错、端口段重叠、脚本不存在，都会在这里被点出来。
+
+### bm2 reload
+
+换入新的看管进程，应用继续跑。
+
+```bash
+bm2 reload
+```
+
+换了 bm2 相关配置、或者装了新版运行时之后用它。
+
+看管进程的 `PATH` 在启动那一刻定格，所以要让它看到新的 `bun` 或 `node`，得 reload 一次。
+
+### bm2 upgrade
+
+升级 bm2 本身，服务不中断。
+
+```bash
+bm2 upgrade
+```
+
+新版本装好之后换班：旧看管进程退场，新进程接管运行中的应用。
+
+### bm2 notify
+
+给本项目所有通知目标发一条测试消息。
+
+```bash
+bm2 notify
+```
+
+配置完通知之后先跑一次，通道不通会当场报错。
+
+没配通知时它也会直说：
+
+```text
+project api has no notifications enabled: set [notify].enabled = true and add at least one [[notify.target]] in bm2.toml
+```
+
+### bm2 kill
+
+停掉全部项目并退出看管进程。要确认才动手。
+
+```bash
+bm2 kill -y
+```
+
+### bm2 version
+
+```bash
+bm2 version
+```
+
+```text
+bm2 0.10.0
+```
+
+## 配置
 
 一份 `bm2.toml` 管一个项目，放在项目目录里。
 
@@ -165,7 +297,7 @@ port = 3020           # 起始端口
 
 ### 常用字段
 
-| 字段 | 默认 | 什么时候写 |
+| 配置键 | 默认 | 什么时候写 |
 | --- | --- | --- |
 | `cwd` | 配置文件所在目录 | 应用在别处，必须是绝对路径 |
 | `runtime` | `bun` | 用 Node 就写 `"node"` |
@@ -183,6 +315,12 @@ port = 3020           # 起始端口
 `name` 会成为状态目录下的目录名，所以只允许字母开头，后面是字母、数字与下划线。
 
 `port` 要保证最后一段端口不越界：`port + instances - 1` 不超过 65535。
+
+写错就是这样：
+
+```text
+bm2: InvalidField: root has unknown field max_size_mb
+```
 
 ### 完整示例
 
@@ -222,7 +360,9 @@ events = ["!lifecycle"]     # 不写就收全部事件
 
 `instances` 大于 1 时，两种执行模式的区别只有一处：端口怎么分。
 
-| | `cluster` | `fork` |
+![cluster 与 fork 的端口与分发](assets/mode-compare.svg)
+
+| 对比项 | `cluster` | `fork` |
 | --- | --- | --- |
 | 端口 | 所有实例共用 `port` | 从 `port` 起连续排开 |
 | 分发者 | 内核 `SO_REUSEPORT` | 网关，或没人分发 |
@@ -241,7 +381,7 @@ events = ["!lifecycle"]     # 不写就收全部事件
 
 ### Nginx
 
-`cluster` 只写一条后端。
+`cluster` 只需要一条后端。
 
 ```nginx
 upstream api {
@@ -249,49 +389,35 @@ upstream api {
 }
 
 server {
-    listen 80;
     server_name api.example.com;
-
     location / {
         proxy_pass http://api;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
 
-`fork` 要把每个实例写全。
+`fork` 把每个实例写全。
 
 ```nginx
 upstream api {
     server 127.0.0.1:3000;
     server 127.0.0.1:3001;
     server 127.0.0.1:3002;
-    keepalive 32;
 }
 
 server {
-    listen 80;
     server_name api.example.com;
-
     location / {
         proxy_pass http://api;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_next_upstream error timeout http_502;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
 
+需要应用读到真实客户端 IP 时，再补一行 `proxy_set_header X-Real-IP $remote_addr;`。
+
 ### Caddy
 
-两种模式各一行，Caddy 自动处理证书。
+Caddy 自动处理证书，两种模式各一行。
 
 ```text
 # cluster
@@ -307,7 +433,9 @@ api.example.com {
 
 ### 两种模式互相切换
 
-`cluster` 换 `fork`：网关从一条 upstream 改成每个实例一条并 reload；应用可以去掉 `reusePort`，留着也无害。
+`cluster` 换 `fork`：网关从一条 upstream 改成每个实例一条并 reload。
+
+应用可以去掉 `reusePort`，留着也无害。
 
 `fork` 换 `cluster`：应用必须打开 `reusePort`；网关改回一条 upstream；端口段只保留起始端口。
 
@@ -334,9 +462,13 @@ api.example.com {
 
 文件不存在是正常的；存在却读不了、或格式写错，会直接报出文件与行号。
 
+```text
+InvalidDocument: /srv/api/.env line 4: expected '=' after DATABASE_URL
+```
+
 解析规则跟随 Node 生态的 `dotenv`，支持引号、跨行值、`#` 注释，`KEY=` 表示空值。
 
-`.env` 里不做变量展开：`FOO=${BAR}` 的字面值就是 `${BAR}`。展开能力在 `bm2.toml` 的占位符上。
+`.env` 里不做变量展开：`FOO=${BAR}` 的字面值就是 `${BAR}`。
 
 ### 应用能拿到的变量
 
@@ -350,17 +482,26 @@ api.example.com {
 
 `BM2_APP_PORT` 随模式变化：`cluster` 下每个实例都是 `port`，`fork` 下依次递增。
 
+```ts
+// 读到这里，就不用关心自己被第几个拉起
+const port = Number(process.env.BM2_APP_PORT)
+```
+
 `NODE_ENV` 由模式决定，`.env` 里写成别的值会被拒绝。
 
 除保留变量与项目变量外，只有 `PATH`、`HOME`、`TMPDIR` 会传下去，以及所有以 `BM2_` 开头的变量。
 
 `BM2_` 透传是一条实用通道：凭据只需在 shell 里 `export` 一次，应用与 `bm2.toml` 的占位符都能读到。
 
-`PATH` 决定应用用哪个 `bun` 或 `node`，它在看管进程启动那一刻定格。换了运行时版本之后，先 `bm2 reload` 再启动项目。
+`PATH` 决定应用用哪个 `bun` 或 `node`，它在看管进程启动那一刻定格。
+
+换了运行时版本之后，先 `bm2 reload` 再启动项目。
 
 ## 日志
 
 应用的标准输出与错误各一条链，所有实例合并写在一起。
+
+![日志轮转与代数](assets/log-rotation.svg)
 
 ### 位置
 
@@ -382,23 +523,11 @@ api.example.com {
 
 第三行是崩溃记录，写在 `api.error.log` 里，写清了退出原因与累计重启次数。
 
-### 查看
-
-```bash
-bm2 logs api         # 普通日志
-bm2 logs api -e      # 错误日志，含崩溃与重启记录
-bm2 logs api -f      # 持续跟随，Ctrl+C 只停止跟随
-```
-
-也可以直接读文件。
-
-```bash
-tail -f ~/.bm2/projects/api/logs/api.log
-```
-
 ### 轮转
 
-单个文件超过 `log_max_size_mb` 就换成新的一份，旧的往后挪一代，超出 `log_keep_files` 的最旧那份删掉。
+单个文件超过 `log_max_size_mb` 就换成新的一份，旧的往后挪一代。
+
+超出 `log_keep_files` 的最旧那份删掉。
 
 普通日志与错误日志各算各的，两条链互相不影响。
 
@@ -416,41 +545,19 @@ tail -f ~/.bm2/projects/api/logs/api.log
 
 崩溃记录只在异常退出或启动失败时写，人工停机不写。
 
-`原因=` 后面是崩溃类型，常见几种在下文[常见问题](#常见问题)里逐条解释。
-
 内存超限时会多带两个数：超限时占用的内存与上限本身。
 
-## 通知上报
-
-通知属于项目，写在同一份 `bm2.toml` 里。
-
-只有两个概念：哪些事要说，说给谁听。
-
-### 上报平台
-
-| 平台 | `platform` | 需要的字段 |
-| --- | --- | --- |
-| 飞书 | `feishu` | `url`，可选 `secret` 加签 |
-| 钉钉 | `dingtalk` | `url`，可选 `secret` 加签 |
-| 企业微信 | `wecom` | `url` |
-| Slack | `slack` | `url` |
-| Discord | `discord` | `url` |
-| 自定义接口 | `webhook` | `url`，可选 `secret` 作令牌 |
-| 邮箱 | `email` | `to`，通道写在 `[notify]` |
-
-邮件目标共用 `[notify]` 上的 SMTP 通道，其余平台都写 `url`。
-
-自定义接口可选 `format` 选报文形状，默认纯文本。
-
-```toml
-[[notify.target]]
-platform = "slack"
-url = "__SLACK_WEBHOOK__"
-format = "markdown"
-events = ["crash", "errored", "memory_limit"]
+```text
+2026-11-22T12:32:20.608Z [bm2] 实例 0 pid=39335 原因=memory_limit 内存=560MB 上限=512MB 重启次数=2
 ```
 
-### 事件
+`原因=` 后面对应的处理方式，见[常见问题](#常见问题)。
+
+## 事件
+
+事件是「发生了什么」的记录，一行一条，也是通知的开关单位。
+
+### 事件表
 
 | 事件 | 含义 |
 | --- | --- |
@@ -466,38 +573,110 @@ events = ["crash", "errored", "memory_limit"]
 | `start_timeout` | 拉起后端口一直没监听 |
 | `daily_stats` | 每日统计 |
 
-`events` 有三种写法，不能混用：
+### 事件日志
 
-- 不写：收全部事件
-- `events = ["crash", "oom_kill"]`：只收列出的
-- `events = ["!lifecycle"]`：除了列出的都收
+事件同时写到两个文件，一行一条，排查问题时先看这里。
+
+```text
+~/.bm2/bm2d.events.log   看管进程与监督
+~/.bm2/bm2.events.log    命令侧连接与重试
+```
+
+```text
+2026-11-22T12:32:19.379Z instance_exited app=worker instance=0 pid=39335 detail="exit_code=1"
+2026-11-22T12:32:19.380Z instance_restart_scheduled app=worker instance=0 detail=exit_code
+```
+
+字段是英文键，值按需出现，所以脚本可以直接按 ` instance_exited ` 过滤。
+
+两个事件日志按大小轮转：`10 MiB` 一份、保留 10 代，文件名形如 `bm2d.events.1.log`。
+
+### 过滤
+
+通知里用 `events` 决定收哪些，三种写法不能混用。
+
+| 写法 | 效果 |
+| --- | --- |
+| 不写 | 收全部事件 |
+| `events = ["crash", "oom_kill"]` | 只收列出的 |
+| `events = ["!lifecycle"]` | 除了列出的都收 |
 
 同一件事在 `dedupe_window_s` 内只说一次，默认一小时。
 
 ### 阈值
 
-不写就是推荐值，写 `0` 才关闭。
+阈值不写就是推荐值，写 `0` 才关闭。
 
-| 阈值 | 默认 |
-| --- | --- |
-| 内存占上限 | 80% |
-| 实例离线 | 5 分钟 |
-| 连续重启 | 5 次 |
-| 拉起后端口未监听 | 30 秒 |
-| 状态盘剩余空间 | 1 G |
-| 十分钟内重启次数 | 20 次 |
+| 配置键 | 含义 | 默认 |
+| --- | --- | --- |
+| `threshold_rss_percent` | 内存占 `max_memory_mb` 的百分比 | 80 |
+| `threshold_offline_min` | 实例离线多久算异常 | 5 分钟 |
+| `threshold_restarts` | 连续重启几次算异常 | 5 |
+| `start_timeout_ms` | 拉起后多久未监听算超时 | 30000 |
+| `threshold_disk_mb` | 状态盘剩余空间的下限 | 1024 |
+| `threshold_storm` | 十分钟内重启次数的上限 | 20 |
+
+```toml
+[notify]
+threshold_rss_percent = 85    # 内存占上限 85% 时提醒
+threshold_offline_min = 3     # 离线 3 分钟即报
+threshold_storm = 0           # 关掉风暴告警
+```
 
 ### 每日统计
 
 默认每天 8 点发一份，逐实例列出状态、端口、内存、运行时长与重启次数。
 
+配置键是 `[notify] daily_report_hour`，取值 `0~23`。
+
 ![每日统计示例](assets/daily-report.png)
 
-不想要就在每个目标上排除 `daily_stats`：
+不想要就在每个目标上排除它：
 
 ```toml
 events = ["!daily_stats"]
 ```
+
+## 通知上报
+
+通知属于项目，写在同一份 `bm2.toml` 里。
+
+只决定两件事：哪些事要说，说给谁听。
+
+### 上报平台
+
+| 平台 | `platform` | 需要的字段 |
+| --- | --- | --- |
+| 飞书 | `feishu` | `url`，可选 `secret` 加签 |
+| 钉钉 | `dingtalk` | `url`，可选 `secret` 加签 |
+| 企业微信 | `wecom` | `url` |
+| Slack | `slack` | `url` |
+| Discord | `discord` | `url` |
+| 自定义接口 | `webhook` | `url`，可选 `secret` 作令牌 |
+| 邮箱 | `email` | `to`，通道写在 `[notify]` |
+
+邮件目标共用 `[notify]` 上的 SMTP 通道。
+
+通道字段是 `mail_url`、`mail_from`、`mail_username`、`mail_password`。
+
+其余平台都写 `url`，自定义接口可加 `format` 选报文形状，取值 `text`、`markdown`、`card`。
+
+```toml
+[[notify.target]]
+platform = "slack"
+url = "__SLACK_WEBHOOK__"
+format = "markdown"
+events = ["crash", "errored", "memory_limit"]
+```
+
+```toml
+[[notify.target]]
+platform = "email"
+to = ["ops@example.com"]
+events = ["!lifecycle"]
+```
+
+一个项目可以写多个 `[[notify.target]]`，各收各的事件。
 
 ### 凭据
 
@@ -507,11 +686,19 @@ events = ["!daily_stats"]
 url = "__FEISHU_WEBHOOK__"     # 真值在 .env 的 FEISHU_WEBHOOK
 ```
 
-smoke test 用 `bm2 notify`，它会给本项目所有目标发一条测试消息。
+这样配置文件可以进版本库，凭据不必。
 
-消息语言跟随项目 `lang`，中文项目的通知全中文。
+### 测试
 
 改完配置先 `bm2 check`，它会指出字段与凭据的问题。
+
+再发一条测试消息，通道不通会当场报错。
+
+```bash
+bm2 notify
+```
+
+消息语言跟随项目 `lang`，中文项目的通知全中文。
 
 ## 状态目录
 
@@ -532,28 +719,17 @@ smoke test 用 `bm2 notify`，它会给本项目所有目标发一条测试消�
         └── .tempLogs/        应用输出的暂存
 ```
 
-事件日志是排查问题的第一现场，一行一条事件。
+`state/<实例号>.json` 记着 pid、启动时间、重启次数与上次退出原因。
 
-```text
-2026-11-22T12:32:19.379Z instance_exited app=worker instance=0 pid=39335 detail="exit_code=1"
-```
+看管进程崩溃后重新起来，靠它认回还在运行的应用进程，不会重复拉起。
 
-两个事件日志与看管进程自己的输出都按相同规则轮转：`10 MiB` 一份、保留 10 代，文件名形如 `bm2d.events.1.log`。
+一个用户一个看管进程、一份状态目录。
 
-### 四种清理动作的差别
-
-| 命令 | 停实例 | 注销登记 | 删日志 |
-| --- | --- | --- | --- |
-| `bm2 stop` | 是 | 否 | 否 |
-| `bm2 remove` | 是 | 是 | 否 |
-| `bm2 remove -f` | 是 | 是 | 是 |
-| `bm2 clean` | — | 清无主目录 | 连带删 |
-
-`bm2 clean` 只处理没有 `project.json` 的残留目录，加 `--dry-run` 先看一眼会删什么。
-
-一个用户一个看管进程、一份状态目录。不要把 bm2 装在 root 下替其他用户管应用；需要隔离时每个用户各装一份，互不可见。
+不要把 bm2 装在 root 下替其他用户管应用；需要隔离时每个用户各装一份，互不可见。
 
 ## 常见问题
+
+![实例状态流转](assets/lifecycle.svg)
 
 ### 状态显示 errored
 
@@ -565,17 +741,34 @@ smoke test 用 `bm2 notify`，它会给本项目所有目标发一条测试消�
 bm2 logs api -e
 ```
 
+```text
+2026-11-22T12:32:20.608Z [bm2] 实例 0 pid=39335 原因=exit_code 退出码=1 重启次数=10
+```
+
 ### 报 reuseport_missing
 
-多实例模式要求应用打开 `reusePort`，没开就无法共用端口，bm2 会把项目停下而不是让它半死不活。
+多实例模式要求应用打开 `reusePort`，没开就无法共用端口。
 
-给监听加上 `reusePort: true`，或者把 `instances` 改成 `1`，或者改用 `fork` 模式。
+bm2 会把项目停下，而不是让它半死不活。
+
+```ts
+Bun.serve({ port, reusePort: true, fetch: (req) => new Response("ok") })
+```
+
+三选一：打开 `reusePort`、把 `instances` 改成 `1`、或者改用 `exec_mode = "fork"`。
 
 ### 报 script not found
 
 `script` 相对 `cwd` 解析，不是相对你敲命令的目录。
 
-`cwd` 不写时取 `bm2.toml` 所在目录，所以配置文件和应用不在同一个目录时，两个字段都要写对。
+`cwd` 不写时取 `bm2.toml` 所在目录。
+
+所以配置文件和应用不在同一个目录时，两个字段都要写对。
+
+```toml
+cwd = "/wwwroot/api"
+script = "dist/server.js"
+```
 
 ### 端口冲突
 
@@ -583,17 +776,21 @@ bm2 logs api -e
 
 `cluster` 下所有实例共用一个端口，`fork` 占用 `port` 到 `port + instances - 1`。
 
+```text
+port conflict: worker port range 4401~4401 overlaps api 4400~4401
+```
+
 ### 应用起来就退出
 
 多数是环境变量缺失或配置写错，错误日志的第一行通常就是原因。
 
-也检查运行时可执行文件：`runtime` 按 `PATH` 解析，看管进程的 `PATH` 决定了用哪个 `bun` 或 `node`。
+也检查运行时：`runtime` 按 `PATH` 解析，看管进程的 `PATH` 决定了用哪个 `bun` 或 `node`。
 
 ### 收不到通知
 
-按顺序确认：`[notify] enabled = true`、目标写对、事件没被 `events` 排除。
+按顺序确认三件事：`[notify] enabled = true`、目标写对、事件没被 `events` 排除。
 
-再发一条测试消息，通道不通会当场报错。
+再发一条测试消息。
 
 ```bash
 bm2 notify
@@ -601,9 +798,14 @@ bm2 notify
 
 ### 日志占用超出预期
 
-`log_max_size_mb` 与 `log_keep_files` 同时决定上界：`log_max_size_mb × (log_keep_files + 1) × 2`。
+两个配置键同时决定上界：`log_max_size_mb × (log_keep_files + 1) × 2`。
 
 默认 220 MB。日志量大的项目把这个上限调小，比事后清理省事。
+
+```toml
+log_max_size_mb = 5
+log_keep_files = 3
+```
 
 ## 从 pm2 迁移
 
@@ -633,25 +835,44 @@ pm2 那边用 `pm2 stop` 而不是 `pm2 delete`，留一条退路。
 - `bm2` 是命令行客户端，`bm2d` 在后台看管项目
 - 一份 `bm2.toml` 管一个项目，互不干扰
 - 看管进程只做三件事：拉起、重启、写状态
-- 应用输出先落到暂存，再合并进项目日志，守护进程崩了也不影响业务
+- 应用输出先落到暂存，再合并进项目日志，看管进程崩了也不影响业务
 - 看管进程退出或升级时应用继续跑，新进程读状态接管
 - 状态与事件都落盘，重启后能对上原实例
-
-停止是持久的：停止标记写在登记信息里，看管进程重启、`bm2 reload` 都不会把它带回来。
 
 需要连接排空的应用要自己处理 `SIGTERM`：拒绝新连接、处理完进行中的请求、再退出。
 
 ## 与 pm2 对比
 
-| 对比项 | bm2 | pm2 |
+以下数字在 WSL2 的 Debian 上实测，同一个 `server.ts`、同一个 Bun 1.4.5。
+
+内存为静置 60 秒后的 RSS，取三次采样中稳定值。
+
+| 指标 | pm2 7.0.4 | bm2 0.10.0 |
 | --- | --- | --- |
-| 形态 | 两个原生静态二进制 | Node.js 应用 |
-| 额外依赖 | 无 | 需要 Node.js |
-| 空闲看管进程内存 | 约 `2.6 MB` | 约 `50 MB` |
-| 日志轮转 | 内置 | 需装 `pm2-logrotate` |
-| 多实例分发 | 内核 `SO_REUSEPORT` | cluster master 进程 |
-| 看管进程崩溃 | 应用继续运行 | cluster 应用随之中断 |
-| 配置 | 静态 TOML，字段写错直接报 | `ecosystem.config.js` |
+| 形态 | Node.js 应用 | 两个原生二进制 |
+| 运行时依赖 | Node.js 24 | 无 |
+| 安装体积 | 25 MB | 5.1 MB |
+| 空载看管进程内存 | 72.7 MB | 4.2 MB |
+| 管一个项目时看管内存 | 72.7 MB | 26.4 MB |
+| 单实例应用进程内存 | 48.8 MB | 25.9 MB |
+| 单实例总占用 | 约 121 MB | 约 52 MB |
+| 冷启动到可用 | 340 ~ 386 ms | 373 ~ 379 ms |
+| 热启动到可用 | 150 ~ 270 ms | 325 ~ 342 ms |
+| 每实例中间层 | `ProcessContainerForkBun.js` | 无，直接 exec 应用入口 |
+| 日志轮转 | 需装 `pm2-logrotate` | 内置 |
+| 多实例分发 | cluster master 进程 | 内核 `SO_REUSEPORT` |
+| 看管进程被 `kill -9` | 应用存活，重启后接回 | 应用存活，重启后认领 |
+| 配置 | `ecosystem.config.js` | `bm2.toml`，字段写错直接报 |
+
+两处读法要说明，避免误读。
+
+**应用进程内存差 23 MB，来自 pm2 的包装层**。
+
+pm2 拉起的是 `bun ProcessContainerForkBun.js`，要先载入 pm2 自己的运行时；bm2 直接 `exec bun server.ts`。
+
+**热启动 pm2 略快**：`pm2 start` 只是通过长连接通知后台进程，bm2 每次要建立连接、认证、再发请求。
+
+冷启动两者持平，因为都要拉起看管进程与应用各一次。
 
 ## 环境要求
 

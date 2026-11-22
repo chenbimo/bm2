@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-label="cluster 与 fork 两种执行模式的端口与分发差异：cluster 下所有实例共用一个端口、由内核分发；fork 下每个实例各占一个端口、由网关分发">
+  <defs>
+    <marker id="mBlue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 z" fill="#38bdf8"/>
+    </marker>
+    <marker id="mGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 z" fill="#34d399"/>
+    </marker>
+    <style>
+      .t { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .mono { font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; }
+      .muted { fill: #9aa9bd; }
+      .body { fill: #cfd9e6; }
+      .title { fill: #edf2fa; font-weight: 600; }
+      .card { fill: #0f172a; stroke: #1e293b; stroke-width: 1.5; }
+      .bar { fill: #0e2033; stroke: #1e3a5f; stroke-width: 1.5; }
+      .line { fill: none; stroke-width: 2; stroke-linecap: round; }
+    </style>
+  </defs>
+
+  <rect width="960" height="400" fill="#0b1220"/>
+
+  <!-- 左：cluster -->
+  <rect class="card" x="24" y="24" width="440" height="352" rx="14"/>
+  <text class="t title" x="44" y="56" font-size="17">cluster（默认）</text>
+  <text class="t muted" x="44" y="78" font-size="12.5">多实例共用一个端口，内核分发新连接</text>
+
+  <rect class="card" x="56" y="96" width="376" height="52" rx="10"/>
+  <text class="t body" x="244" y="120" font-size="13" text-anchor="middle">Nginx / Caddy</text>
+  <text class="t muted" x="244" y="138" font-size="11.5" text-anchor="middle">upstream 只写一条</text>
+
+  <path class="line" d="M244 148 V176" stroke="#38bdf8" marker-end="url(#mBlue)"/>
+
+  <rect class="bar" x="56" y="180" width="376" height="44" rx="8"/>
+  <text class="t body" x="244" y="207" font-size="13" text-anchor="middle">端口 3000（唯一入口）</text>
+
+  <path class="line" d="M180 224 V252" stroke="#34d399" marker-end="url(#mGreen)"/>
+  <path class="line" d="M308 224 V252" stroke="#34d399" marker-end="url(#mGreen)"/>
+
+  <rect class="card" x="88" y="256" width="184" height="60" rx="10"/>
+  <text class="t body" x="180" y="282" font-size="13" text-anchor="middle">实例 0</text>
+  <text class="t mono muted" x="180" y="300" font-size="11.5" text-anchor="middle">SO_REUSEPORT</text>
+
+  <rect class="card" x="216" y="256" width="184" height="60" rx="10"/>
+  <text class="t body" x="308" y="282" font-size="13" text-anchor="middle">实例 1</text>
+  <text class="t mono muted" x="308" y="300" font-size="11.5" text-anchor="middle">SO_REUSEPORT</text>
+
+  <text class="t muted" x="56" y="348" font-size="12">应用必须打开 reusePort，否则启动即被拦下</text>
+
+  <!-- 右：fork -->
+  <rect class="card" x="496" y="24" width="440" height="352" rx="14"/>
+  <text class="t title" x="516" y="56" font-size="17">fork</text>
+  <text class="t muted" x="516" y="78" font-size="12.5">每个实例一个端口，网关决定分发</text>
+
+  <rect class="card" x="528" y="96" width="376" height="52" rx="10"/>
+  <text class="t body" x="716" y="120" font-size="13" text-anchor="middle">Nginx / Caddy</text>
+  <text class="t muted" x="716" y="138" font-size="11.5" text-anchor="middle">upstream 每个实例一条</text>
+
+  <path class="line" d="M624 148 V256" stroke="#38bdf8" marker-end="url(#mBlue)"/>
+  <path class="line" d="M716 148 V256" stroke="#38bdf8" marker-end="url(#mBlue)"/>
+  <path class="line" d="M808 148 V256" stroke="#38bdf8" marker-end="url(#mBlue)"/>
+
+  <rect class="card" x="548" y="260" width="104" height="60" rx="10"/>
+  <text class="t body" x="600" y="286" font-size="12.5" text-anchor="middle">实例 0</text>
+  <text class="t mono muted" x="600" y="304" font-size="11.5" text-anchor="middle">:3000</text>
+
+  <rect class="card" x="664" y="260" width="104" height="60" rx="10"/>
+  <text class="t body" x="716" y="286" font-size="12.5" text-anchor="middle">实例 1</text>
+  <text class="t mono muted" x="716" y="304" font-size="11.5" text-anchor="middle">:3001</text>
+
+  <rect class="card" x="780" y="260" width="104" height="60" rx="10"/>
+  <text class="t body" x="832" y="286" font-size="12.5" text-anchor="middle">实例 2</text>
+  <text class="t mono muted" x="832" y="304" font-size="11.5" text-anchor="middle">:3002</text>
+
+  <text class="t muted" x="528" y="348" font-size="12">端口从 port 起连续排开，改实例数要同步网关</text>
+</svg>

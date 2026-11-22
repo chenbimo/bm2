@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 340" width="960" height="340" role="img" aria-label="实例状态流转：正常运行时崩溃会按退避重启，连续失败达到上限后进入 errored 停止自愈，修好配置重新启动后回到在线">
+  <defs>
+    <marker id="mGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 z" fill="#34d399"/>
+    </marker>
+    <marker id="mRed" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 z" fill="#f87171"/>
+    </marker>
+    <marker id="mAmber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9 z" fill="#fbbf24"/>
+    </marker>
+    <style>
+      .t { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+      .mono { font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; }
+      .muted { fill: #9aa9bd; }
+      .body { fill: #cfd9e6; }
+      .title { fill: #edf2fa; font-weight: 600; }
+      .card { fill: #0f172a; stroke: #1e293b; stroke-width: 1.5; }
+      .ok { fill: #0d2a20; stroke: #34d399; stroke-width: 1.8; }
+      .bad { fill: #2a1010; stroke: #f87171; stroke-width: 1.8; }
+      .line { fill: none; stroke-width: 2; stroke-linecap: round; }
+      .dash { stroke-dasharray: 6 7; }
+    </style>
+  </defs>
+
+  <rect width="960" height="340" fill="#0b1220"/>
+
+  <text class="t title" x="40" y="48" font-size="17">实例状态流转</text>
+  <text class="t muted" x="40" y="70" font-size="12.5">崩溃会按退避重启，预算用完就停下等人处理</text>
+
+  <rect class="ok" x="60" y="110" width="180" height="72" rx="12"/>
+  <text class="t body" x="150" y="140" font-size="14" text-anchor="middle">online</text>
+  <text class="t muted" x="150" y="162" font-size="11.5" text-anchor="middle">在线，正常服务</text>
+
+  <path class="line" d="M240 146 H336" stroke="#34d399" marker-end="url(#mGreen)"/>
+  <text class="t muted" x="288" y="132" font-size="11" text-anchor="middle">异常退出</text>
+
+  <rect class="card" x="340" y="110" width="200" height="72" rx="12"/>
+  <text class="t body" x="440" y="140" font-size="14" text-anchor="middle">重启中</text>
+  <text class="t muted" x="440" y="162" font-size="11.5" text-anchor="middle">按 restart_delay_ms 退避</text>
+
+  <path class="line" d="M540 146 H636" stroke="#34d399" marker-end="url(#mGreen)"/>
+  <text class="t muted" x="588" y="132" font-size="11" text-anchor="middle">再次拉起</text>
+
+  <rect class="ok" x="640" y="110" width="180" height="72" rx="12"/>
+  <text class="t body" x="730" y="140" font-size="14" text-anchor="middle">online</text>
+  <text class="t muted" x="730" y="162" font-size="11.5" text-anchor="middle">活过 min_uptime_ms</text>
+
+  <path class="line" d="M730 182 V232 H150 V182" stroke="#34d399" stroke-opacity="0.55" marker-end="url(#mGreen)"/>
+  <text class="t muted" x="440" y="252" font-size="11.5" text-anchor="middle">次数清零，继续看管</text>
+
+  <path class="line" d="M440 182 V292 H150" stroke="#f87171" marker-end="url(#mRed)"/>
+  <text class="t" x="300" y="284" font-size="11.5" text-anchor="middle" fill="#fca5a5">连续失败达到 max_restarts</text>
+
+  <rect class="bad" x="60" y="258" width="180" height="62" rx="12"/>
+  <text class="t" x="150" y="284" font-size="14" text-anchor="middle" fill="#fca5a5">errored</text>
+  <text class="t muted" x="150" y="304" font-size="11.5" text-anchor="middle">停止自愈</text>
+
+  <path class="line dash" d="M240 289 H600" stroke="#fbbf24" marker-end="url(#mAmber)"/>
+  <text class="t" x="420" y="278" font-size="11.5" text-anchor="middle" fill="#fbbf24">修好之后 bm2 serve，预算清零</text>
+
+  <text class="t muted" x="616" y="293" font-size="11.5">错误日志里记着 原因= 与重启次数</text>
+</svg>
