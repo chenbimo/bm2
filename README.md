@@ -846,20 +846,11 @@ pm2 那边用 `pm2 stop` 而不是 `pm2 delete`，留一条退路。
 | 单实例总占用（看管 + 应用） | 121 MB | 30 MB |
 | 安装体积 | 25 MB | 5.1 MB |
 | 运行时依赖 | Node.js 24 | 无 |
+| 安装带来的包 | 70 个 npm 包 | 2 个可执行文件 |
 | 重启到可用 | 259 ~ 272 ms | 111 ~ 124 ms |
 | 日志轮转 | 需装 `pm2-logrotate` | 内置 |
 | 多实例分发 | cluster master 进程 | 内核 `SO_REUSEPORT` |
 | 配置 | `ecosystem.config.js` | `bm2.toml`，字段写错直接报 |
-
-两点读法说明。
-
-**应用进程本身也差一半**（pm2 48.8 MB，bm2 25.9 MB）。
-
-pm2 拉起的是 `bun ProcessContainerForkBun.js`，先载入 pm2 自己的运行时；bm2 直接 `exec bun server.ts`，进程里只有应用的代码。
-
-**重启耗时那行看的是「到可用」，不是命令返回**。
-
-bm2 的 `restart` 提交即返回，命令本身 34 ~ 59 ms 就结束；pm2 要等 213 ms 左右才回到提示符。
 
 ## 环境要求
 
