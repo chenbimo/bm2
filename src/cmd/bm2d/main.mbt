@@ -241,7 +241,9 @@ async fn run() -> Int32 {
     Some(@core.ExitMode::Detach) => {
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
       server.close()
-      @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.ENDPOINT_FILE))
+      @utils.discard(() => {
+        @fsx.unlink(@utils.join_path(state_dir, @ipc.ENDPOINT_FILE))
+      })
       @utils.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
       @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detached")
     }
@@ -484,9 +486,8 @@ async fn wait_reply(reply : @aqueue.Queue[@core.Reply]) -> @core.Reply? {
     } noraise {
       item => item
     }
-    match answer {
-      Some(reply) => return Some(reply)
-      None => ()
+    if answer is Some(reply) {
+      return Some(reply)
     }
     if @proc.monotonic_ms() >= deadline {
       return None
@@ -546,7 +547,9 @@ async fn shutdown(
   for name in names {
     @utils.discard(() => @core.remove_project(state_dir, name))
   }
-  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.ENDPOINT_FILE))
+  @utils.discard(() => {
+    @fsx.unlink(@utils.join_path(state_dir, @ipc.ENDPOINT_FILE))
+  })
   @utils.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
 }
 
@@ -565,9 +568,8 @@ async fn wait_notify_results(
     } noraise {
       item => item
     }
-    match results {
-      Some(results) => return Some(results)
-      None => ()
+    if results is Some(results) {
+      return Some(results)
     }
     if @proc.monotonic_ms() >= deadline {
       return None

@@ -84,27 +84,37 @@ pub fn monotonic_ms() -> UInt64 {
 /// Local-time components of `epoch_ms` in the system timezone:
 /// (year, month 1-12, day, weekday 0=Sunday..6, hour 0-23, minute 0-59).
 /// None when the conversion fails.
+///
+/// 时区换算交给官方包：`@time.local_zone()` 读 /etc/localtime，夏令时与
+/// 历史时区偏移都由它处理，比自己调 localtime_r 少一个 C 函数要维护。
 pub fn local_parts(
   epoch_ms : UInt64,
 ) -> (Int32, Int32, Int32, Int32, Int32, Int32)? {
-  let buf = Bytes::make(24, b'\x00')
-  let rc = c_local_parts(epoch_ms.reinterpret_as_int64(), buf)
-  if rc != 0 {
-    return None
+  let sec = (epoch_ms / 1000UL).reinterpret_as_int64()
+  let nanos : Int32 = (epoch_ms % 1000UL).to_int() * 1000000
+  let zone = try @time.local_zone() catch {
+    _ => return None
+  } noraise {
+    z => z
   }
-  let part = fn(i : Int32) -> Int32 {
-    buf[i * 4:i * 4 + 4].to_owned()[0].to_int() |
-    (buf[i * 4 + 1:i * 4 + 2].to_owned()[0].to_int() << 8) |
-    (buf[i * 4 + 2:i * 4 + 3].to_owned()[0].to_int() << 16) |
-    (buf[i * 4 + 3:i * 4 + 4].to_owned()[0].to_int() << 24)
+  let zdt = try
+    @time.ZonedDateTime::from_unix_second(sec, nanosecond=nanos, zone~)
+  catch {
+    _ => return None
+  } noraise {
+    z => z
   }
-  let v0 = part(0)
-  let v1 = part(1)
-  let v2 = part(2)
-  let v3 = part(3)
-  let v4 = part(4)
-  let v5 = part(5)
-  Some((v0, v1, v2, v3, v4, v5))
+  // 0=Sunday..6，与调用方（每日统计的分钟闸）依赖的语义一致。
+  let weekday = match zdt.weekday() {
+    @time.Weekday::Sunday => 0
+    @time.Weekday::Monday => 1
+    @time.Weekday::Tuesday => 2
+    @time.Weekday::Wednesday => 3
+    @time.Weekday::Thursday => 4
+    @time.Weekday::Friday => 5
+    @time.Weekday::Saturday => 6
+  }
+  Some((zdt.year(), zdt.month(), zdt.day(), weekday, zdt.hour(), zdt.minute()))
 }
 
 ///|

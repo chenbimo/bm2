@@ -25,7 +25,7 @@ pub fn Supervisor::check_notify(self : Supervisor, now_mono : UInt64) -> Unit {
     match self.instances_of(app_name) {
       Some(arr) =>
         for inst in arr {
-          let key = app_name + "/" + inst.instance_id.to_string()
+          let key = inst.key()
           if policy.threshold_restarts > 0 &&
             inst.restart_count >= policy.threshold_restarts {
             let (title, body) = render_msg(

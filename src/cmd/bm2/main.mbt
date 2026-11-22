@@ -287,9 +287,8 @@ async fn run() -> Int32 {
         // table, and only for an unfiltered `list` — a query for one app keeps
         // exactly the shape it always had (scripts read it row by row).
         if app is None {
-          match resp.daemon {
-            Some(info) => print_daemon(info, lang)
-            None => ()
+          if resp.daemon is Some(info) {
+            print_daemon(info, lang)
           }
         }
         print_list(resp.instances, scoped_lang)
@@ -358,9 +357,8 @@ async fn run() -> Int32 {
         !no_follow_flag &&
         @proc.interrupted() == 0 &&
         settled(infos, app, false) {
-        match app {
-          Some(name) => follow_logs(state_dir, name, lang)
-          None => ()
+        if app is Some(name) {
+          follow_logs(state_dir, name, lang)
         }
       }
       0
@@ -393,7 +391,10 @@ enum Send {
 /// removed as the removal finalizes. Watching the file keeps this to one request
 /// and works even while the daemon is busy with something else.
 fn wait_project_gone(state_dir : String, name : String) -> Bool {
-  let marker = state_dir + "/" + name + "/project.json"
+  let marker = @utils.join_path(
+    @utils.join_path(state_dir, name),
+    "project.json",
+  )
   for _ in 0..<300 {
     if !@fs.path_exists(marker) {
       return true
@@ -409,8 +410,8 @@ fn wait_project_gone(state_dir : String, name : String) -> Bool {
 /// has let go of the project. The layout is fixed: by then the state files are
 /// already gone, so `logs/` is all that is left.
 fn purge_project(state_dir : String, name : String) -> Unit {
-  let root = state_dir + "/" + name
-  let logs = root + "/logs"
+  let root = @utils.join_path(state_dir, name)
+  let logs = @utils.join_path(root, "logs")
   // The read is inside `discard`: a missing `logs/` is the normal case for a
   // project that never wrote anything, and the removals below then find nothing.
   if @fs.path_exists(logs) {
@@ -421,7 +422,7 @@ fn purge_project(state_dir : String, name : String) -> Unit {
         let path = if entry.has_prefix("/") {
           entry
         } else {
-          logs + "/" + entry
+          @utils.join_path(logs, entry)
         }
         @utils.discard(() => @fs.remove_file(path))
       }
@@ -442,7 +443,7 @@ fn purge_project(state_dir : String, name : String) -> Unit {
           let path = if entry.has_prefix("/") {
             entry
           } else {
-            root + "/" + entry
+            @utils.join_path(root, entry)
           }
           @utils.discard(() => @fs.remove_file(path))
         }
@@ -468,7 +469,7 @@ fn cmd_clean(state_dir : String, dry_run : Bool, lang : @i18n.Lang) -> Int32 {
   }
   let mut swept = 0
   for entry in entries {
-    let root = state_dir + "/" + entry
+    let root = @utils.join_path(state_dir, entry)
     let is_dir = try @fs.is_dir(root) catch {
       _ => false
     } noraise {

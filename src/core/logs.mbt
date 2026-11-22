@@ -63,7 +63,7 @@ fn Supervisor::publish_rotation(self : Supervisor) -> Unit {
     ] {
     let (name, copytruncate) = suffix
     jobs.push({
-      path: self.state_dir + "/" + name,
+      path: @utils.join_path(self.state_dir, name),
       copytruncate,
       max_bytes: daemon_bytes,
       keep: daemon_keep,
@@ -88,13 +88,11 @@ fn Supervisor::write_crash(
   buf.write_string(" instance=" + inst.instance_id.to_string())
   buf.write_string(" pid=" + inst.pid.to_string())
   buf.write_string(" reason=" + reason)
-  match inst.last_exit_code {
-    Some(code) => buf.write_string(" exitCode=" + code.to_string())
-    None => ()
+  if inst.last_exit_code is Some(code) {
+    buf.write_string(" exitCode=" + code.to_string())
   }
-  match inst.last_signal {
-    Some(sig) => buf.write_string(" signal=" + signal_name(sig))
-    None => ()
+  if inst.last_signal is Some(sig) {
+    buf.write_string(" signal=" + signal_name(sig))
   }
   if reason == "memory_limit" {
     buf.write_string(" rssMb=" + (inst.last_rss_kb / 1024).to_string())

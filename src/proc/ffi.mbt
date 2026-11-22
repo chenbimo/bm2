@@ -92,10 +92,6 @@ extern "C" fn c_interrupted() -> Int32 = "proc_interrupted"
 extern "C" fn c_monotonic_ms() -> Int64 = "proc_monotonic_ms"
 
 ///|
-#borrow(out)
-extern "C" fn c_local_parts(epoch_ms : Int64, out : Bytes) -> Int32 = "proc_local_parts"
-
-///|
 #borrow(path)
 extern "C" fn c_disk_free_kb(path : Bytes) -> Int64 = "proc_disk_free_kb"
 

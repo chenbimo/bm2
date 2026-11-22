@@ -297,7 +297,9 @@ async fn request_with_recovery(
     }
     None => ()
   }
-  @utils.discard(() => @fsx.unlink(state_dir + "/" + @ipc.ENDPOINT_FILE))
+  @utils.discard(() => {
+    @fsx.unlink(@utils.join_path(state_dir, @ipc.ENDPOINT_FILE))
+  })
   @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
   let retry = match connect_or_start(state_dir) {
     Some(pair) => pair
@@ -388,9 +390,8 @@ async fn ensure_daemon(state_dir : String) -> (@socket.Tcp, String) {
       )
       for _ in 0..<60 {
         @async.sleep(50)
-        match connect_daemon(state_dir) {
-          Some(pair) => return pair
-          None => ()
+        if connect_daemon(state_dir) is Some(pair) {
+          return pair
         }
       }
       raise @proc.ProcessError::Failed(op="ensure_daemon", errno=2)

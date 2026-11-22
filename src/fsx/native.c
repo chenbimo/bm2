@@ -74,23 +74,6 @@ static void sync_parent_dir(const char *path) {
   close(fd);
 }
 
-MOONBIT_FFI_EXPORT
-int32_t fsx_mkdir_p(moonbit_bytes_t path, int32_t mode) {
-  char buf[4096];
-  size_t len = strlen((char *)path);
-  if (len == 0 || len >= sizeof(buf)) return -ENAMETOOLONG;
-  memcpy(buf, path, len + 1);
-  for (char *p = buf + 1; *p != 0; p++) {
-    if (*p == '/') {
-      *p = 0;
-      if (mkdir(buf, (mode_t)mode) != 0 && errno != EEXIST) return -errno;
-      *p = '/';
-    }
-  }
-  if (mkdir(buf, (mode_t)mode) != 0 && errno != EEXIST) return -errno;
-  return 0;
-}
-
 /* Write data to "<path>.tmp", fsync, then atomically rename over path.
  * `sync_dir` additionally fsyncs the directory, which is what makes the rename
  * itself survive a power loss. */
@@ -135,15 +118,6 @@ int32_t fsx_write_atomic_fast(moonbit_bytes_t path, moonbit_bytes_t data) {
 }
 
 MOONBIT_FFI_EXPORT
-int32_t fsx_append_file(moonbit_bytes_t path, moonbit_bytes_t data) {
-  int fd = open((char *)path, O_WRONLY | O_CREAT | O_APPEND, 0600);
-  if (fd < 0) return -errno;
-  int rc = write_all(fd, data, (size_t)Moonbit_array_length(data));
-  if (close(fd) != 0 && rc == 0) rc = -errno;
-  return rc;
-}
-
-MOONBIT_FFI_EXPORT
 int32_t fsx_unlink(moonbit_bytes_t path) {
   return unlink((char *)path) == 0 ? 0 : -errno;
 }
@@ -179,30 +153,6 @@ int32_t fsx_lock_exclusive(moonbit_bytes_t path) {
     return -err;
   }
   return fd;
-}
-
-/* Read a small file into a buffer (works on /proc virtual files, unlike
- * ftell-based readers); loops until EOF so long entries are not truncated.
- * Returns byte count or -errno. */
-MOONBIT_FFI_EXPORT
-int32_t fsx_read_small(moonbit_bytes_t path, moonbit_bytes_t buf,
-                       int32_t cap) {
-  int fd = open((char *)path, O_RDONLY);
-  if (fd < 0) return -errno;
-  size_t off = 0;
-  while (off < (size_t)cap) {
-    ssize_t n = read(fd, (char *)buf + off, (size_t)cap - off);
-    if (n < 0) {
-      if (errno == EINTR) continue;
-      int err = errno;
-      close(fd);
-      return -err;
-    }
-    if (n == 0) break;
-    off += (size_t)n;
-  }
-  close(fd);
-  return (int32_t)off;
 }
 
 /* Owner uid of a directory, -ENOTDIR when the path is not one, -errno on

@@ -2,10 +2,12 @@ import {
   "chensuiyi/bm2/protocol",
   "moonbitlang/core/async",
   "moonbitlang/core/async/socket",
-  "moonbitlang/x/crypto",
   "moonbitlang/core/debug",
+  "moonbitlang/core/encoding/hex",
   "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
   "chensuiyi/bm2/fsx",
+  "chensuiyi/bm2/utils",
 }
 
 options(

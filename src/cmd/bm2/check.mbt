@@ -7,7 +7,7 @@ fn check_project(
   path_exists : (String) -> Bool,
   lang : @i18n.Lang,
 ) -> String? {
-  let script_path = config.cwd + "/" + config.script
+  let script_path = @utils.join_path(config.cwd, config.script)
   if !path_exists(script_path) {
     return Some(@i18n.check_script_missing(lang, script_path))
   }

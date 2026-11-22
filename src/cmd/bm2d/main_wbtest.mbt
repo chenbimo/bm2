@@ -93,9 +93,8 @@ async test "the runtime probe gives up on a hung runtime and caches the verdict"
   let verdict = probe.check(hang)
   let elapsed = @proc.monotonic_ms() - started
   assert_true(verdict is Some(_))
-  match verdict {
-    Some(reason) => assert_true(reason.contains("5000ms"))
-    None => ()
+  if verdict is Some(reason) {
+    assert_true(reason.contains("5000ms"))
   }
   assert_true(elapsed < 30000UL)
   // Cached: the second answer comes back immediately.
@@ -111,9 +110,8 @@ async test "the probe reports a runtime that cannot be run" {
   let probe = RuntimeProbe::new()
   let verdict = probe.check("no-such-runtime-bm2")
   assert_true(verdict is Some(_))
-  match verdict {
-    Some(reason) => assert_true(reason.contains("not found on PATH"))
-    None => ()
+  if verdict is Some(reason) {
+    assert_true(reason.contains("not found on PATH"))
   }
 }
 
