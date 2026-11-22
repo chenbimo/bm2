@@ -84,7 +84,7 @@ stop_timeout_ms = 10000
 
 [logs]
 max_size_mb = 10
-keep_files = 7
+keep_files = 10
 
 [notify]
 enabled = true

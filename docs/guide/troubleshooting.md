@@ -167,7 +167,7 @@ port 3000: already held by a shared listener
 
 `bm2 logs <项目名>` 直接看普通日志，`-e` 看错误日志，`-f` 跟随。
 
-`~/.bm2/bm2d.log` 是守护进程自己的输出，`~/.bm2/bm2d.events.log` 是事件流，日志按大小轮转、保留 7 代。
+`~/.bm2/bm2d.log` 是守护进程自己的输出，`~/.bm2/bm2d.events.log` 是事件流，日志按大小轮转、保留 10 代。
 
 项目日志超过 `[logs] max_size_mb` 会轮转成 `<项目名>.1.log`、`.2.log`；`keep_files` 决定留几代，`0` 表示只留当前那份。收集与轮转每秒一轮，日志最多延迟一秒出现在文件里。
 

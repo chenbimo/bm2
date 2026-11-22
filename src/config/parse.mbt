@@ -47,9 +47,10 @@ const DEFAULT_STOP_TIMEOUT_MS : Int32 = 10000
 const DEFAULT_LOG_MAX_SIZE_MB : Int32 = 10
 
 ///|
-/// 默认保留最近 7 代。日志按大小轮转，留 7 代普通 + 7 代错误加起来有上界；
-/// `[logs] keep_files = 0` 表示不留历史，只有当前那一份。
-const DEFAULT_LOG_KEEP_FILES : Int32 = 7
+/// 默认保留最近 10 代。日志按大小轮转，普通与错误各一条链，上界是可算的
+/// 定值（`max_size_mb × (keep_files + 1) × 2`）；`[logs] keep_files = 0`
+/// 表示不留历史，只有当前那一份。
+const DEFAULT_LOG_KEEP_FILES : Int32 = 10
 
 ///|
 /// Parse a bm2.toml document. `base_dir` is the config file's directory: an

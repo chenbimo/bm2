@@ -157,8 +157,8 @@ test "publish_daemon_rotation names the daemon logs and who holds them open" {
   for job in jobs {
     found.set(job.path, job.copytruncate)
     assert_eq(job.max_bytes, 10L * 1024L * 1024L)
-    // daemon 自己的日志沿用项目日志的默认策略：10 MiB 一份，留 7 代。
-    assert_eq(job.keep, 7)
+    // daemon 自己的日志沿用项目日志的默认策略：10 MiB 一份，留 10 代。
+    assert_eq(job.keep, 10)
   }
   // The two event logs are written by us; the daemon stderr is held open by the
   // daemon itself, so it has to rotate by copytruncate.

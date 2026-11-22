@@ -626,7 +626,7 @@ test "logs section: defaults, overrides and bounds" {
   let doc = "name = \"app\"\ncwd = \"/srv/app\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\n"
   let config = @config.parse(doc, "/srv/app")
   assert_eq(config.logs.max_size_mb, 10)
-  assert_eq(config.logs.keep_files, 7)
+  assert_eq(config.logs.keep_files, 10)
   let tuned = @config.parse(
     doc + "[logs]\nmax_size_mb = 50\nkeep_files = 3\n",
     "/srv/app",

@@ -67,10 +67,10 @@ stop_timeout_ms = 10000
 # 项目文案语言：en 或 zh。省略则跟随操作者。
 lang = "zh"
 
-# 日志轮转。不写这张表就是单文件 10 MiB、保留 7 天。
+# 日志轮转。不写这张表就是单文件 10 MiB、保留 10 代。
 [logs]
 max_size_mb = 10
-keep_files = 7
+keep_files = 10
 
 # 通知。不写这一段就是完全不上报。
 [notify]
@@ -96,7 +96,7 @@ enabled = false
 | `stop_timeout_ms` | 否 | `10000` | `1 ~ 60000` | 停机时给应用的优雅退出时间，超时升级成 `SIGKILL` |
 | `lang` | 否 | 跟随操作者 | `en` 或 `zh` | 这个项目的输出语言，通知也默认跟它走 |
 | `[logs] max_size_mb` | 否 | `10` | `1 ~ 102400` | 单个日志文件超过它就轮转 |
-| `[logs] keep_files` | 否 | `7` | `0 ~ 365` | 保留几代历史，`0` 表示只留当前那份 |
+| `[logs] keep_files` | 否 | `10` | `0 ~ 365` | 保留几代历史，`0` 表示只留当前那份 |
 | `[notify]` | 否 | 关闭 | 见[通知](/guide/notifications) | 事件告警与每日统计，字段见下方子表索引 |
 
 `name` 同时是状态目录下的目录名，所以字符集收得很紧，只允许路径里安全的字符。
@@ -318,8 +318,8 @@ stop_timeout_ms = 20000
 lang = "zh"
 
 [logs]
-max_size_mb = 50
-keep_files = 7
+max_size_mb = 10
+keep_files = 10
 
 [notify]
 enabled = true

@@ -122,7 +122,7 @@ fn Supervisor::publish_daemon_rotation(self : Supervisor) -> Unit {
       path: @utils.join_path(self.state_dir, name),
       copytruncate,
       max_bytes,
-      keep: 7,
+      keep: 10,
     })
   }
   @utils.discard(() => ignore(self.rotations.try_put(jobs)))

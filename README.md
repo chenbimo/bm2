@@ -139,7 +139,7 @@ port = 3020           # 起始端口
 | `restart_delay_ms` | 1000 | 调重启间隔 |
 | `min_uptime_ms` | 10000 | 判断"活起来了"的门槛 |
 | `stop_timeout_ms` | 10000 | 停机的优雅退出时间 |
-| `[logs]` | 10MB，保留 7 代 | 限制日志占用 |
+| `[logs]` | 10MB，保留 10 代 | 限制日志占用 |
 | `[notify]` | 关闭 | 开告警与日报 |
 | `lang` | 跟随操作者 | 钉死输出语言 |
 
@@ -162,8 +162,8 @@ stop_timeout_ms = 15000     # 停机的优雅退出时间
 lang = "zh"                 # 输出与通知语言
 
 [logs]
-max_size_mb = 50            # 单个日志文件上限
-keep_files = 7              # 保留几代历史
+max_size_mb = 10            # 单个日志文件上限
+keep_files = 10             # 保留几代历史
 
 [notify]
 enabled = true
