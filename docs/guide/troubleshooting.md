@@ -48,15 +48,15 @@ bm2d 正在运行,但在 13000ms 内没有响应,请稍后再试
 
 处理顺序：
 
-1. 看 `~/.bm2/<项目名>/logs/<项目名>-<实例号>.crash.log`。
-2. 对照 `reason` 找原因。
+1. 看 `~/.bm2/projects/<项目名>/logs/<项目名>.error.log` 里的 `[bm2]` 行，或者直接 `bm2 logs <项目名> -e`。
+2. 对照 `原因=` 找原因。
 3. 修好之后回到项目目录 `bm2 serve`。
 
 `bm2 serve` 会重建实例数组并把重启预算清零。
 
-常见 `reason`：
+常见 `原因`：
 
-| `reason` | 原因 | 怎么修 |
+| `原因=` | 含义 | 怎么修 |
 | --- | --- | --- |
 | `exit_code` | 应用非零退出 | 看 `error.log`，通常是缺依赖或配置错 |
 | `signal` | 被信号杀掉 | 常见是 OOM，对照 `oom_kill` 事件 |
@@ -70,7 +70,7 @@ bm2d 正在运行,但在 13000ms 内没有响应,请稍后再试
 
 ## cluster 模式启动即失败
 
-全部实例 `errored`，执行模式列是 `cluster`，`crash.log` 里是 `reason=reuseport_missing`。
+全部实例 `errored`，执行模式列是 `cluster`，错误日志里是 `原因=reuseport_missing`。
 
 原因只有一句话：应用没打开 `reusePort`。
 
@@ -139,7 +139,7 @@ port 3000: already held by a shared listener
 
 ## 实例反复重启
 
-先看 `crash.log`，再看 `error.log`。最常见的六种原因：
+先看错误日志里的 `[bm2]` 行（`bm2 logs <项目名> -e`）。最常见的六种原因：
 
 - **脚本路径写错。** `script` 相对的是 `cwd`，默认是 `bm2.toml` 所在目录。`bm2 check` 会直接指出文件不存在。
 - **依赖没装。** 应用目录里缺 `node_modules`，或用了 `bun install` 却没在部署机上跑。
@@ -153,19 +153,23 @@ port 3000: already held by a shared listener
 ## 日志在哪里
 
 ```text
-~/.bm2/<项目名>/logs/
-├── <项目名>-0.out.log     标准输出
-├── <项目名>-0.error.log   标准错误
-└── <项目名>-0.crash.log   崩溃诊断
+~/.bm2/projects/<项目名>/
+├── project.json           注册信息
+├── state/<实例号>.json    实例状态，pid 与重启计数
+├── .tempLogs/             应用直接写入的暂存
+└── logs/
+    ├── <项目名>.log            普通日志，所有实例合并
+    ├── <项目名>.error.log      错误日志，含崩溃与重启记录
+    └── <项目名>.1.log          上一代，依次 .2 .3
 ```
 
-每个实例三个文件，按编号分开。
+一个项目两个文件，实例靠行首的 `[实例号]` 区分，不用按实例翻目录。
 
-没有 `crash.log` 是好事：它只在异常退出或启动失败时写。
+`bm2 logs <项目名>` 直接看普通日志，`-e` 看错误日志，`-f` 跟随。
 
-`~/.bm2/bm2d.log` 是守护进程自己的输出，`~/.bm2/bm2d.events.log` 是事件流。
+`~/.bm2/bm2d.log` 是守护进程自己的输出，`~/.bm2/bm2d.events.log` 是事件流，日志按大小轮转、保留 7 代。
 
-当天日志超过 `[logs] max_size_mb` 会分片成 `.1`、`.2`；`keep_days` 决定保留最近几天，`0` 表示不清理。收集与轮转每秒一轮，日志最多延迟一秒出现在文件里。
+项目日志超过 `[logs] max_size_mb` 会轮转成 `.1`、`.2`；`keep_files` 决定留几代，`0` 表示只留当前那份。收集与轮转每秒一轮，日志最多延迟一秒出现在文件里。
 
 ## 通知收不到
 
@@ -317,7 +321,7 @@ WSL2 是完整内核，pidfd 可用。WSL1 不行。
 bm2 version
 bm2 list --json
 tail -50 ~/.bm2/bm2d.events.log
-tail -20 ~/.bm2/<项目名>/logs/<项目名>-0.crash.log
+bm2 logs <项目名> -e | tail -20
 ```
 
 需要稳定语言的输出时固定一次。

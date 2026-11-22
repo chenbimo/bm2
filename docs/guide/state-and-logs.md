@@ -31,10 +31,10 @@
         │   ├── <name>-<id>.err.log
         │   └── <name>-bm2.err.log  # bm2 自己的崩溃/重启记录
         └── logs/
-            ├── <name>-<日期>.log           # 普通日志（所有实例合并）
-            ├── <name>-<日期>.1.log         # 当天超量后的分片
-            ├── <name>-<日期>.error.log     # 错误日志
-            └── <name>-<日期>.error.1.log
+            ├── <name>.log                  # 普通日志（所有实例合并）
+            ├── <name>.1.log                # 上一代，依次 .2 .3
+            ├── <name>.error.log            # 错误日志
+            └── <name>.error.1.log
 ```
 
 几个文件的作用值得单独说。
@@ -47,27 +47,28 @@
 
 `state/<id>.json` 记一个实例的 pid、启动时间、累计启动次数、连续重启次数、最后一次退出码与信号。它只用于「守护进程重启后认领仍在运行的进程」，不记日志、不记环境变量值、不记配置内容。
 
-## 日志：一个项目每天两个文件
+## 日志：一个项目两个文件
 
-项目日志按「日期 + 大小」两级切分，**与实例数无关**：50 个实例也只在 `logs/` 里留下当天那一两个文件。
+项目日志按大小切分，**与实例数无关**：50 个实例也只在 `logs/` 里留下那两三个文件。
 
 | 文件 | 内容 |
 | --- | --- |
-| `<name>-<日期>.log` | 应用 stdout，所有实例合并 |
-| `<name>-<日期>.error.log` | 应用 stderr 与 bm2 的崩溃/重启记录 |
-| `<name>-<日期>.1.log` | 当天文件超过 `max_size_mb` 后的第一个分片，依次 `.2`、`.3` |
+| `<name>.log` | 应用 stdout，所有实例合并 |
+| `<name>.error.log` | 应用 stderr 与 bm2 的崩溃/重启记录 |
+| `<name>.1.log` | 上一代，超过 `max_size_mb` 后从当前文件挪过来的，依次 `.2`、`.3` |
+| `<name>.error.1.log` | 错误日志的上一代，与普通日志各算各的 |
 
 每一行都带时间戳与来源：
 
 ```text
 2026-11-22T14:35:12.345Z [0] GET /api/user/profile 200 12ms
 2026-11-22T14:35:12.401Z [3] TypeError: Cannot read properties of undefined
-2026-11-22T14:35:13.900Z [bm2] 实例 0 异常退出 退出码=1 原因=exit_code 重启次数=3
+2026-11-22T14:35:13.900Z [bm2] 实例 0 pid=4021 原因=exit_code 退出码=1 重启次数=3
 ```
 
 `[n]` 是实例号，`[bm2]` 是 bm2 自己写的。看日志的人不需要知道哪个文件属于哪个进程。
 
-看当天的日志：
+看日志：
 
 ```bash
 bm2 logs api         # 普通日志
@@ -80,7 +81,7 @@ bm2 logs api -f      # 持续跟随
 应用仍然只写自己的文件，bm2 负责搬运：
 
 1. spawn 时把 stdout/stderr 指到 `.tempLogs/<name>-<id>.out.log` / `.err.log`（`O_APPEND` 打开）
-2. 收集任务每秒一轮：读走内容 → 加时间戳与 `[实例号]` 前缀 → 追加到当天的项目日志 → 清空暂存
+2. 收集任务每秒一轮：读走内容 → 加时间戳与 `[实例号]` 前缀 → 追加到项目日志 → 清空暂存
 3. 清空是安全的：`O_APPEND` 保证应用下一次写落在偏移 0，不会产生空洞
 
 这样守护进程崩了也不影响业务：应用只是继续往自己的文件里写，下次守护进程起来再把这段补进项目日志。
@@ -89,37 +90,39 @@ bm2 logs api -f      # 持续跟随
 
 ## 轮转
 
-- **跨天**：新建当天的文件，旧的留着
-- **当天超量**：`<name>-<日期>.log` 改名成 `.1.log`，原来的 `.1` 往后挪，再新建空文件继续写
-- **清理**：`keep_days` 保留最近几个「有日志的日期」，更早的连同分片一起删
+- **超量**：`<name>.log` 满 `max_size_mb` 就改名成 `<name>.1.log`，原来的 `.1` 往后挪一代，再新建空文件继续写
+- **淘汰**：超出 `keep_files` 代的最旧那份被删掉
+- **两条流各算各的**：普通日志用满 7 代不影响错误日志的 7 代
 
 因为项目日志只有 bm2 一个写者，轮转用 `rename` 换文件，不像应用持有 fd 时那样需要 copytruncate，也就不会丢掉换文件那一刻写进来的字节。
+
+轮转只看大小，不看日期，所以**时间覆盖是不确定的**：日志安静时一份 10 MB 可能半年不切，吵的时候 7 代也许只覆盖几小时。每行都带毫秒时间戳，找具体时间点靠 `grep '2026-11-22T1[0-2]'`，不依赖文件名。
 
 ## 轮转配置
 
 ```toml
 [logs]
 max_size_mb = 50
-keep_days = 7
+keep_files = 7
 ```
 
-- `max_size_mb` 是单个文件的阈值，单位 MiB。当天文件超过它就分片。
-- `keep_days` 保留最近几个「有日志的日期」，两条流各算各的。`0` 表示不清理。
+- `max_size_mb` 是单个文件的阈值，单位 MiB。超过它就轮转。
+- `keep_files` 保留几代历史，两条流各算各的。`0` 表示不留历史，只留当前那份。
 - 分片文件名带数字后缀：`.1` 是最新的一份，`.2` 更旧，依次类推。
 
-守护进程自己的三份日志（两份事件日志与 stderr）不属于任何项目，不受项目 `[logs]` 支配，统一用内置策略：`10 MiB`，改名轮转，代数不限。其中 `bm2d.log` 由守护进程自己持有 fd，只能用拷贝截断的方式。
+守护进程自己的三份日志（两份事件日志与 stderr）不属于任何项目，不受项目 `[logs]` 支配，统一用内置策略：`10 MiB`，改名轮转，保留 7 代。其中 `bm2d.log` 由守护进程自己持有 fd，只能用拷贝截断的方式。
 
 ## 该留多少
 
-按项目量估：一个实例每秒写 `2 KB`，一天约 `170 MB`。
+按项目量估：一个实例每秒写 `2 KB`，吵起来一天能到 `170 MB`。
 
-`max_size_mb = 50` 配 `keep_days = 7` 意味着单个项目最多约 `7 × 2 × 50 MB = 700 MB`（每天普通 + 错误各一份，七天）。这个估算与实例数无关——实例越多，单个文件消耗越快，但文件数量不变。
+`max_size_mb = 50` 配 `keep_files = 7` 意味着单个项目最多约 `50 MB × (7 + 1) × 2 = 800 MB`（普通 + 错误各一条链）。这个上界与实例数无关——实例越多，单份文件消耗越快，但文件数量与总量不变。
 
-只想留近期历史就把 `keep_days` 设小；`0` 表示永远不清理。
+时间覆盖反而不固定：安静时几天也写不满一份，吵时 7 代也许只够几小时。想少占盘就把 `keep_files` 设小；`0` 表示只留当前那份。
 
 ## 怎么看日志
 
-一个项目当天只有两个文件，不用挑实例：
+一个项目只有两个文件，不用挑实例、不用算今天几号：
 
 ```bash
 bm2 logs api          # 普通日志（所有实例合并，带 [实例号]）
@@ -130,11 +133,11 @@ bm2 logs api -f       # 持续跟随，Ctrl+C 只停止跟随
 想直接读文件也可以：
 
 ```bash
-tail -f ~/.bm2/projects/api/logs/api-2026-11-22.log
-tail -50 ~/.bm2/projects/api/logs/api-2026-11-22.error.log
+tail -f ~/.bm2/projects/api/logs/api.log
+tail -50 ~/.bm2/projects/api/logs/api.error.log
 ```
 
-`bm2 dev` 会把当天日志跟到终端，第一行会说明「Ctrl+C 只停止跟随，应用继续运行」。
+`bm2 dev` 会把项目日志跟到终端，第一行会说明「Ctrl+C 只停止跟随，应用继续运行」。
 
 ## 崩溃日志的格式
 
@@ -190,6 +193,7 @@ grep ' instance_exited ' ~/.bm2/bm2d.events.log | grep 'app=demo' | wc -l
 | 事件 | 含义 |
 | --- | --- |
 | `daemon_starting` / `daemon_stopping` / `daemon_stopped` | 守护进程生命周期 |
+| `socket_listening` | 控制通道开始监听 |
 | `daemon_detaching` / `daemon_detached` | `reload` 或 `upgrade` 的换班 |
 | `recovery_complete` | 启动后的注册恢复与进程认领完成 |
 | `instance_started` / `instance_exited` | 实例的拉起与退出 |
@@ -199,13 +203,18 @@ grep ' instance_exited ' ~/.bm2/bm2d.events.log | grep 'app=demo' | wc -l
 | `memory_limit` | 内存超限 |
 | `reuseport_confirmed` / `reuseport_missing` / `reuseport_probe_stopped` | cluster 端口组探测的三种结局 |
 | `pid_conflict` | 记录里的 pid 属于别的程序 |
+| `reap_overflow` | 待回收的子进程超出队列，丢掉了最旧的一条 |
+| `project_load_failed` | 注册信息读不回来，该项目的配置无法恢复 |
 | `project_removed` | 项目已从名册移除 |
 | `state_save_failed` / `state_load_failed` / `state_discarded` | 状态文件的读写与丢弃 |
+| `log_rotated` / `log_rotate_failed` | 守护进程自己的日志轮转，detail 带文件路径 |
+| `log_dropped` | 暂存同步瞬间写进来的字节没能搬完，detail 带丢失字节数 |
 | `notify_sent` / `notify_target_failed` | 逐目标的投递结果，detail 带事件、目标与失败原因 |
 | `notify_partial` / `notify_failed` | 整条消息的结果：部分成功，或全部失败要重试（detail 带第几次尝试） |
 | `notify_rate_limited` / `notify_queue_full` / `notify_backlog_dropped` | 通知被限流或丢弃 |
+| `notify_forget_dropped` | 去重窗口里已过期的记录没能清掉（只在大量事件时出现） |
 | `connection_refused` / `auth_failed` | 控制面的拒绝 |
-| `request_received` / `response_sent` / `command_reply_dropped` | 命令的生命周期 |
+| `request_received` / `response_sent` / `response_failed` / `command_reply_dropped` | 命令的生命周期 |
 
 `bm2.events.log` 记录 CLI 这一侧：连接、请求、协议重试、过期端点清理。它通常是排查「命令到底发出去没有」的第一处。
 
@@ -220,10 +229,16 @@ grep ' instance_exited ' ~/.bm2/bm2d.events.log | grep 'app=demo' | wc -l
 只想清空内容、保留目录：
 
 ```bash
-: > ~/.bm2/api/logs/api-0.out.log
+: > ~/.bm2/projects/api/logs/api.log
 ```
 
-直接删文件也可以，应用下一次写入会重新创建。代价是那一行可能落在新文件里、也可能落在旧 inode 上，取决于轮转正好走到哪一步。最稳的方式还是让轮转去处理。
+清空是安全的：收集任务下一轮从偏移 0 继续写，不会留下空洞。真要丢掉全部历史，连代数一起删：
+
+```bash
+rm ~/.bm2/projects/api/logs/api.*.log
+```
+
+别只删当前那份而留着 `.1`、`.2`：它们会在下次轮转时接着被往后挪。想彻底重来就整个删掉 `logs/`，收集任务会重新建目录。
 
 ## 换机器
 

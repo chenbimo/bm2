@@ -12,7 +12,7 @@
 | 启动（开发） | `pm2 start app.js --watch` | `bm2 dev` |
 | 查看列表 | `pm2 list` | `bm2 list` |
 | 查看某个项目 | `pm2 describe api` | `bm2 list api` |
-| 看实时日志 | `pm2 logs api` | `tail -f ~/.bm2/api/logs/api-0.out.log` |
+| 看实时日志 | `pm2 logs api` | `bm2 logs api -f` |
 | 停止 | `pm2 stop api` | `bm2 stop api` |
 | 重启 | `pm2 restart api` | `bm2 serve` |
 | 删除 | `pm2 delete api` | `bm2 remove api` |
@@ -84,7 +84,7 @@ stop_timeout_ms = 10000
 
 [logs]
 max_size_mb = 10
-keep_days = 7
+keep_files = 7
 
 [notify]
 enabled = true
@@ -179,7 +179,7 @@ pm2 start ecosystem.config.js
 
 确认新方案稳定之后，再 `bm2 remove api` 把登记清掉。
 
-日志留在 `~/.bm2/api/logs/`，退役不会删它，需要时还能翻。
+日志留在 `~/.bm2/projects/api/logs/`，退役不会删它，需要时还能翻。
 
 ## 迁移后值得再确认的四件事
 

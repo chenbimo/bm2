@@ -107,17 +107,17 @@ ls ~/.bm2/projects/my-api/logs/
 ```
 
 ```text
-my-api-<日期>.log          # 普通日志（所有实例合并，带 [实例号]）
-my-api-<日期>.error.log    # 错误日志，含崩溃与重启记录
+my-api.log                 # 普通日志（所有实例合并，带 [实例号]）
+my-api.error.log           # 错误日志，含崩溃与重启记录
 ```
 
-一个项目每天两个文件，与实例数无关。跟随实时输出：
+一个项目两个文件，与实例数无关。跟随实时输出：
 
 ```bash
 bm2 logs my-api -f
 ```
 
-日志超过 `[logs] max_size_mb`（默认 10 MiB）会在当天内分片，保留几天由 `keep_days`（默认 7）决定。
+日志超过 `[logs] max_size_mb`（默认 10 MiB）会轮转成上一代，保留几代由 `keep_files`（默认 7）决定。
 
 ## 五、改配置
 
