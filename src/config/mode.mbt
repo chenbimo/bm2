@@ -44,13 +44,13 @@ pub fn Mode::from_string(value : String) -> Mode? {
 }
 
 ///|
-/// The mode a start verb names, or None for any other command. The verbs and
-/// the modes are one vocabulary with two spellings, and this is the only place
-/// that translates between them.
+/// The mode a start verb names, or None for any other command. There is one
+/// deployment mode now; `restart` counts as a start verb because it starts the
+/// project again after stopping it.
 pub fn Mode::of_command(command : String) -> Mode? {
   match command {
-    "dev" => Some(Development)
-    "serve" => Some(Production)
+    "start" => Some(Production)
+    "restart" => Some(Production)
     _ => None
   }
 }

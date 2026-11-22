@@ -24,7 +24,7 @@ pub fn daemon_did_not_exit(lang : Lang) -> String {
 }
 
 ///|
-/// Printed by `remove -f` once the state directory is gone, and by `clean` for
+/// Printed by `delete -f` once the state directory is gone, and by `clean` for
 /// each directory it sweeps.
 pub fn removed(lang : Lang, what : String) -> String {
   match lang {
@@ -56,9 +56,9 @@ pub fn left_in_place(lang : Lang, what : String) -> String {
 pub fn retire_timeout(lang : Lang) -> String {
   match lang {
     En =>
-      "bm2: the project did not finish retiring within the wait; its files were kept"
+      "bm2: the project did not finish deleting within the wait; its files were kept"
     Zh =>
-      "bm2: 项目没有在等待时间内完成退役,它的文件已保留"
+      "bm2: 项目没有在等待时间内完成删除,它的文件已保留"
   }
 }
 

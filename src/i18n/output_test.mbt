@@ -11,12 +11,8 @@ test "English is the contract for the command surface" {
     "Process manager for Bun / Node.js on Linux",
   )
   assert_eq(
-    @i18n.help_serve(@i18n.Lang::En),
-    "Register and start the project in production (.env, .env.production)",
-  )
-  assert_eq(
-    @i18n.help_no_follow(@i18n.Lang::En),
-    "Start and return instead of following the logs",
+    @i18n.help_start(@i18n.Lang::En),
+    "Start the project; reads ./bm2.toml or the given config path",
   )
   assert_eq(
     @i18n.kill_needs_confirmation(@i18n.Lang::En),
@@ -95,7 +91,7 @@ test "parameters survive translation" {
   assert_true(@i18n.removed(@i18n.Lang::Zh, "/srv/api").contains("/srv/api"))
   assert_true(@i18n.status_gone(@i18n.Lang::Zh, "api").contains("api"))
   assert_true(@i18n.status_gone(@i18n.Lang::En, "api").contains("api"))
-  assert_true(@i18n.follow_started(@i18n.Lang::Zh, "api").contains("api"))
+  assert_true(@i18n.already_running(@i18n.Lang::Zh, "api").contains("api"))
   assert_true(
     @i18n.unknown_command(@i18n.Lang::Zh, "frobnicate").contains("frobnicate"),
   )

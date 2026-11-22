@@ -38,20 +38,26 @@ async fn run() -> Int32 {
     about=@i18n.help_root(lang),
     version=VERSION,
     subcommands=[
-      @argparse.Command("serve", about=@i18n.help_serve(lang)),
-      @argparse.Command("dev", about=@i18n.help_dev(lang), flags=[
-        @argparse.FlagArg("no-follow", about=@i18n.help_no_follow(lang)),
+      @argparse.Command("start", about=@i18n.help_start(lang), positionals=[
+        @argparse.PositionArg(
+          "config",
+          about=@i18n.arg_config_path(lang),
+          num_args=@argparse.ValueRange(lower=0, upper=1),
+        ),
+      ]),
+      @argparse.Command("restart", about=@i18n.help_restart(lang), positionals=[
+        optional_name(@i18n.arg_project_to_stop(lang)),
       ]),
       @argparse.Command("stop", about=@i18n.help_stop(lang), positionals=[
         optional_name(@i18n.arg_project_to_stop(lang)),
       ]),
       @argparse.Command(
-        "remove",
-        about=@i18n.help_remove(lang),
+        "delete",
+        about=@i18n.help_delete(lang),
         flags=[
           @argparse.FlagArg("force", short='f', about=@i18n.help_force(lang)),
         ],
-        positionals=[optional_name(@i18n.arg_project_to_remove(lang))],
+        positionals=[optional_name(@i18n.arg_project_to_delete(lang))],
       ),
       @argparse.Command(
         "kill",
@@ -71,23 +77,6 @@ async fn run() -> Int32 {
       @argparse.Command("clean", about=@i18n.help_clean(lang), flags=[
         @argparse.FlagArg("dry-run", about=@i18n.help_dry_run(lang)),
       ]),
-      @argparse.Command(
-        "logs",
-        about=@i18n.help_logs(lang),
-        flags=[
-          @argparse.FlagArg(
-            "error",
-            short='e',
-            about=@i18n.help_logs_error(lang),
-          ),
-          @argparse.FlagArg(
-            "follow",
-            short='f',
-            about=@i18n.help_logs_follow(lang),
-          ),
-        ],
-        positionals=[optional_name(@i18n.arg_limit_to_project(lang))],
-      ),
       @argparse.Command("upgrade", about=@i18n.help_upgrade(lang)),
       @argparse.Command("version", about=@i18n.help_version(lang)),
     ],
@@ -111,16 +100,13 @@ async fn run() -> Int32 {
   let json_flag = sub.flags.get("json") is Some(true)
   let dry_run_flag = sub.flags.get("dry-run") is Some(true) ||
     sub.flags.get("dry_run") is Some(true)
-  let error_flag = sub.flags.get("error") is Some(true)
-  let follow_flag = sub.flags.get("follow") is Some(true)
   let confirmed = sub.flags.get("all") is Some(true)
   let force_flag = sub.flags.get("force") is Some(true)
-  let no_follow_flag = sub.flags.get("no-follow") is Some(true) ||
-    sub.flags.get("no_follow") is Some(true)
-  // `dev` and `serve` are the two start verbs: one supervision, two
-  // environments. The verb travels as the command, so the daemon reads the mode
-  // from it, and this load uses the same mode — otherwise the local verdict
-  // could pass for a mode the daemon is not going to use.
+  // `start` 的位置参数是配置文件；其余命令的位置参数是项目名。
+  let config_arg : String? = match sub.values.get("config") {
+    Some(values) if values.length() > 0 => Some(values[0])
+    _ => None
+  }
   let mode = @config.Mode::of_command(command)
   let app_arg : String? = match sub.values.get("name") {
     Some(names) if names.length() > 0 => Some(names[0])
@@ -132,16 +118,6 @@ async fn run() -> Int32 {
   }
   match command {
     "clean" => return cmd_clean(state_dir, dry_run_flag, lang)
-    "logs" => {
-      let name = match app_arg {
-        Some(name) => name
-        None => {
-          @proc.eprintln(@i18n.logs_need_project(lang))
-          return 2
-        }
-      }
-      return cmd_logs(state_dir, name, error_flag, follow_flag, lang)
-    }
     "upgrade" => return cmd_upgrade(state_dir, lang)
     "version" => {
       println("bm2 " + VERSION)
@@ -170,7 +146,21 @@ async fn run() -> Int32 {
       return 1
     }
   }
-  let config_path = cwd + "/bm2.toml"
+  let config_path = match config_arg {
+    // `start` 可以点名配置文件；给目录就找目录里的 bm2.toml。
+    Some(given) =>
+      if given.has_suffix(".toml") {
+        if given.has_prefix("/") {
+          given
+        } else {
+          cwd + "/" + given
+        }
+      } else {
+        let dir = if given.has_prefix("/") { given } else { cwd + "/" + given }
+        dir + "/bm2.toml"
+      }
+    None => cwd + "/bm2.toml"
+  }
   // Only start needs a local bm2.toml: list/kill/reload address the
   // daemon's registered projects from any directory.
   let config = try {
@@ -323,7 +313,7 @@ async fn run() -> Int32 {
         print_list(resp.instances, scoped_lang)
       }
       0
-    } else if command == "remove" && force_flag {
+    } else if command == "delete" && force_flag {
       // The daemon retires asynchronously: it unregisters once every instance has
       // stopped. Only after the project is gone from the registry is it safe to
       // delete its directory — before that we would be pulling files out from
@@ -376,19 +366,6 @@ async fn run() -> Int32 {
       )
       if app is Some(_) {
         print_list(infos, scoped_lang)
-      }
-      // `bm2 dev` is a development session, not just a start: it follows the
-      // instance logs in this terminal until the user interrupts it. Following is
-      // a view, not a leash — the app keeps running, and the first line printed
-      // says how to stop it. `--no-follow` is for scripts and CI, where blocking
-      // on a terminal would be a hang.
-      if mode is Some(@config.Mode::Development) &&
-        !no_follow_flag &&
-        @proc.interrupted() == 0 &&
-        settled(infos, app, false) {
-        if app is Some(name) {
-          follow_logs(state_dir, name, lang)
-        }
       }
       0
     }

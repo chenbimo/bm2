@@ -273,6 +273,24 @@ pub fn Supervisor::app_instances(
 }
 
 ///|
+/// 项目此刻有没有活着的实例。`start` 用它实现幂等：已经在跑就什么都不做。
+pub fn Supervisor::app_running(self : Supervisor, app_name : String) -> Bool {
+  match self.projects.get(app_name) {
+    Some(project) => {
+      let mut running = false
+      for inst in project.instances {
+        if inst.alive() {
+          running = true
+          break
+        }
+      }
+      running
+    }
+    None => false
+  }
+}
+
+///|
 /// The notification engine, for the daemon's own events and for `bm2 notify`.
 pub fn Supervisor::notifier(self : Supervisor) -> Notifier {
   self.notify

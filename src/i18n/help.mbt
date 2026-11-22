@@ -16,29 +16,19 @@ pub fn help_root(lang : Lang) -> String {
 }
 
 ///|
-pub fn help_serve(lang : Lang) -> String {
+pub fn help_start(lang : Lang) -> String {
   match lang {
-    En => "Register and start the project in production (.env, .env.production)"
+    En => "Start the project; reads ./bm2.toml or the given config path"
     Zh =>
-      "在生产模式下注册并启动项目(读 .env 与 .env.production)"
+      "启动项目;默认读当前目录的 bm2.toml,也可指定配置路径"
   }
 }
 
 ///|
-pub fn help_dev(lang : Lang) -> String {
+pub fn help_restart(lang : Lang) -> String {
   match lang {
-    En =>
-      "Register and start the project in development (.env, .env.development)"
-    Zh =>
-      "在开发模式下注册并启动项目(读 .env 与 .env.development)"
-  }
-}
-
-///|
-pub fn help_no_follow(lang : Lang) -> String {
-  match lang {
-    En => "Start and return instead of following the logs"
-    Zh => "启动后立即返回,不跟随日志"
+    En => "Stop and start again, re-reading the config"
+    Zh => "停掉再起一次,并重新读取配置"
   }
 }
 
@@ -51,10 +41,10 @@ pub fn help_stop(lang : Lang) -> String {
 }
 
 ///|
-pub fn help_remove(lang : Lang) -> String {
+pub fn help_delete(lang : Lang) -> String {
   match lang {
-    En => "Retire a project: stop it, free its name, keep its logs"
-    Zh => "退役项目,停止它,释放名字,保留日志"
+    En => "Delete a project: stop it, free its name, keep its logs"
+    Zh => "删除项目,停止它,释放名字,保留日志"
   }
 }
 
@@ -163,10 +153,19 @@ pub fn arg_project_to_stop(lang : Lang) -> String {
 }
 
 ///|
-pub fn arg_project_to_remove(lang : Lang) -> String {
+pub fn arg_project_to_delete(lang : Lang) -> String {
   match lang {
-    En => "Project to remove"
-    Zh => "要退役的项目"
+    En => "Project to delete"
+    Zh => "要删除的项目"
+  }
+}
+
+///|
+/// `start` 的位置参数是配置文件路径，不是项目名：启动必须有配置来源。
+pub fn arg_config_path(lang : Lang) -> String {
+  match lang {
+    En => "Config path, defaults to ./bm2.toml"
+    Zh => "配置文件路径,默认当前目录的 bm2.toml"
   }
 }
 
@@ -193,29 +192,5 @@ pub fn cannot_determine_cwd(lang : Lang) -> String {
   match lang {
     En => "cannot determine current directory"
     Zh => "无法确定当前目录"
-  }
-}
-
-///|
-pub fn help_logs(lang : Lang) -> String {
-  match lang {
-    En => "Show today's log of a project"
-    Zh => "查看项目当天的日志"
-  }
-}
-
-///|
-pub fn help_logs_error(lang : Lang) -> String {
-  match lang {
-    En => "Show the error log instead of the normal one"
-    Zh => "只看错误日志"
-  }
-}
-
-///|
-pub fn help_logs_follow(lang : Lang) -> String {
-  match lang {
-    En => "Keep printing new lines as they arrive"
-    Zh => "持续输出新增内容"
   }
 }

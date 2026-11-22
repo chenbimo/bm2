@@ -120,8 +120,8 @@ write_project crash crash 4201 crash.ts 1 1000
 write_project quick quick 4211 quick.ts 1 1000
 # quick exits 100ms after start; treat that as a clean exit.
 sed -i 's/min_uptime_ms = 60000/min_uptime_ms = 50/' "$ACC/quick/bm2.toml"
-(cd "$ACC/crash" && bm2 serve >/dev/null)
-(cd "$ACC/quick" && bm2 serve >/dev/null)
+(cd "$ACC/crash" && bm2 start >/dev/null)
+(cd "$ACC/quick" && bm2 start >/dev/null)
 sleep 2
 check "both projects listed" "2" "$(( $(row_count crash) + $(row_count quick) ))"
 check "crash present" "1" "$(row_count crash)"
@@ -152,7 +152,7 @@ fi
 echo "===== D. memory limit -> restart -> errored ====="
 write_project hog hog 4221 hog.ts 1 1000
 sed -i 's/max_memory_mb = 512/max_memory_mb = 16/; s/max_restarts = 2/max_restarts = 1/' "$ACC/hog/bm2.toml"
-(cd "$ACC/hog" && bm2 serve >/dev/null)
+(cd "$ACC/hog" && bm2 start >/dev/null)
 check "hog errored" "errored" "$(wait_status hog errored 80)"
 check "hog restart_count 2" "2" "$(cell hog TIMES)"
 contains "hog crash.log memory_limit" $state_dir/projects/hog/logs/hog.error.log "原因=memory_limit"
@@ -160,11 +160,22 @@ contains "hog crash.log rssMb" $state_dir/projects/hog/logs/hog.error.log "内�
 
 echo "===== E. slow app serves HTTP ====="
 write_project slow slow 4231 slow.ts 1 1000
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 check "slow http" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
 
-echo "===== F. kill quick unregisters it ====="
-bm2 remove -f quick
+# start 是幂等的:已经在跑,再来一次不动任何进程。restart 才真的换 pid。
+SLOW_PID_BEFORE=$(cell slow PID)
+(cd "$ACC/slow" && bm2 start >/dev/null 2>&1)
+check "start is idempotent" "$SLOW_PID_BEFORE" "$(cell slow PID)"
+(cd "$ACC/slow" && bm2 restart slow >/dev/null 2>&1)
+sleep 1
+SLOW_PID_AFTER=$(cell slow PID)
+check "restart replaces the process" 1 \
+  "$([ -n "$SLOW_PID_AFTER" ] && [ "$SLOW_PID_AFTER" != "$SLOW_PID_BEFORE" ] && echo 1 || echo 0)"
+check "slow still serving after restart" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
+
+echo "===== F. delete quick unregisters it ====="
+bm2 delete -f quick
 # The project is gone entirely: querying it reports unknown app.
 OUT=$(wait_unknown quick 40)
 check "quick omitted from list" "unknown app: quick" "$OUT"
@@ -206,25 +217,25 @@ kill "$FOREIGN" 2>/dev/null
 
 echo "===== I. numeric config change accepted while running ====="
 sed -i 's/stop_timeout_ms = 1000/stop_timeout_ms = 2000/' "$ACC/slow/bm2.toml"
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 check "slow still on 4231" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
 
 echo "===== J. structural change restarts on the new port ====="
 sed -i 's/port = 4231/port = 4241/' "$ACC/slow/bm2.toml"
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 check "structural restart on new port" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 
 echo "===== K. structural change accepted when stopped ====="
-bm2 remove -f slow
+bm2 delete -f slow
 sed -i 's/port = 4241/port = 4241/; s/instances = [0-9]*/instances = 2/' "$ACC/slow/bm2.toml"
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 check "two instances after rebuild" "2" "$(row_count slow)"
 check "rebuilt instance on 4241" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 check "rebuilt instance on 4242" "slow slow-1 production 4242 1" "$(wait_http 4242 "slow slow-1 production 4242 1")"
-bm2 remove -f slow
+bm2 delete -f slow
 
 echo "===== L. kill without app shuts down bm2d ====="
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 DPID=$(cat "$state_dir/bm2d.pid")
 OUT=$(bm2 kill 2>&1)
 check "bare kill refused exit" 1 "$?"
@@ -247,7 +258,7 @@ check "slow killed by daemon shutdown" "000" "$CODE"
 check "all registrations removed on shutdown" "0" "$(find "$state_dir" -name project.json | wc -l)"
 
 echo "===== M. reload swaps daemon while apps keep running ====="
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 APID=$(cell slow PID)
 DPID=$(cat "$state_dir/bm2d.pid")
 check "reload response" "reloaded" "$(bm2 reload)"
@@ -259,20 +270,20 @@ check "slow still served" "slow slow-0 production 4241 0" "$(wait_http 4241 "slo
 check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.log" 2>/dev/null || echo 0)"
 
 echo "===== N. ignored SIGTERM escalates to SIGKILL ====="
-bm2 remove -f slow
+bm2 delete -f slow
 write_project stubborn stubborn 4251 ignore-term.ts 1 300
-(cd "$ACC/stubborn" && bm2 serve >/dev/null)
+(cd "$ACC/stubborn" && bm2 start >/dev/null)
 sleep 1
 SPID=$(cell stubborn PID)
 # 进程行先出现(停止中→online 的相邻快照对比),最终 `started` 在它后面。
-check "restart with ignored SIGTERM" "1" "$(cd "$ACC/stubborn" && bm2 serve | grep -c '^started$')"
+check "restart with ignored SIGTERM" "1" "$(cd "$ACC/stubborn" && bm2 restart stubborn | grep -c '^started$')"
 sleep 1
 check "stubborn old process SIGKILLed" 1 "$(kill -0 "$SPID" 2>/dev/null; echo $?)"
 check "stubborn new instance online" "online" "$(cell stubborn STATUS)"
-bm2 remove -f stubborn
+bm2 delete -f stubborn
 
 echo "===== O. external SIGKILL records signal reason ====="
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 sleep 1
 SPID=$(cell slow PID)
 kill -9 "$SPID"
@@ -286,20 +297,20 @@ APID=$(cell slow PID)
 kill -9 "$DPID" "$APID" 2>/dev/null
 sleep 0.5
 echo 'not json' > "$state_dir/projects/slow/state/0.json"
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 sleep 1
 check "state_load_failed event" 1 "$(grep -c 'state_load_failed' "$state_dir/bm2d.events.log" 2>/dev/null || echo 0)"
 check "slow online after corrupt state" "online" "$(wait_status slow online 20)"
 
 echo "===== R. multi-instance port sequence ====="
-bm2 remove -f slow
+bm2 delete -f slow
 sed -i 's/instances = [0-9]*/instances = 3/' "$ACC/slow/bm2.toml"
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 check "three instances online" "3" "$(row_count slow)"
 check "instance on 4241" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
 check "instance on 4242" "slow slow-1 production 4242 1" "$(wait_http 4242 "slow slow-1 production 4242 1")"
 check "instance on 4243" "slow slow-2 production 4243 2" "$(wait_http 4243 "slow slow-2 production 4243 2")"
-bm2 remove -f slow
+bm2 delete -f slow
 
 echo "===== Q. CLI error paths ====="
 OUT=$(bm2 list nosuch 2>&1)
@@ -311,13 +322,13 @@ OUT=$(bm2 kill -y slow 2>&1)
 check "kill -y with app rejected" 2 "$?"
 OUT=$(bm2 kill slow 2>&1)
 check "kill with app rejected" 1 "$?"
-if echo "$OUT" | grep -q "kill no longer takes a project" && echo "$OUT" | grep -q "bm2 remove slow"; then
-  PASS=$((PASS + 1)); echo "PASS: kill with app points to stop/remove"
+if echo "$OUT" | grep -q "kill no longer takes a project" && echo "$OUT" | grep -q "bm2 delete slow"; then
+  PASS=$((PASS + 1)); echo "PASS: kill with app points to stop/delete"
 else
-  FAIL=$((FAIL + 1)); echo "FAIL: kill with app points to stop/remove (got [$OUT])"
+  FAIL=$((FAIL + 1)); echo "FAIL: kill with app points to stop/delete (got [$OUT])"
 fi
 mkdir -p "$ACC/noconfig"
-OUT=$(cd "$ACC/noconfig" && bm2 serve 2>&1)
+OUT=$(cd "$ACC/noconfig" && bm2 start 2>&1)
 check "serve without config rejected" 1 "$?"
 check "serve without config message" "bm2: InvalidDocument: cannot read config file: $ACC/noconfig/bm2.toml" "$OUT"
 rm -rf "$ACC/noconfig"
@@ -328,34 +339,25 @@ mkdir -p "$ACC/withenv"
 printf 'Bun.serve({\n  port: Number(process.env.BM2_APP_PORT ?? 3000),\n  fetch() {\n    return new Response(`envapp ${process.env.NODE_ENV} ${process.env.APP_ENV ?? "-"} ${process.env.BM2_APP_INSTANCE}`);\n  },\n});\n' > "$ACC/withenv/envapp.ts"
 printf 'name = "withenv"\nscript = "envapp.ts"\ninstances = 1\nport = "__APP_PORT__"\nexec_mode = "fork"\n' > "$ACC/withenv/bm2.toml"
 printf 'APP_PORT=4281\nAPP_ENV=prod\n' > "$ACC/withenv/.env.production"
-printf 'APP_PORT=4282\nAPP_ENV=dev\n' > "$ACC/withenv/.env.development"
-(cd "$ACC/withenv" && bm2 serve >/dev/null 2>&1)
-check "serve reads .env.production" "envapp production prod 0" "$(wait_http 4281 'envapp production prod 0')"
-bm2 stop withenv >/dev/null 2>&1
-# dev 是前台会话,脚本里用 --no-follow 让它跟 serve 一样发完请求就返回。实例数改成 2,
-# 验证 dev 只跑一个。
-printf 'name = "withenv"\nscript = "envapp.ts"\ninstances = 2\nport = "__APP_PORT__"\nexec_mode = "fork"\n' > "$ACC/withenv/bm2.toml"
-(cd "$ACC/withenv" && bm2 dev --no-follow >/dev/null 2>&1)
-check "dev reads .env.development" "envapp development dev 0" "$(wait_http 4282 'envapp development dev 0')"
-check "dev runs a single instance" "1" "$(row_count withenv)"
-check "dev mode in json" "1" "$(bm2 list withenv --json | grep -c '\"mode\":\"development\"')"
+(cd "$ACC/withenv" && bm2 start >/dev/null 2>&1)
+check "start reads .env.production" "envapp production prod 0" "$(wait_http 4281 'envapp production prod 0')"
 bm2 stop withenv >/dev/null 2>&1
 # `[env]` 退场了:它现在就是个普通未知字段。
 printf 'name = "withenv"\nscript = "slow.ts"\ninstances = 1\nport = 4281\n\n[env]\nAPP_ENV = "production"\n' > "$ACC/withenv/bm2.toml"
-OUT=$(cd "$ACC/withenv" && bm2 serve 2>&1)
+OUT=$(cd "$ACC/withenv" && bm2 start 2>&1)
 check "[env] table rejected" 1 "$?"
 # 模式决定 NODE_ENV,所以文件里跟它顶牛的值会被当场拒收。
 printf 'name = "withenv"\nscript = "slow.ts"\ninstances = 1\nport = 4281\n' > "$ACC/withenv/bm2.toml"
 printf 'NODE_ENV=development\n' > "$ACC/withenv/.env"
-OUT=$(cd "$ACC/withenv" && bm2 serve 2>&1)
+OUT=$(cd "$ACC/withenv" && bm2 start 2>&1)
 check "NODE_ENV contradiction rejected" 1 "$?"
-bm2 remove withenv >/dev/null 2>&1
+bm2 delete withenv >/dev/null 2>&1
 rm -rf "$ACC/withenv"
 
 echo "===== S. duplicate and conflicting registrations ====="
-(cd "$ACC/slow" && bm2 serve >/dev/null)
+(cd "$ACC/slow" && bm2 start >/dev/null)
 write_project other other 4241 slow.ts 1 1000
-OUT=$(cd "$ACC/other" && bm2 serve 2>&1)
+OUT=$(cd "$ACC/other" && bm2 start 2>&1)
 check "port conflict rejected exit" 1 "$?"
 if echo "$OUT" | grep -q "port conflict"; then
   PASS=$((PASS + 1)); echo "PASS: port conflict message"
@@ -366,7 +368,7 @@ fi
 # project's identity (state dir, logs, policy), and the message names the file
 # that owns it.
 write_project slow2 slow 4261 slow.ts 1 1000
-OUT=$(cd "$ACC/slow2" && bm2 serve 2>&1)
+OUT=$(cd "$ACC/slow2" && bm2 start 2>&1)
 check "same name from another directory rejected" 1 "$?"
 if echo "$OUT" | grep -q "already registered by $ACC/slow/bm2.toml"; then
   PASS=$((PASS + 1)); echo "PASS: name owner reported"
@@ -376,17 +378,17 @@ fi
 check "the owner keeps its instances" "3" "$(row_count slow)"
 # The same directory starting again is the update path, and still works: it
 # exits cleanly and the instances keep running under the refreshed config.
-(cd "$ACC/slow" && bm2 serve >/dev/null 2>&1)
+(cd "$ACC/slow" && bm2 start >/dev/null 2>&1)
 check "same directory restart still updates" "0" "$?"
 check "owner still online after the update" "3" "$(col_values slow STATUS | grep -c '^online$' || true)"
-bm2 remove -f slow
+bm2 delete -f slow
 
 echo "===== T. long stop_timeout must not split the daemon ====="
 write_project stubborn stubborn 4271 ignore-term.ts 1 5000
-(cd "$ACC/stubborn" && bm2 serve >/dev/null)
+(cd "$ACC/stubborn" && bm2 start >/dev/null)
 sleep 1
 DPID=$(cat "$state_dir/bm2d.pid")
-(cd "$ACC/stubborn" && bm2 serve >/dev/null) &
+(cd "$ACC/stubborn" && bm2 start >/dev/null) &
 START_PID=$!
 sleep 1
 # The daemon keeps answering requests while the long restart is in flight;
@@ -401,11 +403,11 @@ fi
 wait "$START_PID"
 sleep 5
 check "stubborn online after full restart" "online" "$(cell stubborn STATUS)"
-bm2 remove -f stubborn
+bm2 delete -f stubborn
 
-echo "===== V. stop, remove, clean ====="
+echo "===== V. stop, delete, clean ====="
 write_project v1 vapp 4491 slow.ts 1 1000
-(cd "$ACC/v1" && bm2 serve >/dev/null)
+(cd "$ACC/v1" && bm2 start >/dev/null)
 check "vapp online before stop" "online" "$(cell vapp STATUS)"
 bm2 stop vapp
 check "stop exits cleanly" "0" "$?"
@@ -417,11 +419,11 @@ bm2 reload >/dev/null
 sleep 2
 check "still stopped after the daemon reloaded" "0" "$(col_values vapp STATUS | grep -c '^online$' || true)"
 # And start is how it comes back.
-(cd "$ACC/v1" && bm2 serve >/dev/null)
+(cd "$ACC/v1" && bm2 start >/dev/null)
 sleep 2
 check "start resumes a stopped project" "1" "$(col_values vapp STATUS | grep -c '^online$' || true)"
 # Retiring frees the name and keeps the logs.
-bm2 remove vapp
+bm2 delete vapp
 check "remove exits cleanly" "0" "$?"
 check "a retired project leaves the registry" "0" "$(row_count vapp)"
 if [ -d "$state_dir/projects/vapp/logs" ]; then
@@ -448,13 +450,13 @@ else
   PASS=$((PASS + 1)); echo "PASS: clean removes the ownerless directory"
 fi
 # The freed name can be registered again.
-(cd "$ACC/v1" && bm2 serve >/dev/null)
+(cd "$ACC/v1" && bm2 start >/dev/null)
 check "the freed name registers again" "1" "$(row_count vapp)"
 # Forced removal takes the whole state directory with it.
 write_project v2 vapp2 4492 slow.ts 1 1000
-(cd "$ACC/v2" && bm2 serve >/dev/null)
+(cd "$ACC/v2" && bm2 start >/dev/null)
 sleep 2
-bm2 remove -f vapp2
+bm2 delete -f vapp2
 check "forced remove exits cleanly" "0" "$?"
 if [ -d "$state_dir/vapp2" ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: remove -f deletes the state directory"
@@ -464,7 +466,7 @@ fi
 
 echo "===== U. log rotation by size ====="
 write_project slowback slowback 4291 slow.ts 1 1000
-(cd "$ACC/slowback" && bm2 serve >/dev/null)
+(cd "$ACC/slowback" && bm2 start >/dev/null)
 sleep 1
 # 应用写暂存，收集任务每秒搬到主日志；造 11MB 带换行的内容，让主日志超过
 # 默认 10MB 上限后按大小分片。
@@ -475,19 +477,19 @@ check "rotated generation exists" 1 "$([ -f "$state_dir/projects/slowback/logs/s
 SIZE=$(stat -c%s "$state_dir/projects/slowback/logs/slowback.log" 2>/dev/null || echo 0)
 check "active log restarted below the limit" 1 "$([ "$SIZE" -lt 11000000 ] && echo 1 || echo 0)"
 check "app unaffected by rotation" "slow slowback-0 production 4291 0" "$(wait_http 4291 "slow slowback-0 production 4291 0")"
-bm2 remove -f slowback >/dev/null
+bm2 delete -f slowback >/dev/null
 
 echo "===== V. kill app with one instance already dead ====="
 write_project twin twin 4292 slow.ts 2 1000
 # Zero retry budget so the killed instance lands in errored, not restarting.
 sed -i 's/max_restarts = 2/max_restarts = 0/' "$ACC/twin/bm2.toml"
-(cd "$ACC/twin" && bm2 serve >/dev/null)
+(cd "$ACC/twin" && bm2 start >/dev/null)
 sleep 1
 P1=$(cell twin PID)
 kill -9 "$P1"
 sleep 1
 # One instance errored (pid gone), one still online: kill must unregister both.
-bm2 remove -f twin >/dev/null
+bm2 delete -f twin >/dev/null
 DEAD_GONE=0
 for _ in $(seq 1 20); do
   OUT=$(bm2 list twin 2>&1)
@@ -515,7 +517,7 @@ restart_delay_ms = 100
 min_uptime_ms = 60000
 stop_timeout_ms = 1000
 EOF
-(cd "$ACC/reuseapp" && bm2 serve >/dev/null)
+(cd "$ACC/reuseapp" && bm2 start >/dev/null)
 sleep 1
 check "three instances online" "3" "$(row_count reuseapp)"
 check "all instances share port 4301" "3" "$(col_values reuseapp PORT | grep -c '^4301$' || true)"
@@ -527,7 +529,7 @@ kill -9 "$R_PID"
 sleep 2
 check "port still served after one crash" 1 "$(curl -s --max-time 1 localhost:4301 >/dev/null && echo 1 || echo 0)"
 check "crashed instance restarted" "3" "$(row_count reuseapp)"
-bm2 remove -f reuseapp >/dev/null
+bm2 delete -f reuseapp >/dev/null
 
 echo "===== Y. cluster without reusePort is stopped with a clear reason ====="
 mkdir -p "$ACC/noreuse"
@@ -542,7 +544,7 @@ restart_delay_ms = 100
 min_uptime_ms = 60000
 stop_timeout_ms = 1000
 EOF
-(cd "$ACC/noreuse" && bm2 serve >/dev/null)
+(cd "$ACC/noreuse" && bm2 start >/dev/null)
 BOTH_ERRORED=0
 for _ in $(seq 1 40); do
   LINES=$(row_count noreuse)
@@ -561,7 +563,7 @@ check "project still registered" "1" "$([ -f "$state_dir/projects/noreuse/projec
 # Fix the app (reusePort on) and start again: the same project must recover.
 cp "$fixtures/reuse.ts" "$ACC/noreuse/"
 sed -i 's/script = "slow.ts"/script = "reuse.ts"/' "$ACC/noreuse/bm2.toml"
-(cd "$ACC/noreuse" && bm2 serve >/dev/null)
+(cd "$ACC/noreuse" && bm2 start >/dev/null)
 RECOVERED=0
 for _ in $(seq 1 40); do
   LINES=$(row_count noreuse)
@@ -571,7 +573,7 @@ for _ in $(seq 1 40); do
 done
 check "project recovers after app fix" "1" "$RECOVERED"
 check "fixed project serving" 1 "$(curl -s --max-time 1 localhost:4311 >/dev/null && echo 1 || echo 0)"
-bm2 remove -f noreuse >/dev/null 2>&1 || true
+bm2 delete -f noreuse >/dev/null 2>&1 || true
 
 echo "===== X. runtime below the minimum is rejected ====="
 bm2 kill -y >/dev/null 2>&1
@@ -580,7 +582,7 @@ mkdir -p "$ACC/fakebin"
 printf '#!/bin/sh\necho 0.1.0\n' > "$ACC/fakebin/bun"
 chmod +x "$ACC/fakebin/bun"
 write_project oldver oldver 4302 slow.ts 1 1000
-OUT=$(cd "$ACC/oldver" && PATH="$ACC/fakebin:$PATH" bm2 serve 2>&1)
+OUT=$(cd "$ACC/oldver" && PATH="$ACC/fakebin:$PATH" bm2 start 2>&1)
 check "old runtime rejected exit" 1 "$?"
 if echo "$OUT" | grep -q "too old" && echo "$OUT" | grep -q "1.4.0"; then
   PASS=$((PASS + 1)); echo "PASS: old runtime rejected message"
@@ -597,19 +599,19 @@ check "state dir mode tightened to 0700" "700" "$(stat -c '%a' "$state_dir")"
 
 echo "===== AA. repeated restarts leave no zombies and no fd growth ====="
 write_project cycle cycle 4321 slow.ts 1 1000
-(cd "$ACC/cycle" && bm2 serve >/dev/null)
+(cd "$ACC/cycle" && bm2 start >/dev/null)
 sleep 1
 DPID=$(cat "$state_dir/bm2d.pid")
 FD_FIRST=$(ls "/proc/$DPID/fd" | wc -l)
 for _ in 2 3 4 5; do
-  (cd "$ACC/cycle" && bm2 serve >/dev/null)
+  (cd "$ACC/cycle" && bm2 start >/dev/null)
   sleep 1
 done
 FD_LAST=$(ls "/proc/$DPID/fd" | wc -l)
 check "instance online after four restarts" "online" "$(cell cycle STATUS)"
 check "no zombie children under bm2d" "0" "$(ps --ppid "$DPID" -o stat= 2>/dev/null | grep -c '^Z' || true)"
 check "fd count bounded across restarts" 1 "$([ "$FD_LAST" -le $((FD_FIRST + 3)) ] && echo 1 || echo 0)"
-bm2 remove -f cycle >/dev/null
+bm2 delete -f cycle >/dev/null
 
 echo "===== AB. a second daemon refuses to start ====="
 bm2 list >/dev/null 2>&1
@@ -630,7 +632,7 @@ rm "$ACC/ck/slow.ts"
 OUT=$(cd "$ACC/ck" && bm2 check 2>&1)
 check "check rejects a missing script exit" 1 "$?"
 check "check names the missing script" "bm2: script not found: $ACC/ck/slow.ts" "$OUT"
-OUT=$(cd "$ACC/ck" && bm2 serve 2>&1)
+OUT=$(cd "$ACC/ck" && bm2 start 2>&1)
 check "start refuses a missing script exit" 1 "$?"
 check "start names the missing script" "bm2: script not found: $ACC/ck/slow.ts" "$OUT"
 printf 'name = "ck"
@@ -702,14 +704,14 @@ platform = "webhook"
 url = "http://127.0.0.1:4321/hook"
 events = ["crash", "errored"]
 EOF
-(cd "$ACC/notif" && bm2 serve >/dev/null)
+(cd "$ACC/notif" && bm2 start >/dev/null)
 sleep 10
 check "one crash notice despite the loop" 1 "$(grep -c '"event":"crash"' "$ACC/notify/received.log" || true)"
 check "errored notice delivered" 1 "$(grep -c '"event":"errored"' "$ACC/notify/received.log" || true)"
 contains "notice carries the app name" "$ACC/notify/received.log" '"app":"notif"'
 contains "notice carries the exit code" "$ACC/notify/received.log" 'exit code 1'
 contains "notice carries the event name" "$ACC/notify/received.log" '"event_name":'
-bm2 remove -f notif >/dev/null 2>&1 || true
+bm2 delete -f notif >/dev/null 2>&1 || true
 kill "$RECEIVER" 2>/dev/null
 pkill -f "bun .*notify/receiver.ts" 2>/dev/null
 
@@ -804,15 +806,15 @@ platform = "webhook"
 url = "http://127.0.0.1:4392/hook"
 events = ["crash"]
 EOF
-(cd "$ACC/alpha" && bm2 serve >/dev/null)
-(cd "$ACC/beta" && bm2 serve >/dev/null)
+(cd "$ACC/alpha" && bm2 start >/dev/null)
+(cd "$ACC/beta" && bm2 start >/dev/null)
 sleep 3
 check "alpha was attempted once, on its first try" 1 \
   "$(grep ' notify_failed ' "$state_dir/bm2d.events.log" | grep -c 'app=alpha' || true)"
 check "beta was attempted without waiting out alpha's backoff" 1 \
   "$(grep ' notify_failed ' "$state_dir/bm2d.events.log" | grep -c 'app=beta' || true)"
-bm2 remove -f alpha >/dev/null 2>&1 || true
-bm2 remove -f beta >/dev/null 2>&1 || true
+bm2 delete -f alpha >/dev/null 2>&1 || true
+bm2 delete -f beta >/dev/null 2>&1 || true
 
 echo "===== AI. one instance crashes, its neighbour keeps running ====="
 # The same script behaves differently per instance: id 0 exits at once, id 1 serves
@@ -837,13 +839,13 @@ restart_delay_ms = 100
 min_uptime_ms = 60000
 stop_timeout_ms = 1000
 EOF
-(cd "$ACC/pair" && bm2 serve >/dev/null)
+(cd "$ACC/pair" && bm2 start >/dev/null)
 sleep 3
 check "the crashing instance errored out" "errored" "$(cell pair STATUS 1)"
 check "its neighbour is still online" "online" "$(cell pair STATUS 2)"
 check "the neighbour never restarted" "1" "$(cell pair TIMES 2)"
 check "the neighbour still serves" "ok" "$(curl -s --max-time 2 localhost:4372)"
-bm2 remove -f pair >/dev/null 2>&1 || true
+bm2 delete -f pair >/dev/null 2>&1 || true
 
 echo "===== AJ. a dead target fails alone; the live one still gets the message ====="
 # Two targets, one with nothing listening: the delivery is partial, the live
@@ -940,14 +942,14 @@ platform = "webhook"
 url = "http://127.0.0.1:4322/hook"
 events = ["crash"]
 EOF
-(cd "$ACC/flaky" && bm2 serve >/dev/null)
+(cd "$ACC/flaky" && bm2 start >/dev/null)
 # 0s fail, 5s fail, 20s succeed: wait past the last backoff.
 sleep 26
 check "the target was retried twice" 3 "$(grep -c '^attempt' "$ACC/flaky.log")"
 check "the alert landed exactly once" 1 "$(grep -c '"event":"crash"' "$ACC/flaky.log")"
 contains "the failures were recorded" "$state_dir/bm2d.events.log" ' notify_failed '
 contains "the success was recorded" "$state_dir/bm2d.events.log" ' notify_sent '
-bm2 remove -f flaky >/dev/null 2>&1 || true
+bm2 delete -f flaky >/dev/null 2>&1 || true
 kill "$FLAKY" 2>/dev/null
 
 echo "===== AH. email credentials never leave the process before STARTTLS ====="

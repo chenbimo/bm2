@@ -182,7 +182,7 @@ async fn poll_settled(
       // Not-ok means "unknown app" for a retiring wait: the daemon
       // unregistering the project is the wait's happy ending. Anything that
       // was still tracked in the previous snapshot is thereby removed.
-      Some(r) if !r.ok && (command == "kill" || command == "remove") => {
+      Some(r) if !r.ok && (command == "kill" || command == "delete") => {
         if print_progress {
           for _key, (name, _status) in prev {
             println(@i18n.status_gone(lang, name))

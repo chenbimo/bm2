@@ -18,6 +18,15 @@ pub fn started(lang : Lang) -> String {
 }
 
 ///|
+/// `start` 的幂等分支：项目已经在跑，所以这一条命令什么也没改。
+pub fn already_running(lang : Lang, name : String) -> String {
+  match lang {
+    En => "\{name} is already running"
+    Zh => "\{name} 已在运行"
+  }
+}
+
+///|
 pub fn stopped(lang : Lang) -> String {
   match lang {
     En => "stopped"
@@ -76,10 +85,10 @@ pub fn stop_requires_name(lang : Lang) -> String {
 }
 
 ///|
-pub fn remove_requires_name(lang : Lang) -> String {
+pub fn delete_requires_name(lang : Lang) -> String {
   match lang {
-    En => "remove requires a project name"
-    Zh => "remove 需要一个项目名"
+    En => "delete requires a project name"
+    Zh => "delete 需要一个项目名"
   }
 }
 
@@ -199,36 +208,6 @@ pub fn notify_not_enabled(lang : Lang, app : String) -> String {
 }
 
 ///|
-/// The first line of a `bm2 dev` follow session, printed before any log line: it
-/// says what the command is doing and how to stop the app, because ctrl-c only
-/// stops the following.
-pub fn follow_started(lang : Lang, name : String) -> String {
-  match lang {
-    En =>
-      "bm2 dev: following logs. ctrl-c stops following; the app keeps running ('bm2 stop \{name}')\n"
-    Zh =>
-      "bm2 dev: 正在跟随日志。ctrl-c 只停止跟随,应用继续运行('bm2 stop \{name}')\n"
-  }
-}
-
-///|
-pub fn follow_stopped(lang : Lang, name : String) -> String {
-  match lang {
-    En =>
-      "\nbm2 dev: stopped following (the app keeps running: 'bm2 stop \{name}')\n"
-    Zh => "\nbm2 dev: 已停止跟随(应用继续运行:'bm2 stop \{name}')\n"
-  }
-}
-
-///|
-pub fn follow_gone(lang : Lang, name : String) -> String {
-  match lang {
-    En => "bm2 dev: \{name} is no longer registered; stopped following\n"
-    Zh => "bm2 dev: \{name} 已不在名册中,停止跟随\n"
-  }
-}
-
-///|
 /// The body of the test message `bm2 notify` sends: it says what it is, because
 /// it arrives in a chat group among real alerts.
 pub fn notify_test_title(lang : Lang) -> String {
@@ -272,19 +251,9 @@ pub fn notify_target_failed(
 }
 
 ///|
-/// `bm2 logs` 找不到日志时说的话：把项目名写出来，因为「还没有日志」与「项目
-/// 名写错了」是两回事。
-pub fn logs_missing(lang : Lang, name : String) -> String {
+pub fn restart_requires_name(lang : Lang) -> String {
   match lang {
-    En => "no log for project \{name} yet"
-    Zh => "项目 \{name} 还没有日志"
-  }
-}
-
-///|
-pub fn logs_need_project(lang : Lang) -> String {
-  match lang {
-    En => "logs needs a project name: bm2 logs <name>"
-    Zh => "logs 需要项目名：bm2 logs <项目>"
+    En => "restart needs a project name: bm2 restart <name>"
+    Zh => "restart 需要项目名:bm2 restart <项目>"
   }
 }

@@ -113,13 +113,13 @@ fn Supervisor::cmd_stop(
 /// of what the project did, and deleting them is a separate, explicit act on the
 /// client side (`bm2 remove -f` purges the state directory once the project is
 /// gone).
-fn Supervisor::cmd_remove(
+fn Supervisor::cmd_delete(
   self : Supervisor,
   req : @protocol.Request,
 ) -> @protocol.Response {
   let lang = self.lang_for(req.app, req)
   match req.app {
-    None => @protocol.Response::error(@i18n.remove_requires_name(lang))
+    None => @protocol.Response::error(@i18n.delete_requires_name(lang))
     Some(name) => {
       // An unknown name is an error, not a no-op: silently "removing" something
       // that was never registered would hide a typo.
@@ -182,7 +182,8 @@ pub fn Supervisor::handle_command(self : Supervisor, command : Command) -> Unit 
   let (response, exit) = match req.command {
     "list" => (self.cmd_list(req.app), ExitMode::Stay)
     "stop" => (self.cmd_stop(req), ExitMode::Stay)
-    "remove" => (self.cmd_remove(req), ExitMode::Stay)
+    "delete" => (self.cmd_delete(req), ExitMode::Stay)
+    "restart" => (self.cmd_restart(req), ExitMode::Stay)
     "kill" => cmd_kill(req.app)
     "reload" =>
       (
@@ -249,6 +250,7 @@ fn Supervisor::cmd_start(
   self : Supervisor,
   req : @protocol.Request,
   mode : @config.Mode,
+  restart~ : Bool = false,
 ) -> @protocol.Response {
   let config_path = match req.config_path {
     Some(path) => path
@@ -262,6 +264,8 @@ fn Supervisor::cmd_start(
   } noraise {
     loaded => loaded
   }
+  let name = config.name
+  let lang = self.lang_for(Some(name), req)
   // The runtime verdict was already produced on the control side (RuntimeProbe),
   // where waiting for the helper costs nothing: doing it here would block the
   // supervision tick, which is the one thing the tick must never do.
@@ -270,14 +274,37 @@ fn Supervisor::cmd_start(
   } noraise {
     _ => ()
   }
-  let name = config.name
+  // `start` 是幂等的：已经在跑就什么都不做，目标状态已经达成。这样启动脚本
+  // 和 CI 里重复执行是安全的。要真的停掉重起用 `restart`。
+  //
+  // 放在 register 之后：名字归属的校验（同一名字不能被另一份配置抢走）比
+  // 「已经在跑」更优先，否则从别的目录 start 同名项目会被静默当成成功。
+  if !restart && self.app_running(name) {
+    return @protocol.Response::ok(
+      @i18n.already_running(lang, name),
+      self.infos_of([name]),
+    )
+  }
   try self.start_app(name) catch {
     e => return @protocol.Response::error(e.to_string())
   } noraise {
     _ => ()
   }
-  let lang = self.lang_for(Some(name), req)
   @protocol.Response::ok(@i18n.started(lang), self.infos_of([name]))
+}
+
+///|
+/// `bm2 restart`: stop every old instance and spawn fresh from the config as it
+/// is on disk now, so edited ports or instance counts take effect.
+fn Supervisor::cmd_restart(
+  self : Supervisor,
+  req : @protocol.Request,
+) -> @protocol.Response {
+  let lang = self.lang_for(req.app, req)
+  if req.app is None && req.config_path is None {
+    return @protocol.Response::error(@i18n.restart_requires_name(lang))
+  }
+  self.cmd_start(req, @config.Mode::Production, restart=true)
 }
 
 ///|
@@ -294,9 +321,9 @@ fn cmd_kill(app : String?) -> (@protocol.Response, ExitMode) {
         @protocol.Response::error(
           "kill no longer takes a project: use 'bm2 stop " +
           name +
-          "' to stop it, or 'bm2 remove " +
+          "' to stop it, or 'bm2 delete " +
           name +
-          "' to retire it",
+          "' to delete it",
         ),
         ExitMode::Stay,
       )
