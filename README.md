@@ -99,9 +99,8 @@ port = 3000
 ### 启动
 
 ```bash
-bm2 serve        # 登记、拉起实例、写状态
+bm2 start        # 登记、拉起实例、写状态，成功时无输出
 bm2 list         # 看实例表
-bm2 logs api -f  # 跟随日志
 ```
 
 应用监听 bm2 分配的端口，不要写死。
@@ -116,34 +115,27 @@ Bun.serve({ port, reusePort: true, fetch: () => new Response("ok") })
 
 ## 命令
 
-一条命令一行说明，配一段真实输出。所有命令都在项目目录里执行。
+一条命令一行说明。动作型命令成功时不打印任何东西，退出码就是结果。
 
-### bm2 serve
+### bm2 start
 
-生产模式：登记项目、拉起实例、写状态。改了 `bm2.toml` 之后重跑一次即可生效。
-
-```bash
-bm2 serve
-```
-
-```text
-┌────────┬──────┬────────┬──────┬──────┬──────┬────────┬──────┬───────┬──────────┬────────────────────┐
-│ 名称   │ 实例 │    PID │ 端口 │ 模式 │ 执行 │ 状态   │ 次数 │  内存 │ 运行时长 │ 目录               │
-├────────┼──────┼────────┼──────┼──────┼──────┼────────┼──────┼───────┼──────────┼────────────────────┤
-│ bench  │    0 │ 108176 │ 4601 │ 生产 │ 独立 │ online │ 1    │ 25 MB │ 0s       │ /tmp/bm2-bench/app │
-└────────┴──────┴────────┴──────┴──────┴──────┴────────┴──────┴───────┴──────────┴────────────────────┘
-```
-
-### bm2 dev
-
-开发模式：单实例、前台跟随日志，Ctrl+C 只停止跟随，应用继续跑。
+登记项目、拉起实例、写状态。有三种给配置的方式：
 
 ```bash
-bm2 dev
-bm2 dev --no-follow   # 只看启动结果
+bm2 start                 # 读当前目录的 bm2.toml
+bm2 start api/bm2.toml    # 指定配置文件
+bm2 start api             # 指定目录，找其中的 bm2.toml
 ```
 
-模式决定两件事：实例数为 1，`NODE_ENV` 为 `development`。
+已经在这跑的时候它什么都不做，退出码仍是 0——启动脚本与 CI 里重复执行是安全的。要换进程用 `restart`。
+
+### bm2 restart
+
+停掉旧实例、重新读磁盘上的配置、再拉起。改过端口或实例数之后用它，改动会生效。
+
+```bash
+bm2 restart api
+```
 
 ### bm2 list
 
@@ -156,30 +148,15 @@ bm2 list --json
 ```
 
 ```text
-│ 名称  │ 实例 │    PID │ 端口 │ 模式 │ 执行 │ 状态   │ 次数 │  内存 │ 运行时长 │
-│ bench │    0 │ 108176 │ 4601 │ 生产 │ 独立 │ online │ 1    │ 26 MB │ 1h 12m   │
+│ 名称  │ 实例 │    PID │ 端口 │ 执行 │ 状态   │ 次数 │  内存 │ 运行时长 │
+│ bench │    0 │ 108176 │ 4601 │ 独立 │ online │ 1    │ 26 MB │ 1h 12m   │
 ```
 
 `--json` 给脚本用，每行一个实例对象。
 
-### bm2 logs
-
-看项目日志，所有实例合并在一个文件里。
-
-```bash
-bm2 logs api        # 普通日志
-bm2 logs api -e     # 错误日志，含崩溃与重启记录
-bm2 logs api -f     # 持续跟随
-```
-
-```text
-2026-11-22T14:35:12.345Z [0] GET /api/user/profile 200 12ms
-2026-11-22T14:35:13.900Z [bm2] 实例 0 pid=4021 原因=exit_code 退出码=1 重启次数=1
-```
-
 ### bm2 stop
 
-停下实例，保留登记。之后再 `bm2 serve` 就回来了。
+停下实例，保留登记。之后再 `bm2 start` 就回来了。
 
 ```bash
 bm2 stop
@@ -188,16 +165,20 @@ bm2 stop api
 
 停止是持久的：停止标记写进登记信息，看管进程重启也不会把它带回来。
 
-### bm2 remove
+提交即返回，实例还在优雅退出的路上；`bm2 list` 看它什么时候落到「已停止」。
 
-退役：停下、注销、交还名字。日志默认保留。
+### bm2 delete
+
+删除：停下、注销、交还名字。日志默认保留。
 
 ```bash
-bm2 remove api       # 日志留着，随时能翻
-bm2 remove api -f    # 连状态目录与日志一起删
+bm2 delete api       # 日志留着，随时能翻
+bm2 delete api -f    # 连状态目录与日志一起删
 ```
 
-`remove` 与 `stop` 的区别：前者之后这个名字可以给别的项目用，后者不行。
+`delete` 与 `stop` 的区别：前者之后这个名字可以给别的项目用，后者不行。
+
+`-f` 是唯一会等结果的变形：删目录前必须确认项目已经从名册里消失。
 
 ### bm2 clean
 
@@ -454,11 +435,11 @@ api.example.com {
 | 顺序 | 文件 | 用途 |
 | --- | --- | --- |
 | 1 | `.env` | 通用 |
-| 2 | `.env.production` 或 `.env.development` | 按模式 |
+| 2 | `.env.production` | 生产覆盖 |
 | 3 | `.env.local` | 本机覆盖 |
-| 4 | `.env.production.local` 或 `.env.development.local` | 本机覆盖且按模式 |
+| 4 | `.env.production.local` | 本机覆盖且生产 |
 
-模式由命令决定：`bm2 serve` 是 `production`，`bm2 dev` 是 `development`。
+bm2 只管部署，所以 `NODE_ENV` 固定是 `production`，没有第二套环境。
 
 文件不存在是正常的；存在却读不了、或格式写错，会直接报出文件与行号。
 
@@ -487,7 +468,7 @@ InvalidDocument: /srv/api/.env line 4: expected '=' after DATABASE_URL
 const port = Number(process.env.BM2_APP_PORT)
 ```
 
-`NODE_ENV` 由模式决定，`.env` 里写成别的值会被拒绝。
+`NODE_ENV` 固定是 `production`，`.env` 里写成别的值会被拒绝。
 
 除保留变量与项目变量外，只有 `PATH`、`HOME`、`TMPDIR` 会传下去，以及所有以 `BM2_` 开头的变量。
 
@@ -522,6 +503,18 @@ const port = Number(process.env.BM2_APP_PORT)
 ```
 
 第三行是崩溃记录，写在 `api.error.log` 里，写清了退出原因与累计重启次数。
+
+### 查看
+
+日志就是普通文件，路径固定，直接用系统工具看。
+
+```bash
+tail -f ~/.bm2/projects/api/logs/api.log          # 跟随普通日志
+tail -50 ~/.bm2/projects/api/logs/api.error.log   # 最近 50 行错误
+grep ' 原因= ' ~/.bm2/projects/api/logs/api.error.log   # 只看崩溃记录
+```
+
+bm2 不提供自己的查看命令：`tail`、`less +F`、`grep` 比包一层更灵活，也能进任何编辑器。
 
 ### 轮转
 
@@ -735,10 +728,10 @@ bm2 notify
 
 `errored` 不代表进程崩了，而是 bm2 停止自愈了：重启次数用完，或遇到无法自动恢复的情况。
 
-看错误日志里的 `原因=`，对症处理之后回到项目目录 `bm2 serve`，重启预算会清零。
+看错误日志里的 `原因=`，对症处理之后回到项目目录 `bm2 start`，重启预算会清零。
 
 ```bash
-bm2 logs api -e
+tail -5 ~/.bm2/projects/api/logs/api.error.log
 ```
 
 ```text
@@ -813,20 +806,20 @@ log_keep_files = 3
 
 1. 在项目目录写 `bm2.toml`，字段对应 `ecosystem.config.js` 里的那一组。
 2. 应用里把写死的端口换成 `process.env.BM2_APP_PORT`。
-3. `pm2 stop` 停旧的，再 `bm2 serve` 拉起新的。
+3. `pm2 stop` 停旧的，再 `bm2 start` 拉起新的。
 
 | pm2 | bm2 |
 | --- | --- |
-| `pm2 start ecosystem.config.js` | 项目目录里 `bm2 serve` |
+| `pm2 start ecosystem.config.js` | 项目目录里 `bm2 start` |
 | `pm2 list` | `bm2 list` |
-| `pm2 logs api` | `bm2 logs api -f` |
+| `pm2 logs api` | `tail -f ~/.bm2/projects/api/logs/api.log` |
 | `pm2 stop api` | `bm2 stop api` |
-| `pm2 restart api` | 再次 `bm2 serve` |
-| `pm2 delete api` | `bm2 remove api` |
+| `pm2 restart api` | `bm2 restart api` |
+| `pm2 delete api` | `bm2 delete api` |
 | `pm2 flush` | 由轮转自动处理 |
 | `pm2 startup` + `pm2 save` | 交给 systemd |
 
-确认新方案稳定之后，再 `bm2 remove api` 清掉登记。
+确认新方案稳定之后，再 `bm2 delete api` 清掉登记。
 
 pm2 那边用 `pm2 stop` 而不是 `pm2 delete`，留一条退路。
 

@@ -7,14 +7,13 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 工作区通用铁律（WSL 走 remote_host 的 localhost 主机、`_build`/`_build-wsl` 两级目录、git push 只在 Windows、告警档连写、依赖库读源码）见上级 `../AGENTS.md`，本节只写 bm2 自己的。
 
 - WSL 命令一律经 remote_host 的 localhost 主机发出：`bash -lc 'cd /mnt/c/codes/moonbit/bm2 && <命令>'`（不是登录 shell 就没有 `moonc`，`-lc` 不能省）
-- **例外:文档站的 node 工具链跑在 Windows 侧**（`docs/` 下 `bun install` / `bun run dev`）：Rollup 与 esbuild 装的是平台专属的原生二进制，`node_modules` 在 Windows 与 WSL 之间不可共用；而文档的交互（浏览器预览）发生在 Windows，工具链就该跟着交互走
 - **产品文案**:人类可读的全部文案集中在 `src/i18n` 文案包,每条消息一个函数、按 `Lang` match,漏一种语言编译不过;加语言时编译器与测试全路带路,不允许任何一处静默回落
 - **语言来源三层**:配置 `lang` 是声明,写不支持的值直接报错;环境与请求里不认识的值退回英文。归属规则:关于某个项目的消息跟项目配置走,全量表、帮助、升级这类跟操作者环境走
 - **机器读的输出钉住语言**:门禁(`scripts/verify.sh`)固定 `BM2_LANG=en`,按列位解析的表格、e2e 的断言不能被宿主语言改写;人在命令行用 `BM2_LANG` 覆盖
 - **终端表格交给 `chensuiyi/clitable` 渲染**:显示宽度(CJK 占两列)由它依赖的 `moonbit-community/unicodewidth` 负责,项目内不再手写 Unicode 宽度表;实例表与守护进程摘要用同一套组件与框线
 - **环境变量归运行时，不归 bm2**:注入给实例的只有基线(`PATH`/`HOME`/`TMPDIR`/`BM2_*`/保留变量),项目 `.env` 由 bun 或 node 自己加载。bm2 读 `.env` 只为两件事——`bm2.toml` 的 `__NAME__` 占位符与 `NODE_ENV` 一致性校验——解析走独立库 `chensuiyi/dotenv`(语义以 Bun v1.4 为准),不在 bm2 里另写一套解析。加"把变量注入业务进程"的功能前先想清楚:那会让同一份 `.env` 在开发(bun 直跑)与生产(bm2 托管)之间产生两套取值
 - **事件日志与状态文件保持语言中立键**:告警判据、脚本与上报管道按事件名与字段取值,不读文案
-- **文档只做中文**:`README.md` 与 `docs/` 都是中文单语。英文文档等实现稳定后再补
+- **文档只有 README**:用户面的一切说明都在根目录 `README.md`,不再维护独立的文档站。英文文档等实现稳定后再补
 - **配置示例只写最小必要项**:`bm2.toml` 的默认值就是绝大多数项目该用的值,所以示例里只放 `name` / `script` / `instances` / `port`,默认值不上示例;每个可选项放进字段表,配上默认值与「什么时候才需要写」。用户「能不写就不写」,文档不能反过来鼓励复制一长串默认值
 
 ## 依赖库的使用
@@ -25,7 +24,6 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 
 ## 目录结构
 
-- `docs/` — 手册(VitePress,中文单语;英文待实现稳定后再补)。依赖与构建在 Windows 侧跑,配置读 `moon.mod` 取版本与仓库地址,页面里不写版本号。部署在 `bm2.moonbitlang.dev`(子域名根路径,`base` 为 `/`),托管于 Cloudflare Pages 项目 `moonbit-bm2`,推送到 `main` 且 `docs/**` 或 `moon.mod` 有改动时自动重建;构建环境变量 `BUN_VERSION` 与 `SKIP_DEPENDENCY_INSTALL=1` 必设,值与原因见工作区规范 `NEW-PROJECT.md`。VitePress 精确锁在 alpha（当前取值看 `docs/package.json`）：依赖树从 126 个包降到 36 个，但 alpha 的破坏性变更**可能静默生效**（已遇到 `lastUpdatedText` 被移除且不报错），升级时逐个核对配置键；等 npm 的 `latest` 变成 2.x 再改成 `^2`
 - `src/protocol` — CLI↔守护进程的线格式(Request / Response / 编解码 / 协议版本)
 - `src/config` — bm2.toml 解析与校验(`[notify]` 的事件过滤也在此层)
 - `src/core` — 进程监督领域:supervisor(主循环)/ command(控制面命令队列与应答)/ notify_runner(投递任务)/ rotate_runner(轮转任务)/ lifecycle(生命周期)/ exits(退出判定)/ limits(内存与端口)/ stats(统计),以及 alert(事件 → 多语言消息 → 按目标过滤投递)
@@ -47,8 +45,7 @@ Linux 下的 Bun / Node.js 进程管理器:CLI `bm2` + 守护进程 `bm2d`。单
 - **整体视图写在模块顶部的块注释里**:任务模型、不变式、跨模块的时序与代价,一处写清,不拆到十个文件
 - **不为同一件事建第二份文档**:本仓库没有 `specs/` 一类的契约目录。行为与取值只有一处真相(代码 + 测试名),需要提到别处时只放链接
 - **改行为的提交必须同时动到注释或测试**:只改代码、任何一处说明都不动,视为漏做
-- 用户面的事实(安装、升级、配置、命令、排障)在 `README.md` 与 `docs/`:代码注释不替代它们,用户不读源码
-- **文档站只用纯 JavaScript**,不引入 TypeScript:配置文件是 `docs/.vitepress/config.js`(靠 `package.json` 的 `"type": "module"` 走 ESM)
+- 用户面的事实(安装、升级、配置、命令、排障)在 `README.md`:代码注释不替代它,用户不读源码
 
 ## bm2d 监督循环(严格遵守)
 
@@ -126,7 +123,7 @@ git config core.hooksPath .githooks
 - 注销项目必须清干净按项目状态:内存 map、通知队列与限流/去重状态一并回收,同名项目重新注册不得继承上一代的数字
 - 通知的端点与凭据(`url`/`secret`/`username`/`password`)不得进入事件、状态、日志与 CLI 输出;校验错误只报字段名与 `target[i]` 下标
 - 通知投递失败只记事件,绝不改变监督行为
-- **新增或改名事件时三处同步**:`src/config/notify.mbt` 的事件闭集、`src/core/alert_lang.mbt` 的 `event_label`(中英各一条,缺一条就等于群里看到裸键名)、`docs/guide/notifications.md` 的事件表。名称是给人看的,事件键仍是语言中立的那一份,过滤与报文只认键
+- **新增或改名事件时三处同步**:`src/config/notify.mbt` 的事件闭集、`src/core/alert_lang.mbt` 的 `event_label`(中英各一条,缺一条就等于群里看到裸键名)、`README.md` 的「事件」章。名称是给人看的,事件键仍是语言中立的那一份,过滤与报文只认键
 - **新增消息字段时补 `field_label`**:字段键属于人类可读文案,中文项目的消息里不允许出现英文键;`src/core/alert_lang.mbt` 的 `field_label` 未收录的键会原样透出,所以新字段必须同时补中英两侧(`_ => key` 是兜底,不是免修)
 - **投递结果按目标记录**:`notify_sent` / `notify_target_failed` 的 detail 必须带事件、目标与(失败时)原因,才知道是哪个端点没收到、为什么;只记 attempt 次数等于把排障信息丢掉
 - 网络能力(HTTP/SMTP)由内联的 notify 库提供,bm2 内不自实现、不引入 curl
