@@ -19,6 +19,11 @@ pub(all) struct DrainResult {
 }
 
 ///|
+/// 每多少行刷新一次时间戳。一个 64KB 的块里有几千行，逐行取时间就是在几万次
+/// 系统时钟调用上白花时间；两百行一次，精度损失远小于人眼分辨。
+const STAMP_EVERY_LINES : Int32 = 200
+
+///|
 /// 读一个副本文件，逐行加前缀写进日志流，然后删掉副本。返回写了几行。
 async fn flush_copy(
   copy : String,
@@ -42,24 +47,40 @@ async fn flush_copy(
   }
   let text = @utf8.decode_lossy(data)
   let mut count = 0
+  let mut block_len = 0
+  let mut stamp = ""
+  let mut since_stamp = STAMP_EVERY_LINES
   // 攒够一块再落盘：逐行 open/write/close 在十万行级别会慢到肉眼可见。
-  // 块只有 64KB，字符串拼接的拷贝成本远小于系统调用。
-  let mut block = ""
+  //
+  // 用 builder 而不是 `block = block + …`：后者每加一行都要把整个块复制一次，
+  // 70 万行就是几个 GB 的搬运量，这是之前搬 11 MB 要好几秒的主因。
+  let block = StringBuilder(capacity=BLOCK_BYTES + 1024)
   for piece in text.split("\n") {
-    let line = piece.to_owned()
     // split 会在结尾多给一个空串；应用写的空行本身没有内容，跳过。
-    if line == "" {
+    if piece.length() == 0 {
       continue
     }
-    block = block + @utils.iso8601(@utils.now_ms()) + " " + prefix + line + "\n"
+    if since_stamp >= STAMP_EVERY_LINES {
+      stamp = @utils.iso8601(@utils.now_ms())
+      since_stamp = 0
+    }
+    block.write_string(stamp)
+    block.write_char(' ')
+    block.write_string(prefix)
+    block.write_stringview(piece)
+    block.write_char('\n')
+    block_len += piece.length() + prefix.length() + stamp.length() + 2
+    since_stamp += 1
     count += 1
-    if block.length() >= BLOCK_BYTES {
-      stream.append(block)
-      block = ""
+    if block_len >= BLOCK_BYTES {
+      stream.append(block.to_string())
+      // 容量留着复用，下一块不必重新分配。
+      block.reset()
+      block_len = 0
     }
   }
-  if block.length() > 0 {
-    stream.append(block)
+  if block_len > 0 {
+    stream.append(block.to_string())
   }
   ignore(
     try @fs.remove(copy, allow_missing=true) catch {
