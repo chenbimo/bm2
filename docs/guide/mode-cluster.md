@@ -191,7 +191,7 @@ if (process.env.BM2_APP_INSTANCE === "0") {
 `bm2 list` 里全部实例是 `errored`，执行模式列是 `cluster`。
 
 1. 看 `~/.bm2/projects/<项目名>/logs/<项目名>-<日期>.error.log`，`原因=reuseport_missing` 就是它。
-2. 看 `~/.bm2/bm2d.events.jsonl` 里的 `reuseport_missing` 事件。
+2. 看 `~/.bm2/bm2d.events.log` 里的 `reuseport_missing` 事件。
 3. 检查应用是不是真的打开了 `reusePort`，而不是只在文档里写了。
 4. 检查应用监听的是不是所有地址，而不是只绑回环。
 5. 用 `bm2 check` 看端口当前是空闲、共享还是独占。

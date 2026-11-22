@@ -2,7 +2,7 @@
 
 这一页按「你会遇到什么」组织，不按模块组织。
 
-遇到问题先看三处：`bm2 list` 的状态、`~/.bm2/<项目名>/logs/` 里的日志、`~/.bm2/bm2d.events.jsonl` 里的事件。
+遇到问题先看三处：`bm2 list` 的状态、`~/.bm2/<项目名>/logs/` 里的日志、`~/.bm2/bm2d.events.log` 里的事件。
 
 ## 守护进程起不来
 
@@ -40,7 +40,7 @@ bm2d 正在运行,但在 13000ms 内没有响应,请稍后再试
 
 守护进程崩溃后可能留下 `daemon.endpoint`。CLI 的处理是：连接失败、确认无人监听，就删掉过期端点、拉起新守护进程、重试一次。所以你通常只会看到命令慢了一下，然后正常返回。
 
-如果一直失败，检查 `~/.bm2/bm2d.log` 与 `~/.bm2/bm2.events.jsonl`。
+如果一直失败，检查 `~/.bm2/bm2d.log` 与 `~/.bm2/bm2.events.log`。
 
 ## 状态是 errored
 
@@ -163,7 +163,7 @@ port 3000: already held by a shared listener
 
 没有 `crash.log` 是好事：它只在异常退出或启动失败时写。
 
-`~/.bm2/bm2d.log` 是守护进程自己的输出，`~/.bm2/bm2d.events.jsonl` 是事件流。
+`~/.bm2/bm2d.log` 是守护进程自己的输出，`~/.bm2/bm2d.events.log` 是事件流。
 
 当天日志超过 `[logs] max_size_mb` 会分片成 `.1`、`.2`；`keep_days` 决定保留最近几天，`0` 表示不清理。收集与轮转每秒一轮，日志最多延迟一秒出现在文件里。
 
@@ -316,7 +316,7 @@ WSL2 是完整内核，pidfd 可用。WSL1 不行。
 ```bash
 bm2 version
 bm2 list --json
-tail -50 ~/.bm2/bm2d.events.jsonl
+tail -50 ~/.bm2/bm2d.events.log
 tail -20 ~/.bm2/<项目名>/logs/<项目名>-0.crash.log
 ```
 

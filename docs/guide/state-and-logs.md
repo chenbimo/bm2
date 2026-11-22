@@ -19,8 +19,8 @@
 ├── bm2d.pid                        # 守护进程 PID
 ├── upgrade.lock                    # 同一时刻只有一个升级
 ├── bm2d.log                        # 守护进程 stderr 与诊断
-├── bm2d.events.jsonl               # 守护进程与监督事件
-├── bm2.events.jsonl                # CLI 连接与重试事件
+├── bm2d.events.log               # 守护进程与监督事件
+├── bm2.events.log                # CLI 连接与重试事件
 └── projects/
     └── <name>/
         ├── project.json            # 项目登记：配置路径、模式、停止标记
@@ -164,16 +164,25 @@ tail -50 ~/.bm2/projects/api/logs/api-2026-11-22.error.log
 
 ## 事件日志
 
-两个 `*.events.jsonl`，每行一个 JSON 对象。
+两个 `*.events.log`，每行一条纯文本，格式与项目日志一致：`时间 事件名 字段=值`。
+
+```text
+2026-11-22T10:55:48.536Z instance_exited app=demo instance=0 pid=4021 detail=exit_code=1
+```
+
+值里带空格时加双引号（`detail="connect refused"`），所以一行始终是一条事件。
 
 它们只记管理元数据：时间戳、事件名、项目、实例、pid、原因。**不含**环境变量值、协议载荷、应用输出，也不含通知凭据。
 
-`bm2d.events.jsonl` 是主线索。
+`bm2d.events.log` 是主线索。
 
 ```bash
-tail -f ~/.bm2/bm2d.events.jsonl
-jq -c 'select(.event=="reuseport_missing")' ~/.bm2/bm2d.events.jsonl
+tail -f ~/.bm2/bm2d.events.log
+grep ' reuseport_missing ' ~/.bm2/bm2d.events.log
+grep ' instance_exited ' ~/.bm2/bm2d.events.log | grep 'app=demo' | wc -l
 ```
+
+两个事件日志按大小轮转：10 MiB 一份，保留 7 代。滚动出的文件依次是 `.1`、`.2`，最旧的先删。
 
 常见事件：
 
@@ -197,7 +206,7 @@ jq -c 'select(.event=="reuseport_missing")' ~/.bm2/bm2d.events.jsonl
 | `connection_refused` / `auth_failed` | 控制面的拒绝 |
 | `request_received` / `response_sent` / `command_reply_dropped` | 命令的生命周期 |
 
-`bm2.events.jsonl` 记录 CLI 这一侧：连接、请求、协议重试、过期端点清理。它通常是排查「命令到底发出去没有」的第一处。
+`bm2.events.log` 记录 CLI 这一侧：连接、请求、协议重试、过期端点清理。它通常是排查「命令到底发出去没有」的第一处。
 
 ## 清理
 
