@@ -473,26 +473,29 @@ fn purge_project(state_dir : String, name : String) -> Unit {
     })
     @utils.discard(() => @fs.remove_dir(staging))
   }
-  // The state files at the top level are ours as well: the daemon removes
-  // `project.json` when it finalizes a removal, but the per-instance files are
-  // not its business to unlink, so they are still here. Anything else in the
-  // directory is not ours and stays — which is also why the final `remove_dir`
-  // can still fail, and that failure is the honest outcome.
-  if @fs.path_exists(root) {
+  // 实例状态整目录归我们：daemon 收尾时只摘 project.json，`state/` 里的
+  // `<实例号>.json` 没人删，这里连着目录一起清。
+  let states = @core.project_state_dir(state_dir, name)
+  if @fs.path_exists(states) {
     @utils.discard(() => {
-      for entry in @fs.read_dir(root) {
-        let ours = entry == "project.json" ||
-          (entry.has_prefix("state-") && entry.has_suffix(".json"))
-        if ours {
-          let path = if entry.has_prefix("/") {
-            entry
-          } else {
-            @utils.join_path(root, entry)
-          }
-          @utils.discard(() => @fs.remove_file(path))
+      for entry in @fs.read_dir(states) {
+        let path = if entry.has_prefix("/") {
+          entry
+        } else {
+          @utils.join_path(states, entry)
         }
+        @utils.discard(() => @fs.remove_file(path))
       }
     })
+    @utils.discard(() => @fs.remove_dir(states))
+  }
+  // The registration file is ours as well, and the daemon may have already
+  // removed it. Anything else in the directory is not ours and stays — which is
+  // also why the final `remove_dir` can still fail, and that failure is the
+  // honest outcome.
+  let registration = @utils.join_path(root, "project.json")
+  if @fs.path_exists(registration) {
+    @utils.discard(() => @fs.remove_file(registration))
   }
   @utils.discard(() => @fs.remove_dir(root))
 }

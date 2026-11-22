@@ -120,6 +120,9 @@ test "recover discards state whose pid is gone" {
   })
   ignore(@proc.wait_child(pid))
   let path = state_path(state_dir, "api", 0)
+  // 状态文件在 state/ 子目录里，正式代码由 save_state 建目录；测试直接写文件，
+  // 所以自己先把目录建好。
+  @fsx.mkdir_p(project_state_dir(state_dir, "api"))
   @fs.write_string_to_file(path, state_json("api", 0, pid, 4502))
   sv.recover()
   assert_false(@fs.path_exists(path))
@@ -180,6 +183,7 @@ test "recover adopts a live instance that carries the reserved variables" {
   })
   assert_true(wait_for_fingerprint(pid, config.name, 5000))
   let path = state_path(state_dir, "api", 0)
+  @fsx.mkdir_p(project_state_dir(state_dir, "api"))
   @fs.write_string_to_file(path, state_json("api", 0, pid, 4503))
   sv.recover()
   let inst = sv.instance("api", 0)

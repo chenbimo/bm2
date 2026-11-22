@@ -185,7 +185,8 @@ contains "adoption event logged" $state_dir/bm2d.events.log " instance_adopted "
 echo "===== H. pid reuse -> pid_conflict, foreign process untouched ====="
 sleep 300 &
 FOREIGN=$!
-cat > $state_dir/projects/slow/state-0.json <<EOF
+mkdir -p "$state_dir/projects/slow/state"
+cat > $state_dir/projects/slow/state/0.json <<EOF
 {"app_name":"slow","instance_id":0,"pid":$FOREIGN,"pgid":$FOREIGN,"port":4231,"status":"online","started_at":"2026-07-31T00:00:00.000Z","restart_count":0}
 EOF
 kill -9 "$(cat "$state_dir/bm2d.pid")" 2>/dev/null
@@ -284,7 +285,7 @@ DPID=$(cat "$state_dir/bm2d.pid")
 APID=$(cell slow PID)
 kill -9 "$DPID" "$APID" 2>/dev/null
 sleep 0.5
-echo 'not json' > "$state_dir/projects/slow/state-0.json"
+echo 'not json' > "$state_dir/projects/slow/state/0.json"
 (cd "$ACC/slow" && bm2 serve >/dev/null)
 sleep 1
 check "state_load_failed event" 1 "$(grep -c 'state_load_failed' "$state_dir/bm2d.events.log" 2>/dev/null || echo 0)"

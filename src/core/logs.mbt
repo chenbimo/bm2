@@ -33,6 +33,13 @@ pub fn project_logs_dir(state_dir : String, name : String) -> String {
 }
 
 ///|
+/// 实例运行状态目录：`state/<实例号>.json`。状态是 daemon 自己重启后认领实例
+/// 的依据，和注册信息（`project.json`）、日志分开三个位置，谁的职责一眼可见。
+pub fn project_state_dir(state_dir : String, name : String) -> String {
+  @utils.join_path(project_dir(state_dir, name), "state")
+}
+
+///|
 /// 项目的实例暂存目录：应用直接把 stdout/stderr 写进这里，收集任务读走即清空。
 pub fn project_staging_dir(state_dir : String, name : String) -> String {
   @utils.join_path(project_dir(state_dir, name), ".tempLogs")

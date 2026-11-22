@@ -86,15 +86,17 @@ fn InstanceState::of(inst : Instance) -> InstanceState {
 }
 
 ///|
+/// 一个实例的状态文件：`projects/<项目>/state/<实例号>.json`。目录名已经写明用途，
+/// 文件名只需要实例号。
 pub fn state_path(
   state_dir : String,
   app_name : String,
   instance_id : Int32,
 ) -> String {
-  project_dir(state_dir, app_name) +
-  "/state-" +
-  instance_id.to_string() +
-  ".json"
+  @utils.join_path(
+    project_state_dir(state_dir, app_name),
+    instance_id.to_string() + ".json",
+  )
 }
 
 ///|
@@ -160,6 +162,8 @@ pub fn remove_project(state_dir : String, name : String) -> Unit raise {
 pub fn save_state(state_dir : String, inst : Instance) -> Unit raise {
   let json = ToJson::to_json(InstanceState::of(inst)).stringify()
   let path = state_path(state_dir, inst.app_name, inst.instance_id)
+  // 注册时只建过 logs/ 与暂存目录，状态目录第一次写由这里建。
+  @fsx.mkdir_p(project_state_dir(state_dir, inst.app_name), mode=0o700)
   @fsx.write_atomic_fast(path, @utf8.encode(json))
 }
 
