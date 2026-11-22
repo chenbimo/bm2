@@ -314,15 +314,13 @@ async fn run() -> Int32 {
       }
       0
     } else if command == "delete" && force_flag {
-      // The daemon retires asynchronously: it unregisters once every instance has
-      // stopped. Only after the project is gone from the registry is it safe to
-      // delete its directory — before that we would be pulling files out from
-      // under a project the daemon still supervises.
+      // `delete -f` must wait: pulling the state directory out from under a
+      // project the daemon still supervises would delete live files. The daemon
+      // retires asynchronously, so this walks until the registration is gone.
       match app {
         Some(name) =>
           if wait_project_gone(state_dir, name) {
             purge_project(state_dir, name)
-            println(@i18n.removed(lang, name))
             0
           } else {
             @proc.eprintln(@i18n.retire_timeout(lang))
@@ -333,40 +331,13 @@ async fn run() -> Int32 {
     } else if command == "reload" {
       // Swap in a fresh bm2d; the running apps are adopted unchanged.
       if swap_daemon(state_dir, lang) {
-        println(@i18n.reloaded(lang))
         0
       } else {
         1
       }
     } else {
-      // A start verb or a named kill is async on the daemon side: poll `list`
-      // until the target settles so the user sees the final state, while the
-      // daemon loop never blocks on stop timeouts. kill -y only requests
-      // the daemon shutdown and needs no polling.
-      let infos = if mode is Some(_) || app is Some(_) {
-        poll_settled(
-          state_dir,
-          command,
-          app,
-          timeout_ms,
-          scoped_lang,
-          !json_flag,
-          resp.instances,
-          command == "stop",
-        )
-      } else {
-        resp.instances
-      }
-      println(
-        if settled(infos, app, command == "stop") {
-          resp.message
-        } else {
-          resp.message + @i18n.timed_out(scoped_lang)
-        },
-      )
-      if app is Some(_) {
-        print_list(infos, scoped_lang)
-      }
+      // 动作型命令提交即返回：daemon 收到请求就算完成，状态用 `bm2 list` 看。
+      // 成功时一个字也不打印，失败才说原因——退出码就是结果。
       0
     }
   } else {

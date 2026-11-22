@@ -5,7 +5,6 @@ test "English is the contract the tests assert" {
   assert_eq(@i18n.stopped(@i18n.Lang::En), "stopped")
   assert_eq(@i18n.removing(@i18n.Lang::En), "removing")
   assert_eq(@i18n.reloading(@i18n.Lang::En), "reloading")
-  assert_eq(@i18n.reloaded(@i18n.Lang::En), "reloaded")
   assert_eq(@i18n.bm2d_stopping(@i18n.Lang::En), "bm2d stopping")
   assert_eq(@i18n.no_instances(@i18n.Lang::En), "no instances")
   assert_eq(
@@ -35,7 +34,6 @@ test "Chinese answers are non-empty and differ from English" {
     @i18n.stopped(@i18n.Lang::Zh),
     @i18n.removing(@i18n.Lang::Zh),
     @i18n.reloading(@i18n.Lang::Zh),
-    @i18n.reloaded(@i18n.Lang::Zh),
     @i18n.bm2d_stopping(@i18n.Lang::Zh),
     @i18n.no_instances(@i18n.Lang::Zh),
   ]

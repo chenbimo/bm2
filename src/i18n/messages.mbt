@@ -52,14 +52,6 @@ pub fn reloading(lang : Lang) -> String {
 }
 
 ///|
-pub fn reloaded(lang : Lang) -> String {
-  match lang {
-    En => "reloaded"
-    Zh => "守护进程已重启"
-  }
-}
-
-///|
 pub fn bm2d_stopping(lang : Lang) -> String {
   match lang {
     En => "bm2d stopping"

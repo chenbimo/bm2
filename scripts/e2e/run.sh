@@ -241,7 +241,8 @@ OUT=$(bm2 kill 2>&1)
 check "bare kill refused exit" 1 "$?"
 check "bare kill refused message" "bm2: refusing to stop bm2d and all apps; use 'bm2 kill -y' to confirm" "$OUT"
 check "daemon survives refused kill" 0 "$(kill -0 "$DPID" 2>/dev/null; echo $?)"
-check "bare kill response" "bm2d stopping" "$(bm2 kill -y)"
+bm2 kill -y >/dev/null 2>&1
+check "bare kill exits cleanly" "0" "$?"
 sleep 1
 if [ -f "$state_dir/daemon.endpoint" ] || [ -f "$state_dir/bm2d.pid" ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: control-plane file not cleaned"
@@ -261,7 +262,8 @@ echo "===== M. reload swaps daemon while apps keep running ====="
 (cd "$ACC/slow" && bm2 start >/dev/null)
 APID=$(cell slow PID)
 DPID=$(cat "$state_dir/bm2d.pid")
-check "reload response" "reloaded" "$(bm2 reload)"
+bm2 reload >/dev/null 2>&1
+check "reload exits cleanly" "0" "$?"
 sleep 1
 NDPID=$(cat "$state_dir/bm2d.pid")
 check "daemon pid changed" "changed" "$([ -n "$NDPID" ] && [ "$NDPID" != "$DPID" ] && echo changed || echo same)"
@@ -275,8 +277,10 @@ write_project stubborn stubborn 4251 ignore-term.ts 1 300
 (cd "$ACC/stubborn" && bm2 start >/dev/null)
 sleep 1
 SPID=$(cell stubborn PID)
-# 进程行先出现(停止中→online 的相邻快照对比),最终 `started` 在它后面。
-check "restart with ignored SIGTERM" "1" "$(cd "$ACC/stubborn" && bm2 restart stubborn | grep -c '^started$')"
+# restart 是动作型命令:成功时零输出,退出码就是结果。旧进程忽略 SIGTERM,
+# 所以它必须被升级成 SIGKILL 才让得开位置。
+(cd "$ACC/stubborn" && bm2 restart stubborn >/dev/null 2>&1)
+check "restart with ignored SIGTERM" "0" "$?"
 sleep 1
 check "stubborn old process SIGKILLed" 1 "$(kill -0 "$SPID" 2>/dev/null; echo $?)"
 check "stubborn new instance online" "online" "$(cell stubborn STATUS)"
@@ -411,6 +415,8 @@ write_project v1 vapp 4491 slow.ts 1 1000
 check "vapp online before stop" "online" "$(cell vapp STATUS)"
 bm2 stop vapp
 check "stop exits cleanly" "0" "$?"
+# stop 提交即返回:实例还在优雅退出的路上,等它落到 stopped。
+check "vapp reaches stopped" "stopped" "$(wait_status vapp stopped 40)"
 # Stopped but registered: still listed, with nothing online.
 check "a stopped app stays registered" "1" "$(row_count vapp)"
 check "nothing online after a stop" "0" "$(col_values vapp STATUS | grep -c '^online$' || true)"
@@ -424,8 +430,9 @@ sleep 2
 check "start resumes a stopped project" "1" "$(col_values vapp STATUS | grep -c '^online$' || true)"
 # Retiring frees the name and keeps the logs.
 bm2 delete vapp
-check "remove exits cleanly" "0" "$?"
-check "a retired project leaves the registry" "0" "$(row_count vapp)"
+check "delete exits cleanly" "0" "$?"
+# delete 提交即返回:注销要等实例停完,等它从名册里消失。
+check "a retired project leaves the registry" "unknown app: vapp" "$(wait_unknown vapp 60)"
 if [ -d "$state_dir/projects/vapp/logs" ]; then
   PASS=$((PASS + 1)); echo "PASS: remove keeps the logs"
 else
@@ -686,7 +693,7 @@ platform = "webhook"
 url = "http://127.0.0.1:4321/hook"
 events = ["crash", "errored"]
 EOF
-check "bm2 notify delivers a test message" "webhook: sent" "$(cd "$ACC/plain" && bm2 notify 2>&1)"
+check "bm2 notify exits cleanly" "0" "$(cd "$ACC/plain" && bm2 notify >/dev/null 2>&1; echo $?)"
 contains "test message reached the webhook" "$ACC/notify/received.log" '"event":"notify_test"'
 contains "test message carries its event name" "$ACC/notify/received.log" '"event_name":"Test message"'
 contains "test message names the host" "$ACC/notify/received.log" '"host"'

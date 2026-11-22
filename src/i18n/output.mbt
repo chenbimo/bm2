@@ -81,15 +81,6 @@ pub fn ownerless_summary(lang : Lang, count : Int32, dry_run : Bool) -> String {
 }
 
 ///|
-/// Appended to a start/kill answer when the target never reached its new state
-/// inside the wait, so the message says what was asked for and this says why the
-/// table below may still show the old one.
-pub fn timed_out(lang : Lang) -> String {
-  match lang {
-    En => " (timed out waiting)"
-    Zh => " (等待超时)"
-  }
-}
 
 ///|
 /// Upgrade finished. The three forms differ in whether a running daemon was
