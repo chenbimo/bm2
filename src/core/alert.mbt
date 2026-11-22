@@ -372,10 +372,11 @@ fn alert_of(outbound : Outbound) -> Alert? {
 
 ///|
 /// Drop every entry whose key belongs to one project (keys are
-/// `app/<instance>`). Used when a project is unregistered: entries left behind
-/// hand the next generation of the same name the previous one's history.
+/// `<app>/<instance>`, built by `Instance::key`). Used when a project is
+/// unregistered: entries left behind hand the next generation of the same name
+/// the previous one's history.
 fn[V] drop_app_keys(map : Map[String, V], app_name : String) -> Unit {
-  let prefix = app_name + "/"
+  let prefix = instance_key_prefix(app_name)
   let doomed = []
   for pair in map.iter() {
     let (key, _) = pair

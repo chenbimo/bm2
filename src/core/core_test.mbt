@@ -636,3 +636,16 @@ test "protocol rejects garbage payloads" {
   }
   assert_false(resp_ok)
 }
+
+///|
+/// 实例标识只有一处定义：`Instance::key` 出 `<app>/<id>`，`instance_key_prefix`
+/// 出同一前缀。两者必须拼得上，否则按项目清理会漏掉键；前缀还必须能区分
+/// `api` 与 `api2`，否则清理会误伤另一个项目。
+test "instance key matches the prefix used for cleanup" {
+  let cfg = app_config("api", "/tmp", 4170)
+  let inst = @core.Instance::new(cfg, 3)
+  assert_eq(inst.key(), "api/3")
+  assert_eq(@core.instance_key_prefix("api"), "api/")
+  assert_true(inst.key().has_prefix(@core.instance_key_prefix("api")))
+  assert_false(inst.key().has_prefix(@core.instance_key_prefix("api2")))
+}

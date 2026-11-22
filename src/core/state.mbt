@@ -17,23 +17,21 @@ pub fn log_event(
   detail? : String,
 ) -> Unit {
   let fields : Array[(String, String)] = []
-  match app {
-    Some(name) => fields.push(("app", @utils.jstr(name)))
-    None => ()
+  if app is Some(name) {
+    fields.push(("app", @utils.jstr(name)))
   }
-  match instance {
-    Some(id) => fields.push(("instance", id.to_string()))
-    None => ()
+  if instance is Some(id) {
+    fields.push(("instance", id.to_string()))
   }
-  match pid {
-    Some(pid) => fields.push(("pid", pid.to_string()))
-    None => ()
+  if pid is Some(pid) {
+    fields.push(("pid", pid.to_string()))
   }
-  match detail {
-    Some(text) => fields.push(("detail", @utils.jstr(text)))
-    None => ()
+  if detail is Some(text) {
+    fields.push(("detail", @utils.jstr(text)))
   }
-  @utils.discard(() => @log.event(state_dir + "/" + file, event, fields))
+  @utils.discard(() => {
+    @log.event(@utils.join_path(state_dir, file), event, fields)
+  })
 }
 
 ///|

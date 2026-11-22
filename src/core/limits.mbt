@@ -155,10 +155,7 @@ fn Supervisor::check_memory(self : Supervisor) -> Unit {
             // 只在超限时记，等于让"接近上限却被内核杀掉"永远判不出来——
             // 那种情况 RSS 从没越过上限，这里就一直是 0。
             inst.last_rss_kb = kb
-            self.notify.record_rss(
-              inst.app_name + "/" + inst.instance_id.to_string(),
-              kb,
-            )
+            self.notify.record_rss(inst.key(), kb)
             self.record_stats_peak(inst.app_name, kb)
             if kb.to_int64() > app.max_memory_mb.to_int64() * 1024L {
               log_event(

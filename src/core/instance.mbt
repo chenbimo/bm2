@@ -151,3 +151,20 @@ pub fn Instance::alive(self : Instance) -> Bool {
     @proc.pid_alive(self.pid)
   }
 }
+
+///|
+/// 实例的稳定标识：`<项目名>/<实例号>`。
+///
+/// 去重签名、限流计数、RSS 峰值窗口、CPU 采样都以它为键。散在各处手拼，
+/// 等于给同一个标识留了五次写错的机会——一处写成 `app:0`，同一实例就会被
+/// 当成两个，峰值与限流都跟着失真。
+pub fn Instance::key(self : Instance) -> String {
+  instance_key_prefix(self.app_name) + self.instance_id.to_string()
+}
+
+///|
+/// 同一项目所有实例键的前缀：用于按项目批量回收（项目注销后不能把上一代
+/// 的计数留给同名的新项目）。
+pub fn instance_key_prefix(app_name : String) -> String {
+  app_name + "/"
+}

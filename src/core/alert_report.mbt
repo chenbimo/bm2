@@ -188,12 +188,7 @@ fn Supervisor::report_line(
         line = line + " · " + lb_peak + " " + (kb / 1024).to_string() + "MB"
       None => ()
     }
-    match
-      self.notify.cpu_percent(
-        inst.app_name + "/" + inst.instance_id.to_string(),
-        inst.pid,
-        now_mono,
-      ) {
+    match self.notify.cpu_percent(inst.key(), inst.pid, now_mono) {
       Some(percent) =>
         line = line + " · " + lb_cpu + " " + format_percent(percent) + "%"
       None => ()
@@ -250,7 +245,7 @@ fn Supervisor::build_report(
         } else if !(inst.status is Stopped) {
           other += 1
         }
-        let key = inst.app_name + "/" + inst.instance_id.to_string()
+        let key = inst.key()
         let peak = self.notify.take_report_peak(key)
         lines.push(self.report_line(inst, now_mono, lang=policy.lang, peak~))
       }
@@ -267,13 +262,11 @@ fn Supervisor::build_report(
     }
     None => ()
   }
-  match @proc.load_1m() {
-    Some(value) => fields.push(("load1", format_percent(value)))
-    None => ()
+  if @proc.load_1m() is Some(value) {
+    fields.push(("load1", format_percent(value)))
   }
-  match @proc.disk_free_kb(self.state_dir) {
-    Some(kb) => fields.push(("disk_free", (kb / 1048576).to_string() + "GB"))
-    None => ()
+  if @proc.disk_free_kb(self.state_dir) is Some(kb) {
+    fields.push(("disk_free", (kb / 1048576).to_string() + "GB"))
   }
   let stats_window = self.take_stats_window(app_name)
   fields.push(("peak_mb", (stats_window.peak_kb / 1024).to_string()))

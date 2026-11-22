@@ -44,9 +44,8 @@ pub fn base_env_blob() -> Bytes {
 fn select_entries(vars : Map[String, String]) -> Array[(String, String)] {
   let selected : Array[(String, String)] = []
   for name in whitelist {
-    match vars.get(name) {
-      Some(value) => selected.push((name, value))
-      None => ()
+    if vars.get(name) is Some(value) {
+      selected.push((name, value))
     }
   }
   for pair in vars.iter() {

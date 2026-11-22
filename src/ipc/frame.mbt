@@ -75,9 +75,13 @@ fn constant_time_eq(a : String, b : String) -> Bool {
 
 ///|
 /// 256 bits from the kernel RNG, hex-encoded: 64 characters, no ambiguity
-/// on the wire or in a file.
+/// on the wire or in a file. Both halves come from core: `@env.rand` is
+/// `getentropy(3)`, `@hex` is `core/encoding/hex` — no dependency of our own.
 pub fn generate_token() -> String raise {
-  @crypto.bytes_to_hex_string(@fsx.read_small("/dev/urandom", cap=32))
+  match @env.rand(32) {
+    Some(bytes) => @hex.encode(bytes)
+    None => raise @fsx.FileError::Failed(op="/dev/urandom (env.rand)", errno=0)
+  }
 }
 
 ///|
@@ -89,7 +93,7 @@ pub fn write_endpoint(
   token : String,
 ) -> Unit raise {
   @fsx.write_atomic(
-    state_dir + "/" + ENDPOINT_FILE,
+    @utils.join_path(state_dir, ENDPOINT_FILE),
     @utf8.encode(port.to_string() + "\n" + token + "\n"),
   )
 }
@@ -100,7 +104,7 @@ pub fn write_endpoint(
 pub fn read_endpoint(state_dir : String) -> (Int32, String)? {
   try {
     let text = @utf8.decode(
-      @fsx.read_small(state_dir + "/" + ENDPOINT_FILE, cap=160),
+      @fsx.read_small(@utils.join_path(state_dir, ENDPOINT_FILE), cap=160),
     )
     parse_endpoint(text)
   } catch {

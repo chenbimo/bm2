@@ -246,22 +246,6 @@ int64_t proc_monotonic_ms(void) {
   return (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
 }
 
-/* Local-time components of epoch_ms: year, month(1-12), day(1-28+),
- * weekday(0=Sunday..6), hour(0-23), minute(0-59). */
-MOONBIT_FFI_EXPORT
-int32_t proc_local_parts(int64_t epoch_ms, int32_t out[6]) {
-  time_t secs = (time_t)(epoch_ms / 1000);
-  struct tm tm;
-  if (localtime_r(&secs, &tm) == NULL) return -1;
-  out[0] = tm.tm_year + 1900;
-  out[1] = tm.tm_mon + 1;
-  out[2] = tm.tm_mday;
-  out[3] = tm.tm_wday;
-  out[4] = tm.tm_hour;
-  out[5] = tm.tm_min;
-  return 0;
-}
-
 /* Free space on the filesystem holding path, in KiB, or -1 on error. */
 MOONBIT_FFI_EXPORT
 int64_t proc_disk_free_kb(const char *path) {

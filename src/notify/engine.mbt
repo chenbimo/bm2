@@ -355,9 +355,10 @@ pub fn Engine::forget_owner(self : Engine, owner : String) -> Unit {
   // Its queued alerts are no longer worth delivering: the project is gone.
   self.queue = self.queue.filter(fn(notice) { notice.owner != owner })
   self.owner_queue[owner] = 0
-  match self.last_owner {
-    Some(last) => if last == owner { self.last_owner = None }
-    None => ()
+  if self.last_owner is Some(last) {
+    if last == owner {
+      self.last_owner = None
+    }
   }
 }
 

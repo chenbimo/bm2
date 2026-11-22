@@ -663,9 +663,8 @@ fn Supervisor::spawn_fresh(self : Supervisor, app_name : String) -> Unit raise {
     // update restart does not reset the launch counter.
     match old {
       Some(prev) =>
-        match prev.get(id) {
-          Some(prev_inst) => inst.times = prev_inst.times
-          None => ()
+        if prev.get(id) is Some(prev_inst) {
+          inst.times = prev_inst.times
         }
       None => ()
     }

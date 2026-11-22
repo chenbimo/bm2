@@ -18,3 +18,17 @@ test "read_endpoint validates both halves" {
   @fsx.write_atomic(dir + "/" + ENDPOINT_FILE, @utf8.encode("41007"))
   assert_eq(read_endpoint(dir), None)
 }
+
+///|
+/// 令牌是 32 字节内核随机数的 hex：64 个字符、只含 0-9a-f、每次不同。
+/// 这三条合起来才能说明它不是拿时间或计数器凑出来的。
+test "generate_token is 64 hex chars and varies" {
+  let a = generate_token()
+  let b = generate_token()
+  assert_eq(a.length(), 64)
+  assert_eq(b.length(), 64)
+  assert_true(a != b)
+  for ch in a.to_array() {
+    assert_true((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))
+  }
+}
