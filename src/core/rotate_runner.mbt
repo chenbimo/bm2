@@ -46,14 +46,14 @@ async fn RotateRunner::sweep(
       Rotated =>
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "log_rotated",
           detail=job.path,
         )
       Failed(reason) =>
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "log_rotate_failed",
           detail=job.path + ": " + reason,
         )
@@ -94,7 +94,7 @@ async fn RotateRunner::collect(
     if result.dropped_bytes > 0 {
       log_event(
         self.state_dir,
-        "bm2d.events.jsonl",
+        "bm2d.events.log",
         "log_dropped",
         app=Some(task.name),
         detail=result.dropped_bytes.to_string() + " bytes",

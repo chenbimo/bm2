@@ -213,7 +213,7 @@ pub fn Supervisor::handle_command(self : Supervisor, command : Command) -> Unit 
     // the only trace of a control request that went nowhere.
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       "command_reply_dropped",
       app=req.app,
       detail=req.command,

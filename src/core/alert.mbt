@@ -428,7 +428,7 @@ fn Notifier::publish(self : Notifier, outbound : Outbound) -> Unit {
           Some(alert) =>
             log_event(
               self.state_dir,
-              "bm2d.events.jsonl",
+              "bm2d.events.log",
               "notify_backlog_dropped",
               app=Some(alert.owner),
               detail=alert.message.event +
@@ -437,7 +437,7 @@ fn Notifier::publish(self : Notifier, outbound : Outbound) -> Unit {
           None =>
             log_event(
               self.state_dir,
-              "bm2d.events.jsonl",
+              "bm2d.events.log",
               "notify_forget_dropped",
             )
         }

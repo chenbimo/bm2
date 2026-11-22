@@ -124,7 +124,7 @@ test "recover discards state whose pid is gone" {
   sv.recover()
   assert_false(@fs.path_exists(path))
   assert_true(
-    read_events(state_dir + "/bm2d.events.jsonl").contains("state_discarded"),
+    read_events(state_dir + "/bm2d.events.log").contains("state_discarded"),
   )
   assert_true(sv.instance("api", 0).status is Status::Stopped)
 }
@@ -188,7 +188,7 @@ test "recover adopts a live instance that carries the reserved variables" {
   assert_true(inst.pidfd > 0)
   // Adoption is not a fresh start: the launch counter survives.
   assert_true(
-    read_events(state_dir + "/bm2d.events.jsonl").contains("instance_adopted"),
+    read_events(state_dir + "/bm2d.events.log").contains("instance_adopted"),
   )
   // And the adopted process is left running.
   assert_true(@proc.pid_alive(pid))

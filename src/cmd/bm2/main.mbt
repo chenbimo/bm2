@@ -259,7 +259,7 @@ async fn run() -> Int32 {
       }
     None => lang
   }
-  @core.log_event(state_dir, "bm2.events.jsonl", "daemon_connecting")
+  @core.log_event(state_dir, "bm2.events.log", "daemon_connecting")
   // start carries the caller's config path so the daemon can register the
   // project; notify needs it to find the project's targets; other commands
   // leave it unset.

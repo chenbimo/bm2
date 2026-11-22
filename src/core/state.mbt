@@ -18,7 +18,7 @@ pub fn log_event(
 ) -> Unit {
   let fields : Array[(String, String)] = []
   if app is Some(name) {
-    fields.push(("app", @utils.jstr(name)))
+    fields.push(("app", name))
   }
   if instance is Some(id) {
     fields.push(("instance", id.to_string()))
@@ -27,7 +27,7 @@ pub fn log_event(
     fields.push(("pid", pid.to_string()))
   }
   if detail is Some(text) {
-    fields.push(("detail", @utils.jstr(text)))
+    fields.push(("detail", text))
   }
   @utils.discard(() => {
     @log.event(@utils.join_path(state_dir, file), event, fields)

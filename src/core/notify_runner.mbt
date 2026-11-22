@@ -156,7 +156,7 @@ fn NotifyRunner::enqueue(
       Some(counted) =>
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           event,
           app=Some(alert.owner),
           detail=alert.message.event +
@@ -185,7 +185,7 @@ async fn NotifyRunner::deliver_alert(
     let (target, failure) = pair
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       match failure {
         None => "notify_sent"
         Some(_) => "notify_target_failed"
@@ -241,7 +241,7 @@ async fn NotifyRunner::pump(self : NotifyRunner, now : UInt64) -> Unit {
     let (target, failure) = pair
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       match failure {
         None => "notify_sent"
         Some(_) => "notify_target_failed"
@@ -267,7 +267,7 @@ async fn NotifyRunner::pump(self : NotifyRunner, now : UInt64) -> Unit {
   if event != "" {
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       event,
       app=report.owner,
       detail?,

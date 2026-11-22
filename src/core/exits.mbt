@@ -72,7 +72,7 @@ fn Supervisor::handle_exit(
   }
   log_event(
     self.state_dir,
-    "bm2d.events.jsonl",
+    "bm2d.events.log",
     "instance_exited",
     app=Some(inst.app_name),
     instance=inst.instance_id,
@@ -125,7 +125,7 @@ fn Supervisor::handle_exit(
         self.notify_instance(inst, "lifecycle", "info", title, body)
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "instance_restart_scheduled",
           app=Some(inst.app_name),
           instance=inst.instance_id,
@@ -167,7 +167,7 @@ fn Supervisor::counted_exit(
     self.notify_instance(inst, "errored", "error", title, body)
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       "instance_errored",
       app=Some(inst.app_name),
       instance=inst.instance_id,
@@ -183,7 +183,7 @@ fn Supervisor::counted_exit(
     self.notify_instance(inst, "oom_kill", "warn", title, body)
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       "instance_restart_scheduled",
       app=Some(inst.app_name),
       instance=inst.instance_id,
@@ -198,7 +198,7 @@ fn Supervisor::counted_exit(
     self.notify_instance(inst, "crash", "warn", title, body)
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       "instance_restart_scheduled",
       app=Some(inst.app_name),
       instance=inst.instance_id,

@@ -278,7 +278,7 @@ async fn request_with_recovery(
   }
   @core.log_event(
     state_dir,
-    "bm2.events.jsonl",
+    "bm2.events.log",
     "request_sent",
     app=req.app,
     detail=req.command,
@@ -287,7 +287,7 @@ async fn request_with_recovery(
     Replied(response) => return response
     Errored(message) => message
   }
-  @core.log_event(state_dir, "bm2.events.jsonl", "protocol_failed", detail~)
+  @core.log_event(state_dir, "bm2.events.log", "protocol_failed", detail~)
   match connect_daemon(state_dir) {
     Some((alive, _)) => {
       alive.close()
@@ -300,12 +300,12 @@ async fn request_with_recovery(
   @utils.discard(() => {
     @fsx.unlink(@utils.join_path(state_dir, @ipc.ENDPOINT_FILE))
   })
-  @core.log_event(state_dir, "bm2.events.jsonl", "stale_socket_removed")
+  @core.log_event(state_dir, "bm2.events.log", "stale_socket_removed")
   let retry = match connect_or_start(state_dir) {
     Some(pair) => pair
     None => raise NoDaemon
   }
-  @core.log_event(state_dir, "bm2.events.jsonl", "protocol_retry")
+  @core.log_event(state_dir, "bm2.events.log", "protocol_retry")
   match send_attempt(retry, req, timeout_ms) {
     Replied(response) => response
     Errored(message) => raise Unresponsive(message)
@@ -372,11 +372,11 @@ async fn connect_daemon(state_dir : String) -> (@socket.Tcp, String)? {
 async fn ensure_daemon(state_dir : String) -> (@socket.Tcp, String) {
   match connect_daemon(state_dir) {
     Some(pair) => {
-      @core.log_event(state_dir, "bm2.events.jsonl", "daemon_connected")
+      @core.log_event(state_dir, "bm2.events.log", "daemon_connected")
       pair
     }
     None => {
-      @core.log_event(state_dir, "bm2.events.jsonl", "daemon_spawn_requested")
+      @core.log_event(state_dir, "bm2.events.log", "daemon_spawn_requested")
       @fsx.mkdir_p(state_dir, mode=0o700)
       ignore(
         @proc.spawn({

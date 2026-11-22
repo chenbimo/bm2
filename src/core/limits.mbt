@@ -64,7 +64,7 @@ fn Supervisor::check_reuseport(self : Supervisor, now : UInt64) -> Unit {
         inst.reuseport = ReuseOk
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "reuseport_confirmed",
           app=Some(name),
           instance=inst.instance_id,
@@ -78,7 +78,7 @@ fn Supervisor::check_reuseport(self : Supervisor, now : UInt64) -> Unit {
         inst.reuseport = ReuseOff
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "reuseport_probe_stopped",
           app=Some(name),
           instance=inst.instance_id,
@@ -100,7 +100,7 @@ fn Supervisor::stop_for_reuseport(
 ) -> Unit {
   log_event(
     self.state_dir,
-    "bm2d.events.jsonl",
+    "bm2d.events.log",
     "reuseport_missing",
     app=Some(app.name),
     instance=trigger.instance_id,
@@ -160,7 +160,7 @@ fn Supervisor::check_memory(self : Supervisor) -> Unit {
             if kb.to_int64() > app.max_memory_mb.to_int64() * 1024L {
               log_event(
                 self.state_dir,
-                "bm2d.events.jsonl",
+                "bm2d.events.log",
                 "memory_limit",
                 app=Some(inst.app_name),
                 instance=inst.instance_id,

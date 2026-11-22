@@ -96,9 +96,11 @@ async test "crash loop restarts then reaches errored" {
   assert_eq(inst.status, @core.Status::Errored)
   assert_eq(inst.restart_count, 3)
   assert_eq(inst.last_exit_code, Some(1))
-  let crash = @fs.read_file_to_string(root + "/state/api/logs/api-0.crash.log")
-  assert_true(crash.contains("reason=exit_code"))
-  assert_true(crash.contains("restartCount=3"))
+  let crash = @fs.read_file_to_string(
+    root + "/state/projects/api/.tempLogs/api-bm2.err.log",
+  )
+  assert_true(crash.contains("原因=exit_code"))
+  assert_true(crash.contains("重启次数=3"))
 }
 
 ///|
@@ -186,8 +188,10 @@ async test "crash after min uptime still consumes the crash budget" {
   }
   assert_eq(inst.status, @core.Status::Errored)
   assert_eq(inst.restart_count, 3)
-  let crash = @fs.read_file_to_string(root + "/state/api/logs/api-0.crash.log")
-  assert_true(crash.contains("reason=exit_code"))
+  let crash = @fs.read_file_to_string(
+    root + "/state/projects/api/.tempLogs/api-bm2.err.log",
+  )
+  assert_true(crash.contains("原因=exit_code"))
 }
 
 ///|
@@ -271,9 +275,11 @@ async test "memory limit terminates instance and counts restarts" {
   let inst = sv.instance("api", 0)
   assert_eq(inst.status, @core.Status::Errored)
   assert_eq(inst.restart_count, 2)
-  let crash = @fs.read_file_to_string(root + "/state/api/logs/api-0.crash.log")
-  assert_true(crash.contains("reason=memory_limit"))
-  assert_true(crash.contains("rssMb="))
+  let crash = @fs.read_file_to_string(
+    root + "/state/projects/api/.tempLogs/api-bm2.err.log",
+  )
+  assert_true(crash.contains("原因=memory_limit"))
+  assert_true(crash.contains("内存="))
 }
 
 ///|
@@ -288,7 +294,7 @@ async test "kill marks manual, never restarts, and unregisters the project" {
   drive(sv, 800)
   // The project leaves the registry once its instance stopped.
   assert_eq(sv.app_names().length(), 0)
-  assert_false(@fs.path_exists(root + "/state/api/project.json"))
+  assert_false(@fs.path_exists(root + "/state/projects/api/project.json"))
   // More time must not resurrect the killed app.
   drive(sv, 800)
   assert_eq(sv.app_names().length(), 0)
@@ -365,7 +371,7 @@ async test "kill during pending restart does not resurrect the app" {
   // The project is gone entirely: a kill during a pending restart must
   // never be resurrected by check_pending.
   assert_eq(sv.app_names().length(), 0)
-  assert_false(@fs.path_exists(root + "/state/api/project.json"))
+  assert_false(@fs.path_exists(root + "/state/projects/api/project.json"))
   // More time must not bring it back.
   drive(sv, 1000)
   assert_eq(sv.app_names().length(), 0)
@@ -385,7 +391,7 @@ async test "kill clears a stale pid so removal never blocks" {
   sv.remove_app("api", force=true)
   drive(sv, 600)
   assert_eq(sv.app_names().length(), 0)
-  assert_false(@fs.path_exists(root + "/state/api/project.json"))
+  assert_false(@fs.path_exists(root + "/state/projects/api/project.json"))
 }
 
 ///|
@@ -398,7 +404,7 @@ test "register writes the project registration file" {
     memory_interval_ms=100,
   )
   sv.register(app_config("api", dir, 4180), "/srv/blog/bm2.toml")
-  let info = @core.load_project(root + "/state/api/project.json")
+  let info = @core.load_project(root + "/state/projects/api/project.json")
   assert_eq(info.config_path, "/srv/blog/bm2.toml")
   assert_eq(sv.app_names(), ["api"])
 }
@@ -565,7 +571,7 @@ test "load_projects skips a project whose config is gone" {
   sv.load_projects()
   assert_eq(sv.app_names().length(), 0)
   assert_true(
-    @fs.read_file_to_string(state_dir + "/bm2d.events.jsonl").contains(
+    @fs.read_file_to_string(state_dir + "/bm2d.events.log").contains(
       "project_load_failed",
     ),
   )

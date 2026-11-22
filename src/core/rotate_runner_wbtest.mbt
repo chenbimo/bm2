@@ -27,7 +27,7 @@ async test "a published sweep rotates the oversized daemon log" {
   let root = "/tmp/bm2-wbtest-sweep-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4454)
   let state_dir = root + "/state"
-  let target = state_dir + "/bm2d.events.jsonl"
+  let target = state_dir + "/bm2d.events.log"
   // 11 MB exceeds the 10 MB rotation threshold.
   @fsx.append_file(target, Bytes::make(11 * 1024 * 1024, b'x'))
   sv.publish_daemon_rotation()

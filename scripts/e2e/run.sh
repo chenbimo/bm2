@@ -10,6 +10,9 @@ export HOME="$ACC/home"
 state_dir="$HOME/.bm2"
 bin_dir=${BM2_BIN_DIR:?BM2_BIN_DIR must point to bm2 and bm2d binaries}
 export PATH="$bin_dir:$real_home/.bun/bin:/usr/bin:/bin"
+# 断言按英文写（表格表头、状态名、提示语），所以门禁自己钉住语言，不跟宿主
+# locale 走：中文开发机上 `LANG=zh_CN.UTF-8` 会让整批断言读不到单元格。
+export BM2_LANG=en
 
 cleanup() {
   if [ -f "$state_dir/bm2d.pid" ]; then
@@ -71,6 +74,22 @@ wait_status() { # wait_status <app> <expected status> <max attempts>
     sleep 0.5
   done
   printf '%s' "$status"
+}
+
+# wait_unknown <app> <max attempts>
+# Retirement is asynchronous: right after `remove -f` the project can still show
+# up as stopping, so polling — not one immediate query — is what tells whether it
+# is really gone.
+wait_unknown() {
+  local out=""
+  for _ in $(seq 1 "$2"); do
+    out=$(bm2 list "$1" 2>&1)
+    case "$out" in
+      "unknown app: $1") printf '%s' "$out"; return 0 ;;
+    esac
+    sleep 0.25
+  done
+  printf '%s' "$out"
 }
 
 # write_project <dir> <name> <port> <script> <instances> <stop_timeout>
@@ -147,7 +166,7 @@ check "slow http" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0
 echo "===== F. kill quick unregisters it ====="
 bm2 remove -f quick
 # The project is gone entirely: querying it reports unknown app.
-OUT=$(bm2 list quick 2>&1)
+OUT=$(wait_unknown quick 40)
 check "quick omitted from list" "unknown app: quick" "$OUT"
 check "quick absent from all list" "0" "$(row_count quick)"
 check "quick registration removed" "0" "$([ -f "$state_dir/projects/quick/project.json" ] && echo 1 || echo 0)"
@@ -161,7 +180,7 @@ bm2 list slow >/dev/null
 SLOW_PID_AFTER=$(cell slow PID)
 check "slow adopted with same pid" "$SLOW_PID_BEFORE" "$SLOW_PID_AFTER"
 check "slow adopted online" "online" "$(cell slow STATUS)"
-contains "adoption event logged" $state_dir/bm2d.events.jsonl "\"event\":\"instance_adopted\""
+contains "adoption event logged" $state_dir/bm2d.events.log " instance_adopted "
 
 echo "===== H. pid reuse -> pid_conflict, foreign process untouched ====="
 sleep 300 &
@@ -176,7 +195,7 @@ check "pid_conflict status" "errored" "$(cell slow STATUS)"
 # 崩溃记录先进暂存，收集任务每秒搬一轮，这里等它搬完再看主日志。
 sleep 3
 contains "pid_conflict crash.log" $state_dir/projects/slow/logs/slow-$(date +%F).error.log "原因=pid_conflict"
-contains "pid_conflict event logged" $state_dir/bm2d.events.jsonl "\"event\":\"pid_conflict\""
+contains "pid_conflict event logged" $state_dir/bm2d.events.log " pid_conflict "
 if kill -0 "$FOREIGN" 2>/dev/null; then
   PASS=$((PASS + 1)); echo "PASS: foreign process untouched"
 else
@@ -236,7 +255,7 @@ NDPID=$(cat "$state_dir/bm2d.pid")
 check "daemon pid changed" "changed" "$([ -n "$NDPID" ] && [ "$NDPID" != "$DPID" ] && echo changed || echo same)"
 check "app pid preserved" "$APID" "$(cell slow PID)"
 check "slow still served" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
-check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
+check "detach event logged" 1 "$(grep -c 'daemon_detached' "$state_dir/bm2d.events.log" 2>/dev/null || echo 0)"
 
 echo "===== N. ignored SIGTERM escalates to SIGKILL ====="
 bm2 remove -f slow
@@ -268,7 +287,7 @@ sleep 0.5
 echo 'not json' > "$state_dir/projects/slow/state-0.json"
 (cd "$ACC/slow" && bm2 serve >/dev/null)
 sleep 1
-check "state_load_failed event" 1 "$(grep -c 'state_load_failed' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
+check "state_load_failed event" 1 "$(grep -c 'state_load_failed' "$state_dir/bm2d.events.log" 2>/dev/null || echo 0)"
 check "slow online after corrupt state" "online" "$(wait_status slow online 20)"
 
 echo "===== R. multi-instance port sequence ====="
@@ -532,7 +551,7 @@ for _ in $(seq 1 40); do
   sleep 0.5
 done
 check "all instances errored on missing reusePort" "1" "$BOTH_ERRORED"
-contains "reusePort event logged" "$state_dir/bm2d.events.jsonl" "reuseport_missing"
+contains "reusePort event logged" "$state_dir/bm2d.events.log" "reuseport_missing"
 # 崩溃记录先进暂存，收集每秒搬一轮。
 sleep 3
 contains "reusePort crash log" "$state_dir/projects/noreuse/logs/noreuse-$(date +%F).error.log" "reuseport_missing"
@@ -726,7 +745,7 @@ done
 # than assuming it is already on disk.
 REFUSED=0
 for _ in $(seq 1 20); do
-  if grep -q connection_refused "$state_dir/bm2d.events.jsonl" 2>/dev/null; then
+  if grep -q connection_refused "$state_dir/bm2d.events.log" 2>/dev/null; then
     REFUSED=1
     break
   fi
@@ -789,9 +808,9 @@ EOF
 (cd "$ACC/beta" && bm2 serve >/dev/null)
 sleep 3
 check "alpha was attempted once, on its first try" 1 \
-  "$(grep '"event":"notify_failed"' "$state_dir/bm2d.events.jsonl" | grep -c '"app":"alpha"' || true)"
+  "$(grep ' notify_failed ' "$state_dir/bm2d.events.log" | grep -c 'app=alpha' || true)"
 check "beta was attempted without waiting out alpha's backoff" 1 \
-  "$(grep '"event":"notify_failed"' "$state_dir/bm2d.events.jsonl" | grep -c '"app":"beta"' || true)"
+  "$(grep ' notify_failed ' "$state_dir/bm2d.events.log" | grep -c 'app=beta' || true)"
 bm2 remove -f alpha >/dev/null 2>&1 || true
 bm2 remove -f beta >/dev/null 2>&1 || true
 
@@ -926,8 +945,8 @@ EOF
 sleep 26
 check "the target was retried twice" 3 "$(grep -c '^attempt' "$ACC/flaky.log")"
 check "the alert landed exactly once" 1 "$(grep -c '"event":"crash"' "$ACC/flaky.log")"
-contains "the failures were recorded" "$state_dir/bm2d.events.jsonl" '"event":"notify_failed"'
-contains "the success was recorded" "$state_dir/bm2d.events.jsonl" '"event":"notify_sent"'
+contains "the failures were recorded" "$state_dir/bm2d.events.log" ' notify_failed '
+contains "the success was recorded" "$state_dir/bm2d.events.log" ' notify_sent '
 bm2 remove -f flaky >/dev/null 2>&1 || true
 kill "$FLAKY" 2>/dev/null
 

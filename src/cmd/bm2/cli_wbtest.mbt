@@ -111,7 +111,7 @@ async test "a busy daemon is reported instead of being replaced" {
   assert_true(outcome.contains("try again"))
   server.close()
   @fsx.unlink(state_dir + "/" + @ipc.ENDPOINT_FILE)
-  @fsx.unlink(state_dir + "/bm2.events.jsonl")
+  @fsx.unlink(state_dir + "/bm2.events.log")
   @fs.remove_dir(state_dir)
 }
 

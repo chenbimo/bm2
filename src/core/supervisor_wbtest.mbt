@@ -157,13 +157,13 @@ test "publish_daemon_rotation names the daemon logs and who holds them open" {
   for job in jobs {
     found.set(job.path, job.copytruncate)
     assert_eq(job.max_bytes, 10L * 1024L * 1024L)
-    // daemon 自己的日志没有「保留几代」的配置项，沿用不限代数。
-    assert_eq(job.keep, 0)
+    // daemon 自己的日志沿用项目日志的默认策略：10 MiB 一份，留 7 代。
+    assert_eq(job.keep, 7)
   }
   // The two event logs are written by us; the daemon stderr is held open by the
   // daemon itself, so it has to rotate by copytruncate.
-  assert_eq(found.get(root + "/state/bm2d.events.jsonl"), Some(false))
-  assert_eq(found.get(root + "/state/bm2.events.jsonl"), Some(false))
+  assert_eq(found.get(root + "/state/bm2d.events.log"), Some(false))
+  assert_eq(found.get(root + "/state/bm2.events.log"), Some(false))
   assert_eq(found.get(root + "/state/bm2d.log"), Some(true))
   // 项目日志不在这一批：它们由收集任务写，轮转在 LogStream 里按日期 + 大小做。
   assert_eq(

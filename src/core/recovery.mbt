@@ -25,7 +25,7 @@ pub fn Supervisor::load_projects(self : Supervisor) -> Unit {
       None => {
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "project_load_failed",
           app=Some(entry),
           detail="unknown mode: " + info.mode,
@@ -37,7 +37,7 @@ pub fn Supervisor::load_projects(self : Supervisor) -> Unit {
       e => {
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "project_load_failed",
           app=Some(entry),
           detail=e.to_string(),
@@ -51,7 +51,7 @@ pub fn Supervisor::load_projects(self : Supervisor) -> Unit {
       e =>
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "project_load_failed",
           app=Some(entry),
           detail=e.to_string(),
@@ -92,7 +92,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
           @utils.discard(() => @fsx.unlink(path))
           log_event(
             self.state_dir,
-            "bm2d.events.jsonl",
+            "bm2d.events.log",
             "state_load_failed",
             app=Some(name),
             instance=inst.instance_id,
@@ -107,7 +107,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
         @utils.discard(() => @fsx.unlink(path))
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "state_discarded",
           app=Some(name),
           instance=inst.instance_id,
@@ -123,7 +123,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
           @utils.discard(() => @fsx.unlink(path))
           log_event(
             self.state_dir,
-            "bm2d.events.jsonl",
+            "bm2d.events.log",
             "state_discarded",
             app=Some(name),
             instance=inst.instance_id,
@@ -162,7 +162,7 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
         self.try_save_state(inst)
         log_event(
           self.state_dir,
-          "bm2d.events.jsonl",
+          "bm2d.events.log",
           "instance_adopted",
           app=Some(name),
           instance=inst.instance_id,
@@ -196,7 +196,7 @@ fn Supervisor::mark_pid_conflict(self : Supervisor, inst : Instance) -> Unit {
   self.write_crash(inst, "pid_conflict")
   log_event(
     self.state_dir,
-    "bm2d.events.jsonl",
+    "bm2d.events.log",
     "pid_conflict",
     app=Some(inst.app_name),
     instance=inst.instance_id,

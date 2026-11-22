@@ -458,7 +458,7 @@ fn Supervisor::try_save_state(self : Supervisor, inst : Instance) -> Unit {
     e =>
       log_event(
         self.state_dir,
-        "bm2d.events.jsonl",
+        "bm2d.events.log",
         "state_save_failed",
         app=Some(inst.app_name),
         instance=inst.instance_id,
@@ -501,7 +501,7 @@ fn Supervisor::check_removals(self : Supervisor) -> Unit {
     @utils.discard(() => remove_project(self.state_dir, name))
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       "project_removed",
       app=Some(name),
     )
@@ -786,7 +786,7 @@ fn Supervisor::spawn_instance(
   self.mark_online(app, inst, pid, pidfd)
   log_event(
     self.state_dir,
-    "bm2d.events.jsonl",
+    "bm2d.events.log",
     "instance_started",
     app=Some(inst.app_name),
     instance=inst.instance_id,
@@ -815,7 +815,7 @@ fn Supervisor::register_reap(self : Supervisor, pid : Int32) -> Unit {
     self.reaping = self.reaping[1:].to_owned()
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       "reap_overflow",
       detail="dropped the oldest pending child",
     )
@@ -936,7 +936,7 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
     self.notify_instance(inst, "errored", "error", title, body)
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       "instance_errored",
       app=Some(inst.app_name),
       instance=inst.instance_id,
@@ -951,7 +951,7 @@ fn Supervisor::mark_spawn_failed(self : Supervisor, inst : Instance) -> Unit {
     self.notify_instance(inst, "crash", "warn", title, body)
     log_event(
       self.state_dir,
-      "bm2d.events.jsonl",
+      "bm2d.events.log",
       "instance_restart_scheduled",
       app=Some(inst.app_name),
       instance=inst.instance_id,

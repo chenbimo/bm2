@@ -111,7 +111,7 @@ async fn run() -> Int32 {
   }
   // A control socket from a previous generation is stale by definition.
   @utils.discard(() => @fsx.unlink(state_dir + "/bm2.sock"))
-  @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_starting")
+  @core.log_event(state_dir, "bm2d.events.log", "daemon_starting")
   let sv = try @core.Supervisor::new(state_dir~, bun_path="bun") catch {
     e => {
       @proc.eprintln("bm2d: " + e.to_string())
@@ -125,7 +125,7 @@ async fn run() -> Int32 {
   // explicit `bm2 start`.
   sv.load_projects()
   sv.recover()
-  @core.log_event(state_dir, "bm2d.events.jsonl", "recovery_complete")
+  @core.log_event(state_dir, "bm2d.events.log", "recovery_complete")
   // Tell each project's own targets that the daemon is up and what it
   // inherited; a reload or an upgrade lands here too, so this doubles as the
   // "swap finished" notice.
@@ -184,7 +184,7 @@ async fn run() -> Int32 {
       @utf8.encode(@proc.get_pid().to_string() + "\n"),
     )
   })
-  @core.log_event(state_dir, "bm2d.events.jsonl", "socket_listening")
+  @core.log_event(state_dir, "bm2d.events.log", "socket_listening")
   // Three long-lived tasks (supervision, delivery, control) plus the group body,
   // which waits for an exit request to arrive from a served connection. SIGTERM
   // cancels the whole group instead; both paths land in the shutdown code below.
@@ -243,26 +243,26 @@ async fn run() -> Int32 {
   )
   match exit_request.val {
     Some(@core.ExitMode::Detach) => {
-      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detaching")
+      @core.log_event(state_dir, "bm2d.events.log", "daemon_detaching")
       server.close()
       @utils.discard(() => {
         @fsx.unlink(@utils.join_path(state_dir, @ipc.ENDPOINT_FILE))
       })
       @utils.discard(() => @fsx.unlink(state_dir + "/bm2d.pid"))
-      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_detached")
+      @core.log_event(state_dir, "bm2d.events.log", "daemon_detached")
     }
     Some(@core.ExitMode::Shutdown) => {
-      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopping")
+      @core.log_event(state_dir, "bm2d.events.log", "daemon_stopping")
       server.close()
       shutdown(sv, state_dir, false)
-      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopped")
+      @core.log_event(state_dir, "bm2d.events.log", "daemon_stopped")
     }
     // SIGTERM/SIGINT: graceful stop of every app, then exit.
     None => {
-      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopping")
+      @core.log_event(state_dir, "bm2d.events.log", "daemon_stopping")
       server.close()
       shutdown(sv, state_dir, true)
-      @core.log_event(state_dir, "bm2d.events.jsonl", "daemon_stopped")
+      @core.log_event(state_dir, "bm2d.events.log", "daemon_stopped")
     }
     Some(@core.ExitMode::Stay) =>
       // Unreachable: `wait_exit` only ever sees a real exit request.
@@ -331,7 +331,7 @@ async fn accept_loop(
             ),
           )
         } else {
-          @core.log_event(state_dir, "bm2d.events.jsonl", "connection_refused")
+          @core.log_event(state_dir, "bm2d.events.log", "connection_refused")
           conn.close()
         }
     }
@@ -355,7 +355,7 @@ async fn serve_conn(
   if !@ipc.authenticate(conn, token) {
     // A rejected handshake is a wrong token or a probe: worth a line in the
     // event log either way.
-    @core.log_event(state_dir, "bm2d.events.jsonl", "auth_failed")
+    @core.log_event(state_dir, "bm2d.events.log", "auth_failed")
     gate.release()
     return
   }
@@ -367,7 +367,7 @@ async fn serve_conn(
         None => {
           @core.log_event(
             state_dir,
-            "bm2d.events.jsonl",
+            "bm2d.events.log",
             "request_received",
             app=req.app,
             detail=req.command,
@@ -392,7 +392,7 @@ async fn serve_conn(
   conn.close()
   @core.log_event(
     state_dir,
-    "bm2d.events.jsonl",
+    "bm2d.events.log",
     if sent {
       "response_sent"
     } else {

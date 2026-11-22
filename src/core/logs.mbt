@@ -106,8 +106,8 @@ fn Supervisor::publish_daemon_rotation(self : Supervisor) -> Unit {
   let jobs : Array[@log.RotateJob] = []
   for
     suffix in [
-      ("bm2d.events.jsonl", false),
-      ("bm2.events.jsonl", false),
+      ("bm2d.events.log", false),
+      ("bm2.events.log", false),
       ("bm2d.log", true),
     ] {
     let (name, copytruncate) = suffix
@@ -115,7 +115,7 @@ fn Supervisor::publish_daemon_rotation(self : Supervisor) -> Unit {
       path: @utils.join_path(self.state_dir, name),
       copytruncate,
       max_bytes,
-      keep: 0,
+      keep: 7,
     })
   }
   @utils.discard(() => ignore(self.rotations.try_put(jobs)))
@@ -136,7 +136,9 @@ fn Supervisor::write_daemon_log(
   // crash 记录可能发生在 spawn 之前（拉起就失败），暂存目录还没建过。
   @utils.discard(() => @fsx.mkdir_p(staging, mode=0o700))
   let path = @utils.join_path(staging, app_name + "-bm2.err.log")
-  @utils.discard(() => @log.plain(path, line))
+  // 写裸文本，时间戳与前缀由收集任务统一加：@log.plain 会自己带一个时间戳，
+  // 叠加之后就是「时间 [bm2] 时间 内容」的重复。
+  @utils.discard(() => @fsx.append_file(path, @utf8.encode(line + "\n")))
 }
 
 ///|
