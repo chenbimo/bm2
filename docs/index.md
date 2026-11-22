@@ -27,7 +27,7 @@ features:
 ## 一张图看懂它怎么运转
 
 <div style="overflow-x:auto;margin:12px 0 4px">
-  <img src="/bm2-flow.svg" alt="bm2 架构与执行流程：外部请求经 Nginx 或 Caddy 进入，bm2 命令交给守护进程，守护进程拉起并监督应用实例，实例支持 cluster 共享端口与 fork 连续端口两种模式，日志落盘并推送事件" width="1240" height="620" style="min-width:1040px;width:100%;height:auto;display:block">
+  <img src="../assets/bm2-flow.svg" alt="bm2 架构与执行流程：外部请求经 Nginx 或 Caddy 进入，bm2 命令交给守护进程，守护进程拉起并监督应用实例，实例支持 cluster 共享端口与 fork 连续端口两种模式，日志落盘并推送事件" width="1240" height="620" style="min-width:1040px;width:100%;height:auto;display:block">
 </div>
 
 左半部分是控制面：你敲命令，守护进程负责拉起与监督。指令不进业务链路，业务挂了才需要它出手。
