@@ -14,9 +14,10 @@
 /// 代数两条流各算各的：普通日志用满不影响错误日志。
 ///
 /// 项目日志只有 bm2 一个写者，轮转用 rename 换文件，不做 copytruncate，换文件
-/// 那一刻写进来的字节不会丢。命名与 daemon 侧不同：那边是 `bm2d.events.log.1`
-/// 这样的结尾后缀，这里把代数放在 `.log` 之前，同一项目的文件 `ls` 时挨在一起。
-/// `keep = 0` 时直接清空当前文件，不留一个永远只剩一行的 `.1`
+/// 那一刻写进来的字节不会丢；整链后移直接复用 `rotate.mbt` 的 `rename_rotate`。
+/// 命名全仓统一：代数插在 `.log` 之前，daemon 的 `bm2d.events.log` 与项目的
+/// `api.log` 同一套规则。`keep = 0` 时直接清空当前文件，不留一个永远只剩一行的
+/// `.1`
 ///
 /// 全部操作走异步文件 API：跑在收集任务里，永远不占 tick。
 
@@ -49,13 +50,6 @@ pub fn LogStream::new(
 /// 当前在写的那个文件。
 pub fn LogStream::path(self : LogStream) -> String {
   @utils.join_path(self.dir, self.stem + ".log")
-}
-
-///|
-/// 第 `n` 代历史文件：`api.1.log`、`api.error.2.log`。代数是文件名中间的
-/// 一段，不是结尾后缀——`ls` 排序时同一项目的文件挨在一起。
-fn LogStream::generation(self : LogStream, n : Int32) -> String {
-  @utils.join_path(self.dir, self.stem + "." + n.to_string() + ".log")
 }
 
 ///|
@@ -119,43 +113,9 @@ async fn LogStream::rotate(self : LogStream) -> Unit {
       },
     )
   } else {
-    self.shift()
+    rename_rotate(self.path(), self.keep)
   }
   self.size = 0L
-}
-
-///|
-/// 整链后移一代：丢掉最旧的一份，`.n-1 → .n` 依次挪，当前文件变 `.1`。
-///
-/// 从最远处往回搬，避免互相覆盖；文件不存在就跳过，轮转不该因为「上一代本来就
-/// 没有」而失败。
-async fn LogStream::shift(self : LogStream) -> Unit {
-  move_if_exists(self.generation(self.keep), "")
-  let mut index = self.keep - 1
-  while index >= 1 {
-    move_if_exists(self.generation(index), self.generation(index + 1))
-    index -= 1
-  }
-  move_if_exists(self.path(), self.generation(1))
-}
-
-///|
-/// 改名；源不存在（或目标为空串表示删除）时安静跳过。
-async fn move_if_exists(from : String, to : String) -> Unit {
-  ignore(
-    try {
-      if to == "" {
-        @fs.remove(from, allow_missing=true)
-      } else {
-        @fs.rename(from, to, replace=true)
-      }
-      true
-    } catch {
-      _ => false
-    } noraise {
-      _ => true
-    },
-  )
 }
 
 ///|

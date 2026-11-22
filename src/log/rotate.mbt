@@ -78,16 +78,47 @@ async fn rename_generation(src : String, dst : String) -> Unit {
 }
 
 ///|
+/// Split a log path into its directory and its stem, dropping the `.log`.
+fn split_log_path(path : String) -> (String, String) {
+  let full = @path.Path::Path(path)
+  let dir = full.dirname().to_string()
+  let base = full.basename().to_owned()
+  let stem = if base.has_suffix(".log") {
+    base[:base.length() - 4].to_owned()
+  } else {
+    base
+  }
+  (dir, stem)
+}
+
+///|
+/// Path of generation `n`: `.../api.log` → `.../api.1.log`.
+///
+/// The number goes before the extension, never after it. Every rotated file in
+/// bm2 follows this — a project's `api.log` and the daemon's `bm2d.events.log`
+/// alike — so the suffix is always `.log` and a directory listing keeps one
+/// project's files together.
+fn slice_path(path : String, n : Int32) -> String {
+  let (dir, stem) = split_log_path(path)
+  let name = stem + "." + n.to_string() + ".log"
+  if dir == "" {
+    name
+  } else {
+    dir + "/" + name
+  }
+}
+
+///|
 /// Highest archived generation next to `path`, 0 when there is none.
 ///
 /// A bounded chain knows its own length, but an unbounded one does not, so the
-/// length is read from the directory: every `<name>.<digits>` entry counts as a
-/// generation and the largest number wins. Entries that are not a plain number
-/// (a rotated name, a hand-made backup) are ignored rather than guessed at.
+/// length is read from the directory: every `<stem>.<digits>.log` entry counts
+/// as a generation and the largest number wins. Entries that are not a plain
+/// number (a rotated name, a hand-made backup) are ignored rather than guessed
+/// at.
 async fn highest_generation(path : String) -> Int32 {
-  let full = @path.Path::Path(path)
-  let dir = full.dirname().to_string()
-  let stem = full.basename().to_owned() + "."
+  let (dir, stem) = split_log_path(path)
+  let prefix = stem + "."
   let names = try @fs.readdir(dir, sort=false) catch {
     _ => []
   } noraise {
@@ -95,44 +126,42 @@ async fn highest_generation(path : String) -> Int32 {
   }
   let mut highest = 0
   for name in names {
-    if name.has_prefix(stem) {
-      let tail = name[stem.length():].to_owned()
-      let mut value = 0
-      let mut numeric = tail.length() > 0
-      for ch in tail {
-        if ch is ('0'..<='9') {
-          value = value * 10 + (ch.to_int() - 48)
-        } else {
-          numeric = false
-          break
-        }
+    if !name.has_prefix(prefix) || !name.has_suffix(".log") {
+      continue
+    }
+    let tail = name[prefix.length():name.length() - 4].to_owned()
+    let mut value = 0
+    let mut numeric = tail.length() > 0
+    for ch in tail {
+      if ch is ('0'..<='9') {
+        value = value * 10 + (ch.to_int() - 48)
+      } else {
+        numeric = false
+        break
       }
-      if numeric && value > highest {
-        highest = value
-      }
+    }
+    if numeric && value > highest {
+      highest = value
     }
   }
   highest
 }
 
 ///|
-/// Shift the chain (`path.N` -> `path.N+1`, .., `path.1` -> `path.2`), leaving
-/// room for a new `path.1`. With a bound, the oldest generations beyond it are
-/// dropped; with `keep = 0` nothing is dropped and the chain is as long as the
-/// directory says it is.
+/// Shift the chain (`stem.N.log` -> `stem.N+1.log`, .., `stem.1.log` ->
+/// `stem.2.log`), leaving room for a new `stem.1.log`. With a bound, the oldest
+/// generations beyond it are dropped; with `keep = 0` nothing is dropped and the
+/// chain is as long as the directory says it is.
 async fn shift_chain(path : String, keep : Int32) -> Unit {
   let mut i = keep
   if keep > 0 {
-    remove_quietly(path + "." + keep.to_string())
+    remove_quietly(slice_path(path, keep))
     i = keep - 1
   } else {
     i = highest_generation(path)
   }
   while i >= 1 {
-    rename_generation(
-      path + "." + i.to_string(),
-      path + "." + (i + 1).to_string(),
-    )
+    rename_generation(slice_path(path, i), slice_path(path, i + 1))
     i -= 1
   }
 }
@@ -142,7 +171,7 @@ async fn shift_chain(path : String, keep : Int32) -> Unit {
 /// the rename.
 async fn rename_rotate(path : String, keep : Int32) -> Unit {
   shift_chain(path, keep)
-  @fs.rename(path, path + ".1", replace=true)
+  @fs.rename(path, slice_path(path, 1), replace=true)
 }
 
 ///|
@@ -155,7 +184,7 @@ async fn copy_truncate(path : String, keep : Int32) -> Unit {
   shift_chain(path, keep)
   // The copy lands before the source is emptied, and both sides are synced: a
   // crash in between must not lose the content twice.
-  @fs.write_binary(path + ".1", content, permission=0o600, sync=Data)
+  @fs.write_binary(slice_path(path, 1), content, permission=0o600, sync=Data)
   @fs.write_binary(path, b"", create_mode=TruncateExisting, sync=Data)
 }
 

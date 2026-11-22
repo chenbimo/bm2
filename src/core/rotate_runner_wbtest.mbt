@@ -22,7 +22,7 @@ fn job(
 /// says so.
 ///
 /// 项目日志不走这条链路了：它们由收集任务写主日志，轮转在 `LogStream` 里按
-/// 「日期 + 大小」完成，测试在 log 包内。
+/// 大小与代数完成，测试在 log 包内。
 async test "a published sweep rotates the oversized daemon log" {
   let root = "/tmp/bm2-wbtest-sweep-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4454)
@@ -36,9 +36,10 @@ async test "a published sweep rotates the oversized daemon log" {
     None => fail("expected publish_daemon_rotation to publish a sweep")
   }
   RotateRunner::new(state_dir, sv.rotations(), sv.log_tasks()).sweep(jobs)
-  match @fsx.file_size(target + ".1") {
+  // 代数插在 `.log` 之前：bm2d.events.1.log。
+  match @fsx.file_size(state_dir + "/bm2d.events.1.log") {
     Some(size) => assert_true(size > 10L * 1024L * 1024L)
-    None => fail("expected rotated generation .1")
+    None => fail("expected rotated generation .1.log")
   }
   // sweep 自己会往事件日志里记一行，所以这里只要求它被截到很小的量级。
   match @fsx.file_size(target) {

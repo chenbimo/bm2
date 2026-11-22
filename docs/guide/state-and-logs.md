@@ -186,7 +186,7 @@ grep ' reuseport_missing ' ~/.bm2/bm2d.events.log
 grep ' instance_exited ' ~/.bm2/bm2d.events.log | grep 'app=demo' | wc -l
 ```
 
-两个事件日志按大小轮转：10 MiB 一份，保留 7 代。滚动出的文件依次是 `.1`、`.2`，最旧的先删。
+两个事件日志按大小轮转：10 MiB 一份，保留 7 代。滚动出的文件是 `bm2d.events.1.log`、`bm2d.events.2.log`，文件名里的数字越大越旧，最旧的先删。
 
 常见事件：
 
