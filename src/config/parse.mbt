@@ -47,9 +47,9 @@ const DEFAULT_STOP_TIMEOUT_MS : Int32 = 10000
 const DEFAULT_LOG_MAX_SIZE_MB : Int32 = 10
 
 ///|
-/// 默认保留最近 7 个有日志的日期。日志按天一个文件，留一周既能回看上周，
-/// 也不会让磁盘无限长；`[logs] keep_days = 0` 是不清理。
-const DEFAULT_LOG_KEEP_DAYS : Int32 = 7
+/// 默认保留最近 7 代。日志按大小轮转，留 7 代普通 + 7 代错误加起来有上界；
+/// `[logs] keep_files = 0` 表示不留历史，只有当前那一份。
+const DEFAULT_LOG_KEEP_FILES : Int32 = 7
 
 ///|
 /// Parse a bm2.toml document. `base_dir` is the config file's directory: an
@@ -196,7 +196,12 @@ fn opt_logs(
           "logs",
           DEFAULT_LOG_MAX_SIZE_MB,
         ),
-        keep_days: opt_int(section, "keep_days", "logs", DEFAULT_LOG_KEEP_DAYS),
+        keep_files: opt_int(
+          section,
+          "keep_files",
+          "logs",
+          DEFAULT_LOG_KEEP_FILES,
+        ),
       }
     }
     Some(_) => raise ConfigError::InvalidField("logs must be a table")
@@ -204,7 +209,7 @@ fn opt_logs(
 }
 
 ///|
-let logKeys : Array[String] = ["max_size_mb", "keep_days"]
+let logKeys : Array[String] = ["max_size_mb", "keep_files"]
 
 ///|
 fn req_string(

@@ -72,7 +72,7 @@ pub(all) struct LogTask {
   staging_dir : String
   logs_dir : String
   max_bytes : Int64
-  keep_days : Int32
+  keep_files : Int32
 }
 
 ///|
@@ -94,7 +94,7 @@ fn Supervisor::publish_log_tasks(self : Supervisor) -> Unit {
       staging_dir: project_staging_dir(self.state_dir, name),
       logs_dir: project_logs_dir(self.state_dir, name),
       max_bytes: policy.max_size_mb.to_int64() * MIB,
-      keep_days: policy.keep_days,
+      keep_files: policy.keep_files,
     })
   }
   if tasks.length() == 0 {

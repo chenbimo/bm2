@@ -272,12 +272,12 @@ pub fn notify_target_failed(
 }
 
 ///|
-/// `bm2 logs` 找不到当天日志时说的话：把项目名与日期都写出来，因为「今天还
-/// 没有日志」与「项目名写错了」是两回事。
-pub fn logs_missing(lang : Lang, name : String, day : String) -> String {
+/// `bm2 logs` 找不到日志时说的话：把项目名写出来，因为「还没有日志」与「项目
+/// 名写错了」是两回事。
+pub fn logs_missing(lang : Lang, name : String) -> String {
   match lang {
-    En => "no log for project \{name} on \{day} yet"
-    Zh => "项目 \{name} 在 \{day} 还没有日志"
+    En => "no log for project \{name} yet"
+    Zh => "项目 \{name} 还没有日志"
   }
 }
 

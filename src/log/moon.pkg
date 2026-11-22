@@ -6,6 +6,13 @@ import {
   "chensuiyi/bm2/utils",
 }
 
+import {
+  "moonbitlang/core/async",
+} for "wbtest"
+
 options(
-  "allow-experimental-packages": [ "moonbitlang/core/async/fs" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/fs",
+  ],
 )

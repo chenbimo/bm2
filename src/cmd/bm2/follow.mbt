@@ -21,11 +21,10 @@ const FOLLOW_CHECK_EVERY : Int32 = 25
 
 ///|
 fn follow_logs(state_dir : String, name : String, lang : @i18n.Lang) -> Unit {
-  // 日志按天一个文件，跟随的是今天那份普通日志与错误日志。
-  let day = @core.local_day(@utils.now_ms())
+  // 日志按大小轮转，跟随的就是那两个固定的文件。
   let logs = @core.project_logs_dir(state_dir, name)
-  let out_path = logs + "/" + name + "-" + day + ".log"
-  let err_path = logs + "/" + name + "-" + day + ".error.log"
+  let out_path = @utils.join_path(logs, name + ".log")
+  let err_path = @utils.join_path(logs, name + ".error.log")
   // Written with the unbuffered writer: stdout to a pipe or a file is fully
   // buffered, so a session interrupted before the buffer flushed would lose the
   // one line that says what this command is doing.

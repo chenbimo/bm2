@@ -62,12 +62,11 @@ async fn RotateRunner::sweep(
 }
 
 ///|
-/// 一轮收集：每个项目的两条流各搬一次，顺带每分钟清理一次过期日期文件。
+/// 一轮收集：每个项目的两条流各搬一次，顺带每分钟清理一次超出代数的旧文件。
 async fn RotateRunner::collect(
   self : RotateRunner,
   tasks : Array[LogTask],
 ) -> Unit {
-  let today = local_day(@utils.now_ms())
   let prune_now = self.rounds % PRUNE_EVERY_ROUNDS == 0
   for task in tasks {
     let normal = @log.LogStream::new(
@@ -75,22 +74,16 @@ async fn RotateRunner::collect(
       task.name,
       "",
       task.max_bytes,
-      task.keep_days,
+      task.keep_files,
     )
     let error = @log.LogStream::new(
       task.logs_dir,
       task.name,
       ".error",
       task.max_bytes,
-      task.keep_days,
+      task.keep_files,
     )
-    let result = @log.drain_project(
-      task.staging_dir,
-      task.name,
-      normal,
-      error,
-      today,
-    )
+    let result = @log.drain_project(task.staging_dir, task.name, normal, error)
     if result.dropped_bytes > 0 {
       log_event(
         self.state_dir,

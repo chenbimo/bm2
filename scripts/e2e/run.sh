@@ -135,15 +135,15 @@ contains "list names the daemon pid" "$state_dir/bm2d.pid" "$(daemon_cell pid)"
 echo "===== B. crash loop -> errored ====="
 check "crash errored" "errored" "$(wait_status crash errored 60)"
 check "crash restart_count 3" "3" "$(cell crash TIMES)"
-contains "crash.log reason=exit_code" $state_dir/projects/crash/logs/crash-$(date +%F).error.log "原因=exit_code"
-contains "crash.log restartCount=3" $state_dir/projects/crash/logs/crash-$(date +%F).error.log "重启次数=3"
+contains "crash.log reason=exit_code" $state_dir/projects/crash/logs/crash.error.log "原因=exit_code"
+contains "crash.log restartCount=3" $state_dir/projects/crash/logs/crash.error.log "重启次数=3"
 
 echo "===== C. clean exit restarts without burning the crash budget ====="
 # quick exits cleanly every 100ms: the TIMES column (6th) grows, but a
 # clean exit never consumes the crash budget, so it must not hit errored.
 check "quick started multiple times" 1 "$([ "$(cell quick TIMES)" -ge 2 ] && echo 1 || echo 0)"
 check "quick not errored" "0" "$(bm2 list quick | grep -c 'errored' || true)"
-if [ -s $state_dir/projects/quick/logs/quick-$(date +%F).error.log ]; then
+if [ -s $state_dir/projects/quick/logs/quick.error.log ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: quick crash.log should be empty"
 else
   PASS=$((PASS + 1)); echo "PASS: quick crash.log empty"
@@ -155,8 +155,8 @@ sed -i 's/max_memory_mb = 512/max_memory_mb = 16/; s/max_restarts = 2/max_restar
 (cd "$ACC/hog" && bm2 serve >/dev/null)
 check "hog errored" "errored" "$(wait_status hog errored 80)"
 check "hog restart_count 2" "2" "$(cell hog TIMES)"
-contains "hog crash.log memory_limit" $state_dir/projects/hog/logs/hog-$(date +%F).error.log "原因=memory_limit"
-contains "hog crash.log rssMb" $state_dir/projects/hog/logs/hog-$(date +%F).error.log "内存="
+contains "hog crash.log memory_limit" $state_dir/projects/hog/logs/hog.error.log "原因=memory_limit"
+contains "hog crash.log rssMb" $state_dir/projects/hog/logs/hog.error.log "内存="
 
 echo "===== E. slow app serves HTTP ====="
 write_project slow slow 4231 slow.ts 1 1000
@@ -195,7 +195,7 @@ bm2 list slow >/dev/null
 check "pid_conflict status" "errored" "$(cell slow STATUS)"
 # 崩溃记录先进暂存，收集任务每秒搬一轮，这里等它搬完再看主日志。
 sleep 3
-contains "pid_conflict crash.log" $state_dir/projects/slow/logs/slow-$(date +%F).error.log "原因=pid_conflict"
+contains "pid_conflict crash.log" $state_dir/projects/slow/logs/slow.error.log "原因=pid_conflict"
 contains "pid_conflict event logged" $state_dir/bm2d.events.log " pid_conflict "
 if kill -0 "$FOREIGN" 2>/dev/null; then
   PASS=$((PASS + 1)); echo "PASS: foreign process untouched"
@@ -277,7 +277,7 @@ sleep 1
 SPID=$(cell slow PID)
 kill -9 "$SPID"
 sleep 1
-contains "signal reason logged" $state_dir/projects/slow/logs/slow-$(date +%F).error.log "信号=SIGKILL"
+contains "signal reason logged" $state_dir/projects/slow/logs/slow.error.log "信号=SIGKILL"
 check "slow restarted after signal" "online" "$(wait_status slow online 20)"
 
 echo "===== P. corrupted state file is discarded ====="
@@ -471,9 +471,8 @@ sleep 1
 yes "0123456789abcdef" | head -c 11000000 > "$state_dir/projects/slowback/.tempLogs/slowback-0.out.log"
 # 收集每秒一轮，搬运 11MB 需要几轮；轮转在写出这一轮时判定。
 sleep 8
-DAY=$(date +%F)
-check "rotated generation exists" 1 "$([ -f "$state_dir/projects/slowback/logs/slowback-$DAY.1.log" ] && echo 1 || echo 0)"
-SIZE=$(stat -c%s "$state_dir/projects/slowback/logs/slowback-$DAY.log" 2>/dev/null || echo 0)
+check "rotated generation exists" 1 "$([ -f "$state_dir/projects/slowback/logs/slowback.1.log" ] && echo 1 || echo 0)"
+SIZE=$(stat -c%s "$state_dir/projects/slowback/logs/slowback.log" 2>/dev/null || echo 0)
 check "active log restarted below the limit" 1 "$([ "$SIZE" -lt 11000000 ] && echo 1 || echo 0)"
 check "app unaffected by rotation" "slow slowback-0 production 4291 0" "$(wait_http 4291 "slow slowback-0 production 4291 0")"
 bm2 remove -f slowback >/dev/null
@@ -555,7 +554,7 @@ check "all instances errored on missing reusePort" "1" "$BOTH_ERRORED"
 contains "reusePort event logged" "$state_dir/bm2d.events.log" "reuseport_missing"
 # 崩溃记录先进暂存，收集每秒搬一轮。
 sleep 3
-contains "reusePort crash log" "$state_dir/projects/noreuse/logs/noreuse-$(date +%F).error.log" "reuseport_missing"
+contains "reusePort crash log" "$state_dir/projects/noreuse/logs/noreuse.error.log" "reuseport_missing"
 sleep 2
 check "port released after violation stop" "0" "$(ss -ltn | grep -c ':4311 ' || true)"
 check "project still registered" "1" "$([ -f "$state_dir/projects/noreuse/project.json" ] && echo 1 || echo 0)"

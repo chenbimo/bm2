@@ -24,7 +24,6 @@ async fn flush_copy(
   copy : String,
   stream : LogStream,
   prefix : String,
-  day : String,
 ) -> Int32 {
   let data = try @fs.read_binary(copy) catch {
     _ => return 0
@@ -55,12 +54,12 @@ async fn flush_copy(
     block = block + @utils.iso8601(@utils.now_ms()) + " " + prefix + line + "\n"
     count += 1
     if block.length() >= BLOCK_BYTES {
-      stream.append(day, block)
+      stream.append(block)
       block = ""
     }
   }
   if block.length() > 0 {
-    stream.append(day, block)
+    stream.append(block)
   }
   ignore(
     try @fs.remove(copy, allow_missing=true) catch {
@@ -73,12 +72,11 @@ async fn flush_copy(
 }
 
 ///|
-/// 搬一个暂存文件。`prefix` 是行前缀（`[0] ` 或 `[bm2] `），`day` 是今天的日期。
+/// 搬一个暂存文件。`prefix` 是行前缀（`[0] ` 或 `[bm2] `）。
 async fn drain_staging(
   staging : String,
   stream : LogStream,
   prefix : String,
-  day : String,
 ) -> DrainResult {
   let copy = staging + ".copy"
   let mut lines = 0
@@ -90,7 +88,7 @@ async fn drain_staging(
     v => v
   }
   if has_copy {
-    lines += flush_copy(copy, stream, prefix, day)
+    lines += flush_copy(copy, stream, prefix)
   }
 
   let has_source = try @fs.exists(staging) catch {
@@ -156,7 +154,7 @@ async fn drain_staging(
     },
   )
 
-  lines += flush_copy(copy, stream, prefix, day)
+  lines += flush_copy(copy, stream, prefix)
   { lines, dropped_bytes: dropped, }
 }
 
@@ -170,7 +168,6 @@ pub async fn drain_project(
   name : String,
   normal : LogStream,
   error : LogStream,
-  day : String,
 ) -> DrainResult {
   let names = try @fs.readdir(staging_dir, sort=true) catch {
     _ => return { lines: 0, dropped_bytes: 0, }
@@ -201,7 +198,6 @@ pub async fn drain_project(
         normal
       },
       "[" + inst + "] ",
-      day,
     )
     lines += result.lines
     dropped += result.dropped_bytes

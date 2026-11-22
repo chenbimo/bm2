@@ -156,9 +156,8 @@ pub fn NotifyConfig::disabled() -> NotifyConfig {
 pub(all) struct LogsConfig {
   /// A log rotates once it exceeds this size, in megabytes.
   max_size_mb : Int32
-  /// 保留最近几个「有日志的日期」（普通日志与错误日志各算各的）。0 表示不清理，
-  /// 磁盘占用只受 max_size_mb 约束。
-  keep_days : Int32
+  /// 保留几代历史（普通日志与错误日志各算各的）。0 表示不留历史，只留当前那一份。
+  keep_files : Int32
 }
 
 ///|
@@ -168,7 +167,7 @@ pub extend LogsConfig with Debug::{to_repr}
 /// The built-in rotation policy, used by a project without a `[logs]` table and
 /// by the daemon's own logs (which no single project's config governs).
 pub fn LogsConfig::builtin() -> LogsConfig {
-  { max_size_mb: DEFAULT_LOG_MAX_SIZE_MB, keep_days: DEFAULT_LOG_KEEP_DAYS, }
+  { max_size_mb: DEFAULT_LOG_MAX_SIZE_MB, keep_files: DEFAULT_LOG_KEEP_FILES, }
 }
 
 ///|
