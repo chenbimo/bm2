@@ -620,22 +620,21 @@ test "load reads and validates a file with cwd default" {
 }
 
 ///|
-/// `[logs]` is optional: without it a project rotates at the built-in size and
-/// keeps every generation. With it, both limits are the project's to choose.
-test "logs section: defaults, overrides and bounds" {
+/// 日志的两个数就在顶层：不写就是内置的大小与代数，写了就按项目的来。
+test "log rotation keys: defaults, overrides and bounds" {
   let doc = "name = \"app\"\ncwd = \"/srv/app\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\n"
   let config = @config.parse(doc, "/srv/app")
   assert_eq(config.logs.max_size_mb, 10)
   assert_eq(config.logs.keep_files, 10)
   let tuned = @config.parse(
-    doc + "[logs]\nmax_size_mb = 50\nkeep_files = 3\n",
+    doc + "log_max_size_mb = 50\nlog_keep_files = 3\n",
     "/srv/app",
   )
   assert_eq(tuned.logs.max_size_mb, 50)
   assert_eq(tuned.logs.keep_files, 3)
-  // A rotation that silently never happens, and a negative day count,
+  // A rotation that silently never happens, and a negative generation count,
   // are both rejected at parse time rather than discovered later on disk.
-  for bad in ["[logs]\nmax_size_mb = 0\n", "[logs]\nkeep_files = -1\n"] {
+  for bad in ["log_max_size_mb = 0\n", "log_keep_files = -1\n"] {
     let rejected = try {
       ignore(@config.parse(doc + bad, "/srv/app"))
       false

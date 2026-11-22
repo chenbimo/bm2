@@ -75,7 +75,7 @@ pub struct Supervisor {
   /// can land in a tick that must stay free of blocking calls.
   rotations : @aqueue.Queue[Array[@log.RotateJob]]
   /// Log collection rounds published by the tick: every project's staging
-  /// directory plus its own `[logs]` policy. The collecting task moves the bytes.
+  /// directory plus its own `log_*` policy. The collecting task moves the bytes.
   log_tasks : @aqueue.Queue[Array[LogTask]]
   /// Children killed on a failed spawn, waiting to be reaped: (pid, deadline on
   /// the monotonic clock). Such a child is never registered as an instance, so

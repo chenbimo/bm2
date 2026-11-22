@@ -83,16 +83,16 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
   }
   // Rotation limits. A size of zero is rejected rather than treated as "never
   // rotate": keeping a log uncapped by accident is worse than having to say so.
-  // The generation count is capped because each generation costs a suffix, and
-  // zero is the documented way to say "keep everything".
+  // 代数有上限：它只是文件名里的一段，越过 365 已经不像配置而像写错了。
+  // 0 是文档里写明的用法——只留当前那份，不留历史。
   if config.logs.max_size_mb < 1 || config.logs.max_size_mb > 102400 {
     raise ConfigError::InvalidField(
-      "project \{config.name}: logs.max_size_mb must be between 1 and 102400",
+      "project \{config.name}: log_max_size_mb must be between 1 and 102400",
     )
   }
   if config.logs.keep_files < 0 || config.logs.keep_files > 365 {
     raise ConfigError::InvalidField(
-      "project \{config.name}: logs.keep_files must be between 0 and 365",
+      "project \{config.name}: log_keep_files must be between 0 and 365",
     )
   }
   // The notification section is validated by its own rules, but it belongs to

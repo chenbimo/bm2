@@ -67,10 +67,9 @@ stop_timeout_ms = 10000
 # 项目文案语言：en 或 zh。省略则跟随操作者。
 lang = "zh"
 
-# 日志轮转。不写这张表就是单文件 10 MiB、保留 10 代。
-[logs]
-max_size_mb = 10
-keep_files = 10
+# 日志轮转：单个文件的上限与保留代数。不写就是 10 MiB、10 代。
+log_max_size_mb = 10
+log_keep_files = 10
 
 # 通知。不写这一段就是完全不上报。
 [notify]
@@ -95,8 +94,8 @@ enabled = false
 | `min_uptime_ms` | 否 | `10000` | `0 ~ 2147483647` | 活够这么久才算「跑起来了」；不到就算一次失败重启，不进预算白名单 |
 | `stop_timeout_ms` | 否 | `10000` | `1 ~ 60000` | 停机时给应用的优雅退出时间，超时升级成 `SIGKILL` |
 | `lang` | 否 | 跟随操作者 | `en` 或 `zh` | 这个项目的输出语言，通知也默认跟它走 |
-| `[logs] max_size_mb` | 否 | `10` | `1 ~ 102400` | 单个日志文件超过它就轮转 |
-| `[logs] keep_files` | 否 | `10` | `0 ~ 365` | 保留几代历史，`0` 表示只留当前那份 |
+| `log_max_size_mb` | 否 | `10` | `1 ~ 102400` | 单个日志文件超过它就轮转，单位 MiB |
+| `log_keep_files` | 否 | `10` | `0 ~ 365` | 保留几代历史，`0` 表示只留当前那份 |
 | `[notify]` | 否 | 关闭 | 见[通知](/guide/notifications) | 事件告警与每日统计，字段见下方子表索引 |
 
 `name` 同时是状态目录下的目录名，所以字符集收得很紧，只允许路径里安全的字符。
@@ -105,14 +104,7 @@ enabled = false
 
 ## 子表字段索引
 
-两张子表的字段不在这张表里展开：默认值与取值范围只写在各自的正文页，这里只做索引，保证从配置页出发不会漏掉任何一个键。
-
-### `[logs]`
-
-| 字段 | 说明 | 详见 |
-| --- | --- | --- |
-| `max_size_mb` | 单个日志文件的轮转阈值 | [状态与日志](/guide/state-and-logs) |
-| `keep_files` | 保留几代历史，`0` 为只留当前那份 | [状态与日志](/guide/state-and-logs) |
+`[notify]` 的字段不在这张表里展开：默认值与取值范围只写在正文页，这里只做索引，保证从配置页出发不会漏掉任何一个键。日志的两个键在顶层，已在上表列全。
 
 ### `[notify]`
 
@@ -199,7 +191,7 @@ max_memory_mb = "__MEM_MB__"   # 同理
 
 ## 未知字段即报错
 
-根级、`[logs]`、`[notify]`、`[[notify.target]]` 四层都做白名单校验。
+根级、`[notify]`、`[[notify.target]]` 三层都做白名单校验。
 
 ```toml
 name = "api"
@@ -221,8 +213,8 @@ InvalidField: root has unknown field nope
 
 越界的值会让整份配置失败，不会被夹取、也不会被替换成默认值。
 
-- `logs.max_size_mb = 0` 被拒绝，而不是理解成「永不轮转」。一个静默无限增长的日志，比让你写清大小更糟。
-- `logs.keep_files` 为负被拒绝，因为 `0` 已经表示只留当前那份。
+- `log_max_size_mb = 0` 被拒绝，而不是理解成「永不轮转」。一个静默无限增长的日志，比让你写清大小更糟。
+- `log_keep_files` 为负被拒绝，因为 `0` 已经表示只留当前那份。
 - `instances = 0` 被拒绝，不当作「按 CPU 核数自动决定」。
 - `cwd` 给相对路径被拒绝。守护进程的工作目录与你 shell 的当前目录无关。
 
@@ -246,10 +238,9 @@ InvalidField: root has unknown field nope
 
 | 子表 | 管什么 | 细节 |
 | --- | --- | --- |
-| `[logs]` | 应用日志的轮转大小与保留天数 | [状态与日志](/guide/state-and-logs) |
 | `[notify]` | 事件上报、阈值、每日统计、目标与凭据 | [通知](/guide/notifications) |
 
-两张子表都属于这个项目：日志是项目的日志，告警是项目的告警。一个项目不会替另一个项目上报。
+`[notify]` 属于这个项目：告警是项目的告警，一个项目不会替另一个项目上报。日志的两个键在顶层，不算子表。
 
 ## 重启策略速查
 
@@ -316,10 +307,8 @@ restart_delay_ms = 1000
 min_uptime_ms = 15000
 stop_timeout_ms = 20000
 lang = "zh"
-
-[logs]
-max_size_mb = 10
-keep_files = 10
+log_max_size_mb = 10
+log_keep_files = 10
 
 [notify]
 enabled = true
@@ -345,7 +334,7 @@ events = ["errored", "reuseport_missing"]
 ```text
 bm2: InvalidDocument: cannot read config file: /srv/api/bm2.toml
 bm2: InvalidField: project api: instances must be between 1 and 1024
-bm2: InvalidField: project api: logs.max_size_mb must be between 1 and 102400
+bm2: InvalidField: project api: log_max_size_mb must be between 1 and 102400
 ```
 
 `bm2` 前缀只在错误由 CLI 自己产生时出现。守护进程回的错误不带前缀（例如 `unknown app: api`、`port conflict: ...`）——这也是排查「到底哪一侧拒绝」的一个线索。

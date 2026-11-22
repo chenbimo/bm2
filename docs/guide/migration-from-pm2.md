@@ -82,9 +82,8 @@ max_memory_mb = 512
 max_restarts = 10
 stop_timeout_ms = 10000
 
-[logs]
-max_size_mb = 10
-keep_files = 10
+log_max_size_mb = 10
+log_keep_files = 10
 
 [notify]
 enabled = true

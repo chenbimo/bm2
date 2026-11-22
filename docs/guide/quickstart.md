@@ -117,7 +117,7 @@ my-api.error.log           # 错误日志，含崩溃与重启记录
 bm2 logs my-api -f
 ```
 
-日志超过 `[logs] max_size_mb`（默认 10 MiB）会轮转成上一代，保留几代由 `keep_files`（默认 10）决定。
+日志超过 `log_max_size_mb`（默认 10 MiB）会轮转成上一代，保留几代由 `log_keep_files`（默认 10）决定。
 
 ## 五、改配置
 
@@ -256,7 +256,7 @@ bm2 reload
 2. `cluster` 模式的应用已经开了 `reusePort`，并且监听所有地址而不是只绑回环。
 3. `fork` 模式整段端口都空着，网关 upstream 逐个覆盖。
 4. `max_memory_mb` 与机器内存匹配，`max_restarts` 不要设成很大的数字。
-5. `[logs]` 给了明确的大小与保留天数，磁盘有上界。
+5. `log_max_size_mb` 与 `log_keep_files` 给了明确的大小与代数，磁盘有上界。
 6. `[notify]` 的凭据走 `__NAME__` 占位符，真值在 `.env` 里，没有进仓库。
 7. `bm2 notify` 能收到测试消息。
 8. 网关指向正确的端口：`cluster` 一条，`fork` 每个实例一条。

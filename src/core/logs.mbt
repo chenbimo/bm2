@@ -77,7 +77,7 @@ pub(all) struct LogTask {
 
 ///|
 /// Publish one collection round: every project's staging directory, its log
-/// directory, and its own `[logs]` policy.
+/// directory, and its own `log_*` policy.
 ///
 /// The daemon's own event logs are not part of this: they belong to no project,
 /// have no app writing into them, and keep the older size-only rotation.

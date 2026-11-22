@@ -18,7 +18,7 @@ fn effective_instances(configured : Int32, mode : Mode) -> Int32 {
 let rootKeys : Array[String] = [
   "name", "cwd", "script", "runtime", "exec_mode", "instances", "port", "max_memory_mb",
   "max_restarts", "restart_delay_ms", "min_uptime_ms", "stop_timeout_ms", "notify",
-  "logs", "lang", "max_tree_processes",
+  "log_max_size_mb", "log_keep_files", "lang", "max_tree_processes",
 ]
 
 ///|
@@ -43,12 +43,12 @@ const DEFAULT_STOP_TIMEOUT_MS : Int32 = 10000
 
 ///|
 /// A log rotates once it exceeds this size in megabytes. Ten is what the daemon
-/// has always used; `[logs] max_size_mb` changes it per project.
+/// has always used; `log_max_size_mb` changes it per project.
 const DEFAULT_LOG_MAX_SIZE_MB : Int32 = 10
 
 ///|
 /// 默认保留最近 10 代。日志按大小轮转，普通与错误各一条链，上界是可算的
-/// 定值（`max_size_mb × (keep_files + 1) × 2`）；`[logs] keep_files = 0`
+/// 定值（`log_max_size_mb × (log_keep_files + 1) × 2`）；`log_keep_files = 0`
 /// 表示不留历史，只有当前那一份。
 const DEFAULT_LOG_KEEP_FILES : Int32 = 10
 
@@ -181,36 +181,20 @@ fn project_lang_name(
 }
 
 ///|
-/// The `[logs]` table is optional: without one a project rotates at the built-in
-/// size and keeps every generation.
+/// 日志轮转的两个标量就在顶层：只有两个数，凑成一张表并不省事。
 fn opt_logs(
   table : Map[String, @toml.TomlValue],
 ) -> LogsConfig raise ConfigError {
-  match table.get("logs") {
-    None => LogsConfig::builtin()
-    Some(@toml.TomlTable(section)) => {
-      reject_unknown_keys(section, logKeys, "logs")
-      {
-        max_size_mb: opt_int(
-          section,
-          "max_size_mb",
-          "logs",
-          DEFAULT_LOG_MAX_SIZE_MB,
-        ),
-        keep_files: opt_int(
-          section,
-          "keep_files",
-          "logs",
-          DEFAULT_LOG_KEEP_FILES,
-        ),
-      }
-    }
-    Some(_) => raise ConfigError::InvalidField("logs must be a table")
+  {
+    max_size_mb: opt_int(
+      table,
+      "log_max_size_mb",
+      "root",
+      DEFAULT_LOG_MAX_SIZE_MB,
+    ),
+    keep_files: opt_int(table, "log_keep_files", "root", DEFAULT_LOG_KEEP_FILES),
   }
 }
-
-///|
-let logKeys : Array[String] = ["max_size_mb", "keep_files"]
 
 ///|
 fn req_string(

@@ -64,7 +64,7 @@ fn print_tail(path : String) -> Int32 {
 /// 打印上次之后新增的部分并返回新的长度。文件变短(被清空或重建)时从头算起,
 /// 不假装什么都没发生。
 ///
-/// 每次都是整读再切片:`moonbitlang/x/fs` 没有按偏移读的接口。日志上限由 `[logs]`
+/// 每次都是整读再切片:`moonbitlang/x/fs` 没有按偏移读的接口。日志上限由 `log_max_size_mb`
 /// 的轮转兜住,而开发日志是人看的量级,所以这点重复读换来的是这里一个分支都不用写。
 fn print_new(path : String, seen : Int32) -> Int32 {
   let text = read_if_exists(path)
