@@ -83,7 +83,7 @@ Node.js 的 `reusePort` 是 `listen` 的选项，不是 `node:cluster` 模块。
 处理是项目级的，不是实例级。
 
 1. 记事件 `reuseport_missing`，detail 说明是 cluster 模式缺 `reusePort`。
-2. 每个实例的 `crash.log` 写一行 `reason=reuseport_missing`。
+2. 每个实例的 `<项目>-<日期>.error.log` 写一行 `原因=reuseport_missing`。
 3. 全部实例收到 `SIGTERM`，超过 `stop_timeout_ms` 再 `SIGKILL`，最终状态 `errored`，原因 `reuseport_missing`。
 4. 项目**保留在册**，只是不再运行。`bm2 list` 仍能看到这些行，供你诊断。
 5. 配了通知的话推一条 `reuseport_missing`（`error` 级）。
@@ -190,7 +190,7 @@ if (process.env.BM2_APP_INSTANCE === "0") {
 
 `bm2 list` 里全部实例是 `errored`，执行模式列是 `cluster`。
 
-1. 看 `~/.bm2/<项目名>/logs/<项目名>-0.crash.log`，`reason=reuseport_missing` 就是它。
+1. 看 `~/.bm2/projects/<项目名>/logs/<项目名>-<日期>.error.log`，`原因=reuseport_missing` 就是它。
 2. 看 `~/.bm2/bm2d.events.jsonl` 里的 `reuseport_missing` 事件。
 3. 检查应用是不是真的打开了 `reusePort`，而不是只在文档里写了。
 4. 检查应用监听的是不是所有地址，而不是只绑回环。

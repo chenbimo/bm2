@@ -103,22 +103,21 @@ curl http://127.0.0.1:3000
 日志在状态目录里，按项目分开。
 
 ```bash
-ls ~/.bm2/my-api/logs/
+ls ~/.bm2/projects/my-api/logs/
 ```
 
 ```text
-my-api-0.out.log
-my-api-0.error.log
-my-api-0.crash.log
+my-api-<日期>.log          # 普通日志（所有实例合并，带 [实例号]）
+my-api-<日期>.error.log    # 错误日志，含崩溃与重启记录
 ```
 
-三份按用途分开：标准输出、标准错误、崩溃诊断。跟随实时输出。
+一个项目每天两个文件，与实例数无关。跟随实时输出：
 
 ```bash
-tail -f ~/.bm2/my-api/logs/my-api-0.out.log
+bm2 logs my-api -f
 ```
 
-日志超过 `[logs] max_size_mb`（默认 10 MiB）会自动轮转，归档留在同目录，代数由 `keep` 决定。
+日志超过 `[logs] max_size_mb`（默认 10 MiB）会在当天内分片，保留几天由 `keep_days`（默认 7）决定。
 
 ## 五、改配置
 
@@ -257,7 +256,7 @@ bm2 reload
 2. `cluster` 模式的应用已经开了 `reusePort`，并且监听所有地址而不是只绑回环。
 3. `fork` 模式整段端口都空着，网关 upstream 逐个覆盖。
 4. `max_memory_mb` 与机器内存匹配，`max_restarts` 不要设成很大的数字。
-5. `[logs]` 给了明确的大小与代数，磁盘有上界。
+5. `[logs]` 给了明确的大小与保留天数，磁盘有上界。
 6. `[notify]` 的凭据走 `__NAME__` 占位符，真值在 `.env` 里，没有进仓库。
 7. `bm2 notify` 能收到测试消息。
 8. 网关指向正确的端口：`cluster` 一条，`fork` 每个实例一条。

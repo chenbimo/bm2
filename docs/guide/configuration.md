@@ -67,10 +67,10 @@ stop_timeout_ms = 10000
 # 项目文案语言：en 或 zh。省略则跟随操作者。
 lang = "zh"
 
-# 日志轮转。不写这张表就是 10 MiB、代数不限。
+# 日志轮转。不写这张表就是单文件 10 MiB、保留 7 天。
 [logs]
 max_size_mb = 10
-keep = 0
+keep_days = 7
 
 # 通知。不写这一段就是完全不上报。
 [notify]
@@ -96,7 +96,7 @@ enabled = false
 | `stop_timeout_ms` | 否 | `10000` | `1 ~ 60000` | 停机时给应用的优雅退出时间，超时升级成 `SIGKILL` |
 | `lang` | 否 | 跟随操作者 | `en` 或 `zh` | 这个项目的输出语言，通知也默认跟它走 |
 | `[logs] max_size_mb` | 否 | `10` | `1 ~ 102400` | 单个日志文件超过它就轮转 |
-| `[logs] keep` | 否 | `0` | `0 ~ 1000` | 轮转后保留几代，`0` 表示代数不限 |
+| `[logs] keep_days` | 否 | `7` | `0 ~ 365` | 保留最近几个有日志的日期，`0` 表示不清理 |
 | `[notify]` | 否 | 关闭 | 见[通知](/guide/notifications) | 事件告警与每日统计，字段见下方子表索引 |
 
 `name` 同时是状态目录下的目录名，所以字符集收得很紧，只允许路径里安全的字符。
@@ -112,7 +112,7 @@ enabled = false
 | 字段 | 说明 | 详见 |
 | --- | --- | --- |
 | `max_size_mb` | 单个日志文件的轮转阈值 | [状态与日志](/guide/state-and-logs) |
-| `keep` | 轮转后保留的代数，`0` 为不限 | [状态与日志](/guide/state-and-logs) |
+| `keep_days` | 保留最近几个有日志的日期，`0` 为不清理 | [状态与日志](/guide/state-and-logs) |
 
 ### `[notify]`
 
@@ -222,7 +222,7 @@ InvalidField: root has unknown field nope
 越界的值会让整份配置失败，不会被夹取、也不会被替换成默认值。
 
 - `logs.max_size_mb = 0` 被拒绝，而不是理解成「永不轮转」。一个静默无限增长的日志，比让你写清大小更糟。
-- `logs.keep` 为负被拒绝，因为 `0` 已经表示不限代数。
+- `logs.keep_days` 为负被拒绝，因为 `0` 已经表示不清理。
 - `instances = 0` 被拒绝，不当作「按 CPU 核数自动决定」。
 - `cwd` 给相对路径被拒绝。守护进程的工作目录与你 shell 的当前目录无关。
 
@@ -246,7 +246,7 @@ InvalidField: root has unknown field nope
 
 | 子表 | 管什么 | 细节 |
 | --- | --- | --- |
-| `[logs]` | 应用日志的轮转大小与保留代数 | [状态与日志](/guide/state-and-logs) |
+| `[logs]` | 应用日志的轮转大小与保留天数 | [状态与日志](/guide/state-and-logs) |
 | `[notify]` | 事件上报、阈值、每日统计、目标与凭据 | [通知](/guide/notifications) |
 
 两张子表都属于这个项目：日志是项目的日志，告警是项目的告警。一个项目不会替另一个项目上报。
@@ -319,7 +319,7 @@ lang = "zh"
 
 [logs]
 max_size_mb = 50
-keep = 7
+keep_days = 7
 
 [notify]
 enabled = true

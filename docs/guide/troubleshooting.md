@@ -165,7 +165,7 @@ port 3000: already held by a shared listener
 
 `~/.bm2/bm2d.log` 是守护进程自己的输出，`~/.bm2/bm2d.events.jsonl` 是事件流。
 
-日志超过 `[logs] max_size_mb` 会轮转成 `.1`、`.2`，`keep = 0` 表示代数不限。检查间隔是 `10s`，所以刚刚写满的文件最多等十秒才轮转。
+当天日志超过 `[logs] max_size_mb` 会分片成 `.1`、`.2`；`keep_days` 决定保留最近几天，`0` 表示不清理。收集与轮转每秒一轮，日志最多延迟一秒出现在文件里。
 
 ## 通知收不到
 

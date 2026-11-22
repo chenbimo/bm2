@@ -533,6 +533,8 @@ for _ in $(seq 1 40); do
 done
 check "all instances errored on missing reusePort" "1" "$BOTH_ERRORED"
 contains "reusePort event logged" "$state_dir/bm2d.events.jsonl" "reuseport_missing"
+# 崩溃记录先进暂存，收集每秒搬一轮。
+sleep 3
 contains "reusePort crash log" "$state_dir/projects/noreuse/logs/noreuse-$(date +%F).error.log" "reuseport_missing"
 sleep 2
 check "port released after violation stop" "0" "$(ss -ltn | grep -c ':4311 ' || true)"

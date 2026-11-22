@@ -195,3 +195,27 @@ pub fn cannot_determine_cwd(lang : Lang) -> String {
     Zh => "无法确定当前目录"
   }
 }
+
+///|
+pub fn help_logs(lang : Lang) -> String {
+  match lang {
+    En => "Show today's log of a project"
+    Zh => "查看项目当天的日志"
+  }
+}
+
+///|
+pub fn help_logs_error(lang : Lang) -> String {
+  match lang {
+    En => "Show the error log instead of the normal one"
+    Zh => "只看错误日志"
+  }
+}
+
+///|
+pub fn help_logs_follow(lang : Lang) -> String {
+  match lang {
+    En => "Keep printing new lines as they arrive"
+    Zh => "持续输出新增内容"
+  }
+}

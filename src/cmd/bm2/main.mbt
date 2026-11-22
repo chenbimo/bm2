@@ -71,6 +71,23 @@ async fn run() -> Int32 {
       @argparse.Command("clean", about=@i18n.help_clean(lang), flags=[
         @argparse.FlagArg("dry-run", about=@i18n.help_dry_run(lang)),
       ]),
+      @argparse.Command(
+        "logs",
+        about=@i18n.help_logs(lang),
+        flags=[
+          @argparse.FlagArg(
+            "error",
+            short='e',
+            about=@i18n.help_logs_error(lang),
+          ),
+          @argparse.FlagArg(
+            "follow",
+            short='f',
+            about=@i18n.help_logs_follow(lang),
+          ),
+        ],
+        positionals=[optional_name(@i18n.arg_limit_to_project(lang))],
+      ),
       @argparse.Command("upgrade", about=@i18n.help_upgrade(lang)),
       @argparse.Command("version", about=@i18n.help_version(lang)),
     ],
@@ -94,6 +111,8 @@ async fn run() -> Int32 {
   let json_flag = sub.flags.get("json") is Some(true)
   let dry_run_flag = sub.flags.get("dry-run") is Some(true) ||
     sub.flags.get("dry_run") is Some(true)
+  let error_flag = sub.flags.get("error") is Some(true)
+  let follow_flag = sub.flags.get("follow") is Some(true)
   let confirmed = sub.flags.get("all") is Some(true)
   let force_flag = sub.flags.get("force") is Some(true)
   let no_follow_flag = sub.flags.get("no-follow") is Some(true) ||
@@ -113,6 +132,16 @@ async fn run() -> Int32 {
   }
   match command {
     "clean" => return cmd_clean(state_dir, dry_run_flag, lang)
+    "logs" => {
+      let name = match app_arg {
+        Some(name) => name
+        None => {
+          @proc.eprintln(@i18n.logs_need_project(lang))
+          return 2
+        }
+      }
+      return cmd_logs(state_dir, name, error_flag, follow_flag, lang)
+    }
     "upgrade" => return cmd_upgrade(state_dir, lang)
     "version" => {
       println("bm2 " + VERSION)
