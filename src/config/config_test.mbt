@@ -626,16 +626,16 @@ test "logs section: defaults, overrides and bounds" {
   let doc = "name = \"app\"\ncwd = \"/srv/app\"\nscript = \"index.ts\"\ninstances = 1\nport = 3000\n"
   let config = @config.parse(doc, "/srv/app")
   assert_eq(config.logs.max_size_mb, 10)
-  assert_eq(config.logs.keep, 0)
+  assert_eq(config.logs.keep_days, 7)
   let tuned = @config.parse(
-    doc + "[logs]\nmax_size_mb = 50\nkeep = 3\n",
+    doc + "[logs]\nmax_size_mb = 50\nkeep_days = 3\n",
     "/srv/app",
   )
   assert_eq(tuned.logs.max_size_mb, 50)
-  assert_eq(tuned.logs.keep, 3)
-  // A rotation that silently never happens, and a negative generation count,
+  assert_eq(tuned.logs.keep_days, 3)
+  // A rotation that silently never happens, and a negative day count,
   // are both rejected at parse time rather than discovered later on disk.
-  for bad in ["[logs]\nmax_size_mb = 0\n", "[logs]\nkeep = -1\n"] {
+  for bad in ["[logs]\nmax_size_mb = 0\n", "[logs]\nkeep_days = -1\n"] {
     let rejected = try {
       ignore(@config.parse(doc + bad, "/srv/app"))
       false

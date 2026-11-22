@@ -90,9 +90,9 @@ pub fn validate(config : Config) -> Unit raise ConfigError {
       "project \{config.name}: logs.max_size_mb must be between 1 and 102400",
     )
   }
-  if config.logs.keep < 0 || config.logs.keep > 1000 {
+  if config.logs.keep_days < 0 || config.logs.keep_days > 365 {
     raise ConfigError::InvalidField(
-      "project \{config.name}: logs.keep must be between 0 and 1000",
+      "project \{config.name}: logs.keep_days must be between 0 and 365",
     )
   }
   // The notification section is validated by its own rules, but it belongs to

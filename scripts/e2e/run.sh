@@ -116,15 +116,15 @@ contains "list names the daemon pid" "$state_dir/bm2d.pid" "$(daemon_cell pid)"
 echo "===== B. crash loop -> errored ====="
 check "crash errored" "errored" "$(wait_status crash errored 60)"
 check "crash restart_count 3" "3" "$(cell crash TIMES)"
-contains "crash.log reason=exit_code" $state_dir/crash/logs/crash-0.crash.log "reason=exit_code"
-contains "crash.log restartCount=3" $state_dir/crash/logs/crash-0.crash.log "restartCount=3"
+contains "crash.log reason=exit_code" $state_dir/projects/crash/logs/crash-$(date +%F).error.log "原因=exit_code"
+contains "crash.log restartCount=3" $state_dir/projects/crash/logs/crash-$(date +%F).error.log "重启次数=3"
 
 echo "===== C. clean exit restarts without burning the crash budget ====="
 # quick exits cleanly every 100ms: the TIMES column (6th) grows, but a
 # clean exit never consumes the crash budget, so it must not hit errored.
 check "quick started multiple times" 1 "$([ "$(cell quick TIMES)" -ge 2 ] && echo 1 || echo 0)"
 check "quick not errored" "0" "$(bm2 list quick | grep -c 'errored' || true)"
-if [ -s $state_dir/quick/logs/quick-0.crash.log ]; then
+if [ -s $state_dir/projects/quick/logs/quick-$(date +%F).error.log ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: quick crash.log should be empty"
 else
   PASS=$((PASS + 1)); echo "PASS: quick crash.log empty"
@@ -136,8 +136,8 @@ sed -i 's/max_memory_mb = 512/max_memory_mb = 16/; s/max_restarts = 2/max_restar
 (cd "$ACC/hog" && bm2 serve >/dev/null)
 check "hog errored" "errored" "$(wait_status hog errored 80)"
 check "hog restart_count 2" "2" "$(cell hog TIMES)"
-contains "hog crash.log memory_limit" $state_dir/hog/logs/hog-0.crash.log "reason=memory_limit"
-contains "hog crash.log rssMb" $state_dir/hog/logs/hog-0.crash.log "rssMb="
+contains "hog crash.log memory_limit" $state_dir/projects/hog/logs/hog-$(date +%F).error.log "原因=memory_limit"
+contains "hog crash.log rssMb" $state_dir/projects/hog/logs/hog-$(date +%F).error.log "内存="
 
 echo "===== E. slow app serves HTTP ====="
 write_project slow slow 4231 slow.ts 1 1000
@@ -150,7 +150,7 @@ bm2 remove -f quick
 OUT=$(bm2 list quick 2>&1)
 check "quick omitted from list" "unknown app: quick" "$OUT"
 check "quick absent from all list" "0" "$(row_count quick)"
-check "quick registration removed" "0" "$([ -f "$state_dir/quick/project.json" ] && echo 1 || echo 0)"
+check "quick registration removed" "0" "$([ -f "$state_dir/projects/quick/project.json" ] && echo 1 || echo 0)"
 
 echo "===== G. daemon crash adopts running instances ====="
 SLOW_PID_BEFORE=$(cell slow PID)
@@ -166,14 +166,16 @@ contains "adoption event logged" $state_dir/bm2d.events.jsonl "\"event\":\"insta
 echo "===== H. pid reuse -> pid_conflict, foreign process untouched ====="
 sleep 300 &
 FOREIGN=$!
-cat > $state_dir/slow/slow-0.json <<EOF
+cat > $state_dir/projects/slow/state-0.json <<EOF
 {"app_name":"slow","instance_id":0,"pid":$FOREIGN,"pgid":$FOREIGN,"port":4231,"status":"online","started_at":"2026-07-31T00:00:00.000Z","restart_count":0}
 EOF
 kill -9 "$(cat "$state_dir/bm2d.pid")" 2>/dev/null
 sleep 1
 bm2 list slow >/dev/null
 check "pid_conflict status" "errored" "$(cell slow STATUS)"
-contains "pid_conflict crash.log" $state_dir/slow/logs/slow-0.crash.log "reason=pid_conflict"
+# 崩溃记录先进暂存，收集任务每秒搬一轮，这里等它搬完再看主日志。
+sleep 3
+contains "pid_conflict crash.log" $state_dir/projects/slow/logs/slow-$(date +%F).error.log "原因=pid_conflict"
 contains "pid_conflict event logged" $state_dir/bm2d.events.jsonl "\"event\":\"pid_conflict\""
 if kill -0 "$FOREIGN" 2>/dev/null; then
   PASS=$((PASS + 1)); echo "PASS: foreign process untouched"
@@ -255,7 +257,7 @@ sleep 1
 SPID=$(cell slow PID)
 kill -9 "$SPID"
 sleep 1
-contains "signal reason logged" $state_dir/slow/logs/slow-0.crash.log "signal=SIGKILL"
+contains "signal reason logged" $state_dir/projects/slow/logs/slow-$(date +%F).error.log "信号=SIGKILL"
 check "slow restarted after signal" "online" "$(wait_status slow online 20)"
 
 echo "===== P. corrupted state file is discarded ====="
@@ -263,7 +265,7 @@ DPID=$(cat "$state_dir/bm2d.pid")
 APID=$(cell slow PID)
 kill -9 "$DPID" "$APID" 2>/dev/null
 sleep 0.5
-echo 'not json' > "$state_dir/slow/slow-0.json"
+echo 'not json' > "$state_dir/projects/slow/state-0.json"
 (cd "$ACC/slow" && bm2 serve >/dev/null)
 sleep 1
 check "state_load_failed event" 1 "$(grep -c 'state_load_failed' "$state_dir/bm2d.events.jsonl" 2>/dev/null || echo 0)"
@@ -402,25 +404,25 @@ check "start resumes a stopped project" "1" "$(col_values vapp STATUS | grep -c 
 bm2 remove vapp
 check "remove exits cleanly" "0" "$?"
 check "a retired project leaves the registry" "0" "$(row_count vapp)"
-if [ -d "$state_dir/vapp/logs" ]; then
+if [ -d "$state_dir/projects/vapp/logs" ]; then
   PASS=$((PASS + 1)); echo "PASS: remove keeps the logs"
 else
   FAIL=$((FAIL + 1)); echo "FAIL: remove keeps the logs"
 fi
 # clean reports the ownerless directory first, and must not touch it.
 OUT=$(bm2 clean --dry-run 2>&1)
-if echo "$OUT" | grep -q "$state_dir/vapp"; then
+if echo "$OUT" | grep -q "$state_dir/projects/vapp"; then
   PASS=$((PASS + 1)); echo "PASS: clean --dry-run lists the ownerless directory"
 else
   FAIL=$((FAIL + 1)); echo "FAIL: clean --dry-run lists the ownerless directory (got [$OUT])"
 fi
-if [ -d "$state_dir/vapp" ]; then
+if [ -d "$state_dir/projects/vapp" ]; then
   PASS=$((PASS + 1)); echo "PASS: clean --dry-run deletes nothing"
 else
   FAIL=$((FAIL + 1)); echo "FAIL: clean --dry-run deleted something"
 fi
 bm2 clean >/dev/null
-if [ -d "$state_dir/vapp" ]; then
+if [ -d "$state_dir/projects/vapp" ]; then
   FAIL=$((FAIL + 1)); echo "FAIL: clean removes the ownerless directory"
 else
   PASS=$((PASS + 1)); echo "PASS: clean removes the ownerless directory"
@@ -444,12 +446,15 @@ echo "===== U. log rotation by size ====="
 write_project slowback slowback 4291 slow.ts 1 1000
 (cd "$ACC/slowback" && bm2 serve >/dev/null)
 sleep 1
-dd if=/dev/zero of="$state_dir/slowback/logs/slowback-0.out.log" bs=1M count=11 2>/dev/null
-# The daemon checks log sizes every 10 s; wait past one check interval.
-sleep 12
-check "rotated generation exists" 1 "$([ -f "$state_dir/slowback/logs/slowback-0.out.log.1" ] && echo 1 || echo 0)"
-SIZE=$(stat -c%s "$state_dir/slowback/logs/slowback-0.out.log")
-check "active log truncated below 1 MB" 1 "$([ "$SIZE" -lt 1048576 ] && echo 1 || echo 0)"
+# 应用写暂存，收集任务每秒搬到主日志；造 11MB 带换行的内容，让主日志超过
+# 默认 10MB 上限后按大小分片。
+yes "0123456789abcdef" | head -c 11000000 > "$state_dir/projects/slowback/.tempLogs/slowback-0.out.log"
+# 收集每秒一轮，搬运 11MB 需要几轮；轮转在写出这一轮时判定。
+sleep 8
+DAY=$(date +%F)
+check "rotated generation exists" 1 "$([ -f "$state_dir/projects/slowback/logs/slowback-$DAY.1.log" ] && echo 1 || echo 0)"
+SIZE=$(stat -c%s "$state_dir/projects/slowback/logs/slowback-$DAY.log" 2>/dev/null || echo 0)
+check "active log restarted below the limit" 1 "$([ "$SIZE" -lt 11000000 ] && echo 1 || echo 0)"
 check "app unaffected by rotation" "slow slowback-0 production 4291 0" "$(wait_http 4291 "slow slowback-0 production 4291 0")"
 bm2 remove -f slowback >/dev/null
 
@@ -474,7 +479,7 @@ for _ in $(seq 1 20); do
   sleep 0.5
 done
 check "half-dead app fully unregistered" "1" "$DEAD_GONE"
-check "twin registration removed" "0" "$([ -f "$state_dir/twin/project.json" ] && echo 1 || echo 0)"
+check "twin registration removed" "0" "$([ -f "$state_dir/projects/twin/project.json" ] && echo 1 || echo 0)"
 
 echo "===== W. cluster mode is the default and shares one port ====="
 mkdir -p "$ACC/reuseapp"
@@ -528,10 +533,10 @@ for _ in $(seq 1 40); do
 done
 check "all instances errored on missing reusePort" "1" "$BOTH_ERRORED"
 contains "reusePort event logged" "$state_dir/bm2d.events.jsonl" "reuseport_missing"
-contains "reusePort crash log" "$state_dir/noreuse/logs/noreuse-0.crash.log" "reuseport_missing"
+contains "reusePort crash log" "$state_dir/projects/noreuse/logs/noreuse-$(date +%F).error.log" "reuseport_missing"
 sleep 2
 check "port released after violation stop" "0" "$(ss -ltn | grep -c ':4311 ' || true)"
-check "project still registered" "1" "$([ -f "$state_dir/noreuse/project.json" ] && echo 1 || echo 0)"
+check "project still registered" "1" "$([ -f "$state_dir/projects/noreuse/project.json" ] && echo 1 || echo 0)"
 # Fix the app (reusePort on) and start again: the same project must recover.
 cp "$fixtures/reuse.ts" "$ACC/noreuse/"
 sed -i 's/script = "slow.ts"/script = "reuse.ts"/' "$ACC/noreuse/bm2.toml"
@@ -561,7 +566,7 @@ if echo "$OUT" | grep -q "too old" && echo "$OUT" | grep -q "1.4.0"; then
 else
   FAIL=$((FAIL + 1)); echo "FAIL: old runtime rejected message (got [$OUT])"
 fi
-check "old runtime project not registered" "0" "$(ls "$state_dir/oldver/project.json" 2>/dev/null | wc -l)"
+check "old runtime project not registered" "0" "$(ls "$state_dir/projects/oldver/project.json" 2>/dev/null | wc -l)"
 bm2 kill -y >/dev/null 2>&1 || true
 
 echo "===== Z. state dir permissions are tightened on startup ====="

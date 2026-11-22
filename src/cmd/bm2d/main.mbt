@@ -209,7 +209,11 @@ async fn run() -> Int32 {
           @proc.hostname(),
           outbound,
         )
-        let rotator = @core.RotateRunner::new(state_dir, sv.rotations())
+        let rotator = @core.RotateRunner::new(
+          state_dir,
+          sv.rotations(),
+          sv.log_tasks(),
+        )
         let exits : @aqueue.Queue[@core.ExitMode] = @aqueue.Queue::Queue(
           kind=Blocking(EXIT_SIGNAL_CAPACITY),
         )

@@ -410,7 +410,7 @@ fn wait_project_gone(state_dir : String, name : String) -> Bool {
 /// has let go of the project. The layout is fixed: by then the state files are
 /// already gone, so `logs/` is all that is left.
 fn purge_project(state_dir : String, name : String) -> Unit {
-  let root = @utils.join_path(state_dir, name)
+  let root = @core.project_dir(state_dir, name)
   let logs = @utils.join_path(root, "logs")
   // The read is inside `discard`: a missing `logs/` is the normal case for a
   // project that never wrote anything, and the removals below then find nothing.
@@ -429,6 +429,21 @@ fn purge_project(state_dir : String, name : String) -> Unit {
     })
   }
   @utils.discard(() => @fs.remove_dir(logs))
+  // 暂存目录也归我们：应用写的小文件与收集中的副本。
+  let staging = @core.project_staging_dir(state_dir, name)
+  if @fs.path_exists(staging) {
+    @utils.discard(() => {
+      for entry in @fs.read_dir(staging) {
+        let path = if entry.has_prefix("/") {
+          entry
+        } else {
+          @utils.join_path(staging, entry)
+        }
+        @utils.discard(() => @fs.remove_file(path))
+      }
+    })
+    @utils.discard(() => @fs.remove_dir(staging))
+  }
   // The state files at the top level are ours as well: the daemon removes
   // `project.json` when it finalizes a removal, but the per-instance files are
   // not its business to unlink, so they are still here. Anything else in the
@@ -438,7 +453,7 @@ fn purge_project(state_dir : String, name : String) -> Unit {
     @utils.discard(() => {
       for entry in @fs.read_dir(root) {
         let ours = entry == "project.json" ||
-          (entry.has_prefix(name + "-") && entry.has_suffix(".json"))
+          (entry.has_prefix("state-") && entry.has_suffix(".json"))
         if ours {
           let path = if entry.has_prefix("/") {
             entry
@@ -462,20 +477,22 @@ fn purge_project(state_dir : String, name : String) -> Unit {
 /// test is deliberately conservative, because deleting the logs of a project that
 /// is still in service is the one mistake this command must not be able to make.
 fn cmd_clean(state_dir : String, dry_run : Bool, lang : @i18n.Lang) -> Int32 {
-  let entries = try @fs.read_dir(state_dir) catch {
+  // 项目都在 projects/ 下，只扫这一层；state_dir 根是 bm2 自己的文件。
+  let projects_root = @utils.join_path(state_dir, "projects")
+  let entries = try @fs.read_dir(projects_root) catch {
     _ => return 0
   } noraise {
     found => found
   }
   let mut swept = 0
   for entry in entries {
-    let root = @utils.join_path(state_dir, entry)
+    let root = @utils.join_path(projects_root, entry)
     let is_dir = try @fs.is_dir(root) catch {
       _ => false
     } noraise {
       it => it
     }
-    if !is_dir || @fs.path_exists(root + "/project.json") {
+    if !is_dir || @fs.path_exists(@core.project_path(state_dir, entry)) {
       continue
     }
     swept += 1

@@ -64,6 +64,7 @@ pub struct Supervisor {
   /// them. Wall-clock time is read where an absolute time is needed.
   mut last_memory_check_ms : UInt64
   mut last_log_check_ms : UInt64
+  mut last_collect_ms : UInt64
   mut last_reuseport_probe_ms : UInt64
   /// Control requests from the control plane. Nothing else may mutate
   /// supervised state, so this queue is the control plane's whole vocabulary:
@@ -73,6 +74,9 @@ pub struct Supervisor {
   /// Sizes, copying and renaming all happen over there, so no filesystem work
   /// can land in a tick that must stay free of blocking calls.
   rotations : @aqueue.Queue[Array[@log.RotateJob]]
+  /// Log collection rounds published by the tick: every project's staging
+  /// directory plus its own `[logs]` policy. The collecting task moves the bytes.
+  log_tasks : @aqueue.Queue[Array[LogTask]]
   /// Children killed on a failed spawn, waiting to be reaped: (pid, deadline on
   /// the monotonic clock). Such a child is never registered as an instance, so
   /// the instance reaper cannot see it, and waiting for it in place would hold
@@ -150,9 +154,11 @@ pub fn Supervisor::new(
     memory_interval_ms,
     last_memory_check_ms: 0UL,
     last_log_check_ms: 0UL,
+    last_collect_ms: 0UL,
     last_reuseport_probe_ms: 0UL,
     commands: @aqueue.Queue::Queue(kind=Blocking(COMMAND_QUEUE_CAPACITY)),
     rotations: @aqueue.Queue::Queue(kind=Blocking(1)),
+    log_tasks: @aqueue.Queue::Queue(kind=Blocking(1)),
     reaping: [],
     projects: Map([]),
     started_mono_ms: @proc.monotonic_ms(),
@@ -189,7 +195,7 @@ pub fn Supervisor::register(
       raise NameTaken(name, owner.config_path)
     _ => ()
   }
-  @fsx.mkdir_p("\{self.state_dir}/\{name}/logs", mode=0o700)
+  @fsx.mkdir_p(project_logs_dir(self.state_dir, name), mode=0o700)
   // Instances are built once, on first registration; a re-registration only
   // refreshes the config, and the rebuild below keeps the launch counters.
   // They are computed before the entry below because the entry is what holds
@@ -286,6 +292,15 @@ pub fn Supervisor::rotations(
   self : Supervisor,
 ) -> @aqueue.Queue[Array[@log.RotateJob]] {
   self.rotations
+}
+
+///|
+/// The queue supervision publishes log collection rounds on, handed to the
+/// collecting task once at startup.
+pub fn Supervisor::log_tasks(
+  self : Supervisor,
+) -> @aqueue.Queue[Array[LogTask]] {
+  self.log_tasks
 }
 
 ///|
@@ -413,9 +428,16 @@ pub fn Supervisor::tick(self : Supervisor) -> Unit {
     self.last_memory_check_ms = now
     self.check_memory()
   }
+  // 应用日志：每秒把各实例的暂存搬进项目日志。tick 只发一份清单，
+  // 读、搬、轮转全在收集任务里。
+  if now - self.last_collect_ms >= COLLECT_INTERVAL_MS {
+    self.last_collect_ms = now
+    self.publish_log_tasks()
+  }
+  // daemon 自己的事件日志与 stderr：流量低，用更慢的时钟。
   if now - self.last_log_check_ms >= LOG_CHECK_INTERVAL_MS {
     self.last_log_check_ms = now
-    self.publish_rotation()
+    self.publish_daemon_rotation()
   }
   self.check_reuseport(now)
   self.check_deadlines(now)
@@ -711,9 +733,12 @@ fn Supervisor::spawn_instance(
   app : @config.Config,
   inst : Instance,
 ) -> Unit raise {
-  let logs = "\{self.state_dir}/\{app.name}/logs"
-  @fsx.mkdir_p(logs, mode=0o700)
-  let base = "\{logs}/\{app.name}-\{inst.instance_id}"
+  // 应用的 stdout/stderr 写进 .tempLogs，由收集任务搬运到项目日志。
+  // 用 O_APPEND 打开，所以收集任务清空它之后，下一次写自动落在偏移 0。
+  let staging = project_staging_dir(self.state_dir, app.name)
+  @fsx.mkdir_p(staging, mode=0o700)
+  @fsx.mkdir_p(project_logs_dir(self.state_dir, app.name), mode=0o700)
+  let base = "\{staging}/\{app.name}-\{inst.instance_id}"
   inst.mark_starting()
   let runtime = if app.runtime == "node" { "node" } else { self.bun_path }
   let pid = try
@@ -722,7 +747,7 @@ fn Supervisor::spawn_instance(
       script: app.script,
       cwd: app.cwd,
       out_log: base + ".out.log",
-      err_log: base + ".error.log",
+      err_log: base + ".err.log",
       env_blob: @proc.instance_env_blob(
         app.name,
         inst.instance_id,

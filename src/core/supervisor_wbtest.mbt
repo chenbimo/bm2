@@ -132,11 +132,12 @@ test "spawn failures back off and exhaust the budget into errored" {
   sv.mark_spawn_failed(inst)
   assert_true(inst.status is Errored)
   assert_eq(inst.restart_at_ms, 0UL)
+  // 崩溃记录写进项目的错误暂存，收集任务下一轮把它搬进错误日志。
   let crash = @fs.read_file_to_string(
-    root + "/state/wbapp/logs/wbapp-0.crash.log",
+    root + "/state/projects/wbapp/.tempLogs/wbapp-bm2.err.log",
   )
-  assert_true(crash.contains("reason=spawn_failed"))
-  assert_true(crash.contains("restartCount=3"))
+  assert_true(crash.contains("原因=spawn_failed"))
+  assert_true(crash.contains("重启次数=3"))
 }
 
 ///|
@@ -144,30 +145,31 @@ test "spawn failures back off and exhaust the budget into errored" {
 /// what supervision owes the rotation task is exactly this list: every
 /// instance's three logs, plus the three daemon-level ones, with copytruncate
 /// only where a process holds the file open.
-test "publish_rotation names every log and who holds it open" {
+test "publish_daemon_rotation names the daemon logs and who holds them open" {
   let root = "/tmp/bm2-wbtest-rotate-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4452)
-  sv.publish_rotation()
+  sv.publish_daemon_rotation()
   let jobs = match sv.rotations().try_get() {
     Some(jobs) => jobs
-    None => fail("expected publish_rotation to publish a sweep")
+    None => fail("expected publish_daemon_rotation to publish a sweep")
   }
   let found : Map[String, Bool] = Map([])
   for job in jobs {
     found.set(job.path, job.copytruncate)
-    // The built-in policy travels with every job: this project has no `[logs]`
-    // table, and the daemon's own logs are not any project's to configure.
     assert_eq(job.max_bytes, 10L * 1024L * 1024L)
+    // daemon 自己的日志没有「保留几代」的配置项，沿用不限代数。
     assert_eq(job.keep, 0)
   }
-  let base = root + "/state/wbapp/logs/wbapp-0"
-  // stdout and stderr are held open by the app; the crash log is ours.
-  assert_eq(found.get(base + ".out.log"), Some(true))
-  assert_eq(found.get(base + ".error.log"), Some(true))
-  assert_eq(found.get(base + ".crash.log"), Some(false))
+  // The two event logs are written by us; the daemon stderr is held open by the
+  // daemon itself, so it has to rotate by copytruncate.
   assert_eq(found.get(root + "/state/bm2d.events.jsonl"), Some(false))
   assert_eq(found.get(root + "/state/bm2.events.jsonl"), Some(false))
   assert_eq(found.get(root + "/state/bm2d.log"), Some(true))
+  // 项目日志不在这一批：它们由收集任务写，轮转在 LogStream 里按日期 + 大小做。
+  assert_eq(
+    found.get(root + "/state/projects/wbapp/logs/wbapp-2026-11-22.log"),
+    None,
+  )
 }
 
 ///|

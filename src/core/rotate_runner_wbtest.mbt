@@ -17,35 +17,34 @@ fn job(
 }
 
 ///|
-/// The whole path: supervision publishes a sweep, the rotation task runs it, the
-/// oversized log is rotated and the event log says so.
-async test "a published sweep rotates the oversized log" {
+/// The whole path for the daemon's own logs: supervision publishes a sweep, the
+/// rotation task runs it, the oversized event log is rotated and the event log
+/// says so.
+///
+/// 项目日志不走这条链路了：它们由收集任务写主日志，轮转在 `LogStream` 里按
+/// 「日期 + 大小」完成，测试在 log 包内。
+async test "a published sweep rotates the oversized daemon log" {
   let root = "/tmp/bm2-wbtest-sweep-\{@proc.get_pid()}"
   let sv = wb_setup(root, 4454)
   let state_dir = root + "/state"
-  let base = state_dir + "/wbapp/logs/wbapp-0"
+  let target = state_dir + "/bm2d.events.jsonl"
   // 11 MB exceeds the 10 MB rotation threshold.
-  @fsx.append_file(base + ".out.log", Bytes::make(11 * 1024 * 1024, b'x'))
-  sv.publish_rotation()
+  @fsx.append_file(target, Bytes::make(11 * 1024 * 1024, b'x'))
+  sv.publish_daemon_rotation()
   let jobs = match sv.rotations().try_get() {
     Some(jobs) => jobs
-    None => fail("expected publish_rotation to publish a sweep")
+    None => fail("expected publish_daemon_rotation to publish a sweep")
   }
-  RotateRunner::new(state_dir, sv.rotations()).sweep(jobs)
-  match @fsx.file_size(base + ".out.log.1") {
+  RotateRunner::new(state_dir, sv.rotations(), sv.log_tasks()).sweep(jobs)
+  match @fsx.file_size(target + ".1") {
     Some(size) => assert_true(size > 10L * 1024L * 1024L)
-    None => fail("expected rotated generation .out.log.1")
+    None => fail("expected rotated generation .1")
   }
-  // The app keeps its fd: the live file is the same inode, emptied in place.
-  assert_eq(@fsx.file_size(base + ".out.log"), Some(0L))
-  // The crash log was never written, so its sweep rotates nothing and says
-  // nothing — a missing file is the normal case, not a failure to report.
-  assert_false(@fs.path_exists(base + ".crash.log.1"))
-  let events = @utf8.decode_lossy(
-    @fsx.read_small(state_dir + "/bm2d.events.jsonl"),
-  )
-  assert_true(events.contains("log_rotated"))
-  assert_false(events.contains("log_rotate_failed"))
+  // sweep 自己会往事件日志里记一行，所以这里只要求它被截到很小的量级。
+  match @fsx.file_size(target) {
+    Some(size) => assert_true(size < 1024L)
+    None => fail("expected the live log to exist after rotation")
+  }
 }
 
 ///|

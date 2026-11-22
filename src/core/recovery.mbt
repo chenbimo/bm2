@@ -3,15 +3,15 @@
 /// restarted daemon can adopt still-running instances. Projects whose
 /// config file is gone are skipped with an event; they are never started.
 pub fn Supervisor::load_projects(self : Supervisor) -> Unit {
-  let entries = try @fs.read_dir(self.state_dir) catch {
+  // 项目都在 projects/ 下；state_dir 根只剩 bm2 自己的文件。
+  let root = @utils.join_path(self.state_dir, "projects")
+  let entries = try @fs.read_dir(root) catch {
     _ => return
   } noraise {
     found => found
   }
   for entry in entries {
-    let info = try
-      load_project("\{self.state_dir}/\{entry}/project.json")
-    catch {
+    let info = try load_project(project_path(self.state_dir, entry)) catch {
       _ => continue
     } noraise {
       loaded => loaded

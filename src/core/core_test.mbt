@@ -301,7 +301,7 @@ async test "state file reflects online then stopped" {
   let sv = make_sv(root, app_config("api", dir, 4150))
   sv.start_app("api")
   drive(sv, 300)
-  let path = root + "/state/api/api-0.json"
+  let path = root + "/state/projects/api/state-0.json"
   let inst = sv.instance("api", 0)
   let online = @core.load_state(path)
   assert_eq(online.pid, inst.pid)
@@ -551,12 +551,12 @@ test "load_projects skips a project whose config is gone" {
   // A run-fixed root: two tests in one process must not share the listing.
   let root = "/tmp/bm2-core-test-lost-config-\{@proc.get_pid()}"
   let state_dir = root + "/state"
-  @fsx.mkdir_p(state_dir + "/api")
+  @fsx.mkdir_p(state_dir + "/projects/api")
   // The record must be one the loader would accept — mode and stopped
   // included — so the exercise lands on the config-gone branch, not on a
   // record the loader silently drops before it can even log about it.
   @fsx.write_atomic(
-    state_dir + "/api/project.json",
+    state_dir + "/projects/api/project.json",
     @utf8.encode(
       "{\"config_path\":\"/nonexistent/bm2.toml\",\"mode\":\"production\",\"stopped\":false}",
     ),

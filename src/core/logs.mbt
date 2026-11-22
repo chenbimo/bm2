@@ -4,57 +4,106 @@
 const MIB : Int64 = 1024L * 1024L
 
 ///|
-/// How often the daemon checks log sizes for rotation.
+/// How often collected logs are flushed into the project log files. One second is
+/// slow enough to batch a burst and fast enough that `bm2 logs -f` reads like
+/// live output.
+const COLLECT_INTERVAL_MS : UInt64 = 1000UL
+
+///|
+/// How often the daemon's own logs (event logs, stderr) are checked for size.
+/// They are far lower-traffic than app output, and rotating them copies bytes,
+/// so this runs on its own slower clock.
 const LOG_CHECK_INTERVAL_MS : UInt64 = 10000UL
 
 ///|
-/// Ask the rotation task to sweep the logs that are past their size limit: app
-/// stdout/stderr are held open by the app process (copytruncate), crash logs
-/// and the daemon event logs are written by us (rename).
+/// How often stale date files are pruned: once a minute is plenty for a
+/// directory scan per project.
+const PRUNE_EVERY_ROUNDS : Int32 = 60
+
+///|
+/// 项目目录：状态、暂存、日志都在这里，和 bm2 自己的文件分开。
+pub fn project_dir(state_dir : String, name : String) -> String {
+  @utils.join_path(@utils.join_path(state_dir, "projects"), name)
+}
+
+///|
+/// 项目的成品日志目录：`logs/<项目>-<日期>[.error][.<片>].log`。
+pub fn project_logs_dir(state_dir : String, name : String) -> String {
+  @utils.join_path(project_dir(state_dir, name), "logs")
+}
+
+///|
+/// 项目的实例暂存目录：应用直接把 stdout/stderr 写进这里，收集任务读走即清空。
+pub fn project_staging_dir(state_dir : String, name : String) -> String {
+  @utils.join_path(project_dir(state_dir, name), ".tempLogs")
+}
+
+///|
+/// 本地日期（`2026-11-22`）：日志按天切分用的是人所在的那一天，不是 UTC。
+/// 每日统计的整点判断也走本地时间，两处口径一致。
+pub fn local_day(epoch_ms : UInt64) -> String {
+  let parts = match @proc.local_parts(epoch_ms) {
+    Some(parts) => parts
+    None => return "1970-01-01"
+  }
+  let (year, month, day, _, _, _) = parts
+  let pad = fn(n : Int32, width : Int32) {
+    let text = n.to_string()
+    let mut out = ""
+    for _ in 0..<(width - text.length()) {
+      out = out + "0"
+    }
+    out + text
+  }
+  pad(year, 4) + "-" + pad(month, 2) + "-" + pad(day, 2)
+}
+
+///|
+/// 一个项目这一轮要收集什么。纯字符串与数字，tick 里构造不碰文件系统。
+pub(all) struct LogTask {
+  name : String
+  staging_dir : String
+  logs_dir : String
+  max_bytes : Int64
+  keep_days : Int32
+}
+
+///|
+/// Publish one collection round: every project's staging directory, its log
+/// directory, and its own `[logs]` policy.
 ///
-/// Building this list is pure string work: each job carries the project's own
-/// `[logs]` policy, and the sizes, the copy and the rename all happen on the
-/// rotation task. So the tick never touches the filesystem for rotation at all —
-/// a ten-megabyte copy on a slow disk cannot delay a deadline, a delivery or an
-/// accept.
-fn Supervisor::publish_rotation(self : Supervisor) -> Unit {
-  let jobs : Array[@log.RotateJob] = []
+/// The daemon's own event logs are not part of this: they belong to no project,
+/// have no app writing into them, and keep the older size-only rotation.
+fn Supervisor::publish_log_tasks(self : Supervisor) -> Unit {
+  let tasks : Array[LogTask] = []
   for pair in self.projects.iter() {
-    let (name, project) = pair
-    let arr = project.instances
-    // The project owns its rotation policy. A project registered before the
-    // `[logs]` table existed, or one that omits it, gets the built-in policy.
+    let (name, _) = pair
     let policy = match self.config_of(name) {
       Some(app) => app.logs
       None => @config.LogsConfig::builtin()
     }
-    let max_bytes = policy.max_size_mb.to_int64() * MIB
-    for inst in arr {
-      let base = "\{self.state_dir}/\{name}/logs/\{name}-\{inst.instance_id}"
-      for
-        suffix in [
-          (".out.log", true),
-          (".error.log", true),
-          (".crash.log", false),
-        ] {
-        let (tail, copytruncate) = suffix
-        jobs.push({
-          path: base + tail,
-          copytruncate,
-          max_bytes,
-          keep: policy.keep,
-        })
-      }
-    }
+    tasks.push({
+      name,
+      staging_dir: project_staging_dir(self.state_dir, name),
+      logs_dir: project_logs_dir(self.state_dir, name),
+      max_bytes: policy.max_size_mb.to_int64() * MIB,
+      keep_days: policy.keep_days,
+    })
   }
-  // The daemon's own logs belong to no single project, so they use the built-in
-  // policy. Two of them have no other writer that could bound them: the CLI's own
-  // event log grows one line per invocation, and the daemon's stderr is held open
-  // by the daemon itself (so it rotates by copytruncate, the same trade-off as
-  // the app logs).
+  if tasks.length() == 0 {
+    return
+  }
+  @utils.discard(() => ignore(self.log_tasks.try_put(tasks)))
+}
+
+///|
+/// Ask the rotation task to sweep the daemon's own logs: the two event logs are
+/// written by us (rename is enough), the daemon stderr is held open by the daemon
+/// itself (copytruncate).
+fn Supervisor::publish_daemon_rotation(self : Supervisor) -> Unit {
   let builtin = @config.LogsConfig::builtin()
-  let daemon_bytes = builtin.max_size_mb.to_int64() * MIB
-  let daemon_keep = builtin.keep
+  let max_bytes = builtin.max_size_mb.to_int64() * MIB
+  let jobs : Array[@log.RotateJob] = []
   for
     suffix in [
       ("bm2d.events.jsonl", false),
@@ -65,44 +114,58 @@ fn Supervisor::publish_rotation(self : Supervisor) -> Unit {
     jobs.push({
       path: @utils.join_path(self.state_dir, name),
       copytruncate,
-      max_bytes: daemon_bytes,
-      keep: daemon_keep,
+      max_bytes,
+      keep: 0,
     })
   }
-  // Capacity one, dropping put: a sweep the rotation task has not picked up yet
-  // is superseded by this one, which re-checks every path anyway.
   @utils.discard(() => ignore(self.rotations.try_put(jobs)))
 }
 
 ///|
-/// Append one line to the instance crash log. The log is the operator's
-/// only record of why an instance was restarted or parked in errored, so
-/// it stays a plain text line rather than a nested structure.
+/// 记一条 bm2 自己的日志行：写进该项目的 `<项目>-bm2.err.log` 暂存，
+/// 收集时自动带上 `[bm2] ` 前缀进错误日志。
+///
+/// 走暂存而不是直接写主日志，是为了顺序：应用崩溃前最后几行还在它自己的
+/// 暂存里，同一条收集链路沿用同一批文件，不会出现「崩溃记录跑到最后输出前面」。
+fn Supervisor::write_daemon_log(
+  self : Supervisor,
+  app_name : String,
+  line : String,
+) -> Unit {
+  let staging = project_staging_dir(self.state_dir, app_name)
+  // crash 记录可能发生在 spawn 之前（拉起就失败），暂存目录还没建过。
+  @utils.discard(() => @fsx.mkdir_p(staging, mode=0o700))
+  let path = @utils.join_path(staging, app_name + "-bm2.err.log")
+  @utils.discard(() => @log.plain(path, line))
+}
+
+///|
+/// Append one line to the project's error log, through the staging file: the
+/// operator's only record of why an instance was restarted or parked in errored,
+/// so it stays a plain text line rather than a nested structure.
 fn Supervisor::write_crash(
   self : Supervisor,
   inst : Instance,
   reason : String,
 ) -> Unit {
   let buf = StringBuilder()
-  buf.write_string("app=" + inst.app_name)
-  buf.write_string(" instance=" + inst.instance_id.to_string())
+  buf.write_string("实例 " + inst.instance_id.to_string())
   buf.write_string(" pid=" + inst.pid.to_string())
-  buf.write_string(" reason=" + reason)
+  buf.write_string(" 原因=" + reason)
   if inst.last_exit_code is Some(code) {
-    buf.write_string(" exitCode=" + code.to_string())
+    buf.write_string(" 退出码=" + code.to_string())
   }
   if inst.last_signal is Some(sig) {
-    buf.write_string(" signal=" + signal_name(sig))
+    buf.write_string(" 信号=" + signal_name(sig))
   }
   if reason == "memory_limit" {
-    buf.write_string(" rssMb=" + (inst.last_rss_kb / 1024).to_string())
+    buf.write_string(" 内存=" + (inst.last_rss_kb / 1024).to_string() + "MB")
     let limit = match self.config_of(inst.app_name) {
       Some(app) => app.max_memory_mb.to_string()
       None => "-"
     }
-    buf.write_string(" limitMb=" + limit)
+    buf.write_string(" 上限=" + limit + "MB")
   }
-  buf.write_string(" restartCount=" + inst.restart_count.to_string())
-  let path = "\{self.state_dir}/\{inst.app_name}/logs/\{inst.app_name}-\{inst.instance_id}.crash.log"
-  @utils.discard(() => @log.plain(path, buf.to_string()))
+  buf.write_string(" 重启次数=" + inst.restart_count.to_string())
+  self.write_daemon_log(inst.app_name, buf.to_string())
 }

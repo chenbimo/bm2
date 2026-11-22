@@ -21,15 +21,18 @@ const FOLLOW_CHECK_EVERY : Int32 = 25
 
 ///|
 fn follow_logs(state_dir : String, name : String, lang : @i18n.Lang) -> Unit {
-  let out_path = "\{state_dir}/\{name}/logs/\{name}-0.out.log"
-  let err_path = "\{state_dir}/\{name}/logs/\{name}-0.error.log"
+  // 日志按天一个文件，跟随的是今天那份普通日志与错误日志。
+  let day = @core.local_day(@utils.now_ms())
+  let logs = @core.project_logs_dir(state_dir, name)
+  let out_path = logs + "/" + name + "-" + day + ".log"
+  let err_path = logs + "/" + name + "-" + day + ".error.log"
   // Written with the unbuffered writer: stdout to a pipe or a file is fully
   // buffered, so a session interrupted before the buffer flushed would lose the
   // one line that says what this command is doing.
   @proc.print(@i18n.follow_started(lang, name))
   let mut out_seen = print_tail(out_path)
   let mut err_seen = print_tail(err_path)
-  let marker = "\{state_dir}/\{name}/project.json"
+  let marker = @core.project_path(state_dir, name)
   let mut round = 0
   while true {
     @proc.sleep_ms(FOLLOW_POLL_MS)

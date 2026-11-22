@@ -91,7 +91,10 @@ pub fn state_path(
   app_name : String,
   instance_id : Int32,
 ) -> String {
-  "\{state_dir}/\{app_name}/\{app_name}-\{instance_id}.json"
+  project_dir(state_dir, app_name) +
+  "/state-" +
+  instance_id.to_string() +
+  ".json"
 }
 
 ///|
@@ -126,7 +129,7 @@ pub extend ProjectInfo with Eq::{not_equal, equal}
 
 ///|
 pub fn project_path(state_dir : String, name : String) -> String {
-  "\{state_dir}/\{name}/project.json"
+  project_dir(state_dir, name) + "/project.json"
 }
 
 ///|
