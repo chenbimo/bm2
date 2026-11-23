@@ -16,19 +16,52 @@ pub fn help_root(lang : Lang) -> String {
 }
 
 ///|
-pub fn help_start(lang : Lang) -> String {
+pub fn help_usage(lang : Lang) -> String {
   match lang {
-    En => "Start the project; reads ./bm2.toml or the given config path"
-    Zh =>
-      "启动项目;默认读当前目录的 bm2.toml,也可指定配置路径"
+    En => "Usage: bm2 <command> [args]"
+    Zh => "用法:bm2 <命令> [参数]"
   }
 }
 
 ///|
-pub fn help_restart(lang : Lang) -> String {
+/// 顶层帮助的分组标题。项目命令与守护进程命令分开列，是因为 `kill` 与
+/// `reload` 的对象根本不是项目——平铺在一起会让人以为 `bm2 kill api` 存在。
+pub fn help_group_project(lang : Lang) -> String {
   match lang {
-    En => "Stop and start again, re-reading the config"
-    Zh => "停掉再起一次,并重新读取配置"
+    En => "Projects"
+    Zh => "项目管理"
+  }
+}
+
+///|
+pub fn help_group_daemon(lang : Lang) -> String {
+  match lang {
+    En => "Daemon"
+    Zh => "守护进程"
+  }
+}
+
+///|
+pub fn help_group_other(lang : Lang) -> String {
+  match lang {
+    En => "Other"
+    Zh => "其他"
+  }
+}
+
+///|
+pub fn help_hint(lang : Lang) -> String {
+  match lang {
+    En => "Run 'bm2 <command> --help' for the arguments of one command."
+    Zh => "用 bm2 <命令> --help 查看该命令的参数。"
+  }
+}
+
+///|
+pub fn help_start(lang : Lang) -> String {
+  match lang {
+    En => "Start the project, restarting it if it is already running"
+    Zh => "启动项目;已在运行则重启,新配置随之生效"
   }
 }
 
@@ -59,16 +92,16 @@ pub fn help_force(lang : Lang) -> String {
 ///|
 pub fn help_kill(lang : Lang) -> String {
   match lang {
-    En => "Stop and unregister a project"
-    Zh => "停止并注销一个项目"
+    En => "Stop bm2d and every app it runs"
+    Zh => "停掉守护进程与它跑的全部应用"
   }
 }
 
 ///|
 pub fn help_all(lang : Lang) -> String {
   match lang {
-    En => "Stop bm2d and all apps (skip confirmation)"
-    Zh => "停止 bm2d 与全部应用(跳过确认)"
+    En => "Skip the confirmation"
+    Zh => "跳过确认提示"
   }
 }
 

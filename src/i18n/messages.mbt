@@ -18,15 +18,6 @@ pub fn started(lang : Lang) -> String {
 }
 
 ///|
-/// `start` 的幂等分支：项目已经在跑，所以这一条命令什么也没改。
-pub fn already_running(lang : Lang, name : String) -> String {
-  match lang {
-    En => "\{name} is already running"
-    Zh => "\{name} 已在运行"
-  }
-}
-
-///|
 /// 同名项目还在删除中。它不直说「稍后再试」以外的话：实例在退、端口占着，
 /// 这时候拉起来只会撞端口，用户唯一能做的是等一下。
 pub fn still_deleting(lang : Lang, name : String) -> String {
@@ -249,13 +240,5 @@ pub fn notify_target_failed(
   match lang {
     En => name + ": failed - " + reason
     Zh => name + ": 失败 - " + reason
-  }
-}
-
-///|
-pub fn restart_requires_name(lang : Lang) -> String {
-  match lang {
-    En => "restart needs a project name: bm2 restart <name>"
-    Zh => "restart 需要项目名:bm2 restart <项目>"
   }
 }

@@ -117,9 +117,13 @@ Bun.serve({ port, reusePort: true, fetch: () => new Response("ok") })
 
 一条命令一行说明。动作型命令成功时不打印任何东西，退出码就是结果。
 
+命令分两层：`start` / `stop` / `delete` / `list` / `check` / `notify` 管项目，`kill` / `reload` / `upgrade` / `clean` 管守护进程本身。跑 `bm2 --help` 看到的也是这个分组。
+
 ### bm2 start
 
-登记项目、拉起实例、写状态。有三种给配置的方式：
+登记项目、拉起实例、写状态。没在跑就起，已经在跑就停掉重起——所以改过端口、实例数或脚本之后，跑一次 `start` 就生效。
+
+有三种给配置的方式：
 
 ```bash
 bm2 start                 # 读当前目录的 bm2.toml
@@ -127,15 +131,7 @@ bm2 start api/bm2.toml    # 指定配置文件
 bm2 start api             # 指定目录，找其中的 bm2.toml
 ```
 
-已经在这跑的时候它什么都不做，退出码仍是 0——启动脚本与 CI 里重复执行是安全的。要换进程用 `restart`。
-
-### bm2 restart
-
-停掉旧实例、重新读磁盘上的配置、再拉起。改过端口或实例数之后用它，改动会生效。
-
-```bash
-bm2 restart api
-```
+每次 `start` 都会让进程换一次，包括已经在健康运行的时候。启动脚本里重复执行会连续重启，需要幂等就自己判断一下。
 
 ### bm2 list
 
@@ -245,11 +241,13 @@ project api has no notifications enabled: set [notify].enabled = true and add at
 
 ### bm2 kill
 
-停掉全部项目并退出看管进程。要确认才动手。
+停掉守护进程与它跑的全部应用。要确认才动手。
 
 ```bash
 bm2 kill -y
 ```
+
+它不接受项目名：这条命令的对象是守护进程，不是某一个项目。想停单个项目用 `stop`，想连登记一起清掉用 `delete`。
 
 ### bm2 version
 
@@ -747,7 +745,7 @@ tail -5 ~/.bm2/projects/api/logs/api.error.log
 api 正在删除中，稍等再启动
 ```
 
-删除是异步的：它发完停止信号就返回，实例还在退出、端口还没放开。等 `bm2 list` 里这个名字消失再 start，或者一开始就用 `bm2 restart`——它本来就是「停下再起」，不会撞上这个时间差。
+删除是异步的：它发完停止信号就返回，实例还在退出、端口还没放开。等 `bm2 list` 里这个名字消失再 start，或者一开始就换个端口/名字重起，不会撞上这个时间差。
 
 ### 报 reuseport_missing
 
@@ -825,7 +823,7 @@ log_keep_files = 3
 | `pm2 list` | `bm2 list` |
 | `pm2 logs api` | `tail -f ~/.bm2/projects/api/logs/api.log` |
 | `pm2 stop api` | `bm2 stop api` |
-| `pm2 restart api` | `bm2 restart api` |
+| `pm2 restart api` | `bm2 start`（在项目目录里） |
 | `pm2 delete api` | `bm2 delete api` |
 | `pm2 flush` | 由轮转自动处理 |
 | `pm2 startup` + `pm2 save` | 交给 systemd |

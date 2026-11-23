@@ -24,6 +24,22 @@ async fn run() -> Int32 {
   // Resolved once, from this process's environment, and sent with every request
   // so the daemon answers in the language this terminal is printing in.
   let lang = @i18n.resolve_env()
+  // 顶层帮助自己渲染：argparse 的框架是英文（Usage / Commands / Options），
+  // 而且把项目命令与守护进程命令平铺在一起，看不出层次。只有这一屏自渲染，
+  // 子命令的 --help 仍交给 argparse，参数说明本来就是中文的。
+  let argv = @env.args()
+  let mut wants_overview = argv.length() == 1
+  if argv.length() == 2 {
+    match argv[1] {
+      "--help" | "-h" | "help" => wants_overview = true
+      _ => ()
+    }
+  }
+  if wants_overview {
+    println(render_overview(lang))
+    // 无参数等于「不知道该干什么」，退出码沿用原来的 2；显式求助是 0。
+    return if argv.length() == 1 { 2 } else { 0 }
+  }
   // 子命令注册:参数定义即文档,help 与错误提示由 core/argparse 自动渲染。
   let state_dir = @core.resolve_state_dir()
   let optional_name = fn(about : String) {
@@ -45,9 +61,6 @@ async fn run() -> Int32 {
           num_args=@argparse.ValueRange(lower=0, upper=1),
         ),
       ]),
-      @argparse.Command("restart", about=@i18n.help_restart(lang), positionals=[
-        optional_name(@i18n.arg_project_to_stop(lang)),
-      ]),
       @argparse.Command("stop", about=@i18n.help_stop(lang), positionals=[
         optional_name(@i18n.arg_project_to_stop(lang)),
       ]),
@@ -59,12 +72,9 @@ async fn run() -> Int32 {
         ],
         positionals=[optional_name(@i18n.arg_project_to_delete(lang))],
       ),
-      @argparse.Command(
-        "kill",
-        about=@i18n.help_kill(lang),
-        flags=[@argparse.FlagArg("all", short='y', about=@i18n.help_all(lang))],
-        positionals=[optional_name(@i18n.arg_limit_to_project(lang))],
-      ),
+      @argparse.Command("kill", about=@i18n.help_kill(lang), flags=[
+        @argparse.FlagArg("all", short='y', about=@i18n.help_all(lang)),
+      ]),
       @argparse.Command(
         "list",
         about=@i18n.help_list(lang),
@@ -160,8 +170,8 @@ async fn run() -> Int32 {
       }
     None => cwd + "/bm2.toml"
   }
-  // `start` 与 `restart` 会读配置并拉起进程，其余命令只按名字找已登记的项目。
-  let starts = command == "start" || command == "restart"
+  // `start` 会读配置并拉起进程，其余命令只按名字找已登记的项目。
+  let starts = command == "start"
   // Only start needs a local bm2.toml: list/kill/reload address the
   // daemon's registered projects from any directory.
   let config = try @config.load(config_path) catch {
@@ -196,7 +206,7 @@ async fn run() -> Int32 {
   // name; notify takes no positional argument; kill -y has no target.
   //
   // stop 与 delete 不给名字时也读当前目录的配置：在项目目录里 `bm2 stop` 是个
-  // 自然动作，没道理只让 `bm2 restart` 支持。三个命令的这条规则保持一致。
+  // 自然动作：在项目目录里 `bm2 stop` 不必再带名字。stop 与 delete 保持这条规则。
   let app : String? = if starts {
     match config {
       Some(cfg) => Some(cfg.name)
@@ -501,4 +511,50 @@ fn cmd_clean(state_dir : String, dry_run : Bool, lang : @i18n.Lang) -> Int32 {
   }
   println(@i18n.ownerless_summary(lang, swept, dry_run))
   0
+}
+
+///|
+/// 顶层帮助的版式：一行一个命令，命令名补到同一列，说明跟在后面。分组不是
+/// 装饰——把 kill / reload 从项目命令里拎出来，是为了让「它们操作的是守护
+/// 进程」这件事在帮助里就成立，而不是靠用户记住每个命令的对象。
+fn render_overview(lang : @i18n.Lang) -> String {
+  let b = StringBuilder()
+  b.write_string("bm2 " + VERSION + " · ")
+  b.write_string(@i18n.help_root(lang))
+  b.write_string("\n\n")
+  b.write_string(@i18n.help_usage(lang))
+  b.write_string("\n\n")
+  let line = fn(name : String, about : String) {
+    b.write_string("  ")
+    b.write_string(name)
+    // 最长的命令名是 upgrade（7 个字符），补到 12 列后说明就对齐了。
+    for _ in name.length()..<12 {
+      b.write_char(' ')
+    }
+    b.write_string(about)
+    b.write_char('\n')
+  }
+  b.write_string(@i18n.help_group_project(lang))
+  b.write_char('\n')
+  line("start", @i18n.help_start(lang))
+  line("stop", @i18n.help_stop(lang))
+  line("delete", @i18n.help_delete(lang))
+  line("list", @i18n.help_list(lang))
+  line("check", @i18n.help_check(lang))
+  line("notify", @i18n.help_notify(lang))
+  b.write_char('\n')
+  b.write_string(@i18n.help_group_daemon(lang))
+  b.write_char('\n')
+  line("kill", @i18n.help_kill(lang))
+  line("reload", @i18n.help_reload(lang))
+  line("upgrade", @i18n.help_upgrade(lang))
+  line("clean", @i18n.help_clean(lang))
+  b.write_char('\n')
+  b.write_string(@i18n.help_group_other(lang))
+  b.write_char('\n')
+  line("version", @i18n.help_version(lang))
+  b.write_char('\n')
+  b.write_string(@i18n.help_hint(lang))
+  b.write_char('\n')
+  b.to_string()
 }

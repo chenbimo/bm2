@@ -12,7 +12,7 @@ test "English is the contract for the command surface" {
   )
   assert_eq(
     @i18n.help_start(@i18n.Lang::En),
-    "Start the project; reads ./bm2.toml or the given config path",
+    "Start the project, restarting it if it is already running",
   )
   assert_eq(
     @i18n.kill_needs_confirmation(@i18n.Lang::En),
@@ -90,7 +90,7 @@ test "parameters survive translation" {
   assert_true(@i18n.removed(@i18n.Lang::Zh, "/srv/api").contains("/srv/api"))
   assert_true(@i18n.status_gone(@i18n.Lang::Zh, "api").contains("api"))
   assert_true(@i18n.status_gone(@i18n.Lang::En, "api").contains("api"))
-  assert_true(@i18n.already_running(@i18n.Lang::Zh, "api").contains("api"))
+  assert_true(@i18n.still_deleting(@i18n.Lang::Zh, "api").contains("api"))
   assert_true(
     @i18n.unknown_command(@i18n.Lang::Zh, "frobnicate").contains("frobnicate"),
   )

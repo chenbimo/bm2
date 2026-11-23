@@ -183,8 +183,7 @@ pub fn Supervisor::handle_command(self : Supervisor, command : Command) -> Unit 
     "list" => (self.cmd_list(req.app), ExitMode::Stay)
     "stop" => (self.cmd_stop(req), ExitMode::Stay)
     "delete" => (self.cmd_delete(req), ExitMode::Stay)
-    "restart" => (self.cmd_restart(req), ExitMode::Stay)
-    "kill" => cmd_kill(req.app)
+    "kill" => cmd_kill()
     "reload" =>
       (
         @protocol.Response::ok(@i18n.reloading(request_lang(req)), []),
@@ -242,12 +241,15 @@ fn Supervisor::cmd_list(self : Supervisor, app : String?) -> @protocol.Response 
 /// on the control side; registration updates a project that already runs, then it
 /// is started.
 ///
+/// 一个动词一种动作：没跑就起，已经在跑就停掉重起。不做「已在运行就返回」的
+/// 短路——那会让改过端口之后的 start 静默丢弃改动，用户必须再记住另一个 verb
+/// 才生效。代价是每次 start 都有一次中断，换来的是配置改动一定落地。
+///
 /// The request answers immediately with the in-flight state: the CLI polls
 /// `list` for the terminal state, so a stop timeout never delays an answer.
 fn Supervisor::cmd_start(
   self : Supervisor,
   req : @protocol.Request,
-  restart~ : Bool = false,
 ) -> @protocol.Response {
   let config_path = match req.config_path {
     Some(path) => path
@@ -276,17 +278,8 @@ fn Supervisor::cmd_start(
   } noraise {
     _ => ()
   }
-  // `start` 是幂等的：已经在跑就什么都不做，目标状态已经达成。这样启动脚本
-  // 和 CI 里重复执行是安全的。要真的停掉重起用 `restart`。
-  //
-  // 放在 register 之后：名字归属的校验（同一名字不能被另一份配置抢走）比
-  // 「已经在跑」更优先，否则从别的目录 start 同名项目会被静默当成成功。
-  if !restart && self.app_running(name) {
-    return @protocol.Response::ok(
-      @i18n.already_running(lang, name),
-      self.infos_of([name]),
-    )
-  }
+  // `start` 直接进 start_app：它内部对活着的实例发 RestartFresh、对没跑的
+  // spawn_fresh，重启与首次启动是同一条路径，不需要在这里分叉。
   try self.start_app(name) catch {
     e => return @protocol.Response::error(e.to_string())
   } noraise {
@@ -296,40 +289,13 @@ fn Supervisor::cmd_start(
 }
 
 ///|
-/// `bm2 restart`: stop every old instance and spawn fresh from the config as it
-/// is on disk now, so edited ports or instance counts take effect.
-fn Supervisor::cmd_restart(
-  self : Supervisor,
-  req : @protocol.Request,
-) -> @protocol.Response {
-  let lang = self.lang_for(req.app, req)
-  if req.app is None && req.config_path is None {
-    return @protocol.Response::error(@i18n.restart_requires_name(lang))
-  }
-  self.cmd_start(req, restart=true)
-}
-
-///|
 /// Bare `kill` ends the daemon; there is no app form. Retiring an app is `stop`
 /// (stop, stay registered) or `remove` (retire, free the name) — `kill` used to be
 /// a third, harder version of `remove`, which made one verb mean two things at two
 /// layers. The all-app kill itself happens in the shutdown path, after the reply
 /// has reached the caller.
-fn cmd_kill(app : String?) -> (@protocol.Response, ExitMode) {
-  match app {
-    None => (@protocol.Response::ok("bm2d stopping", []), ExitMode::Shutdown)
-    Some(name) =>
-      (
-        @protocol.Response::error(
-          "kill no longer takes a project: use 'bm2 stop " +
-          name +
-          "' to stop it, or 'bm2 delete " +
-          name +
-          "' to delete it",
-        ),
-        ExitMode::Stay,
-      )
-  }
+fn cmd_kill() -> (@protocol.Response, ExitMode) {
+  (@protocol.Response::ok("bm2d stopping", []), ExitMode::Shutdown)
 }
 
 ///|
