@@ -431,6 +431,15 @@ check "start resumes a stopped project" "1" "$(col_values vapp STATUS | grep -c 
 # Retiring frees the name and keeps the logs.
 bm2 delete vapp
 check "delete exits cleanly" "0" "$?"
+# 紧接着再 start:项目还在删除中,应该给一句人话,而不是拉起一个撞端口的实例。
+# 门禁钉死英文,所以断言按英文匹配。
+OUT=$(cd "$ACC/v1" && bm2 start 2>&1)
+check "start while deleting is refused" "1" "$?"
+if echo "$OUT" | grep -q "still being deleted"; then
+  PASS=$((PASS + 1)); echo "PASS: start names the reason"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL: start names the reason (got [$OUT])"
+fi
 # delete 提交即返回:注销要等实例停完,等它从名册里消失。
 check "a retired project leaves the registry" "unknown app: vapp" "$(wait_unknown vapp 60)"
 if [ -d "$state_dir/projects/vapp/logs" ]; then
@@ -619,6 +628,17 @@ check "instance online after four restarts" "online" "$(cell cycle STATUS)"
 check "no zombie children under bm2d" "0" "$(ps --ppid "$DPID" -o stat= 2>/dev/null | grep -c '^Z' || true)"
 check "fd count bounded across restarts" 1 "$([ "$FD_LAST" -le $((FD_FIRST + 3)) ] && echo 1 || echo 0)"
 bm2 delete -f cycle >/dev/null
+
+echo "===== AA3. concurrent CLI calls do not take the daemon down ====="
+# 并发段只压 list：它会遍历每个项目的目录（P0 段错误就出在这里），而串行的
+# e2e 永远排不上这个队。
+: > "$ACC/conc.fail"
+for _ in $(seq 1 50); do
+  (bm2 list >/dev/null 2>&1 || echo fail >> "$ACC/conc.fail") &
+done
+wait
+check "fifty concurrent list calls all succeed" "0" "$(wc -l < "$ACC/conc.fail" | tr -d ' ')"
+check "daemon survived the concurrent burst" "1" "$(pgrep -x bm2d >/dev/null && echo 1 || echo 0)"
 
 echo "===== AB. a second daemon refuses to start ====="
 bm2 list >/dev/null 2>&1

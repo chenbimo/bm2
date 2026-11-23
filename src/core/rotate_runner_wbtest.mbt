@@ -5,6 +5,14 @@
 /// ones the supervisor and the task have to agree about.
 
 ///|
+/// 本文件专用的临时目录：路径里带 pid，两次运行（或并行跑的测试）不会共用
+/// 同一个目录。以前用的是固定的 `/tmp/bm2-wbtest-log`，靠外部先删干净才稳定，
+/// 留一个文件在那里就会让断言看到上一次的产物。
+fn wb_scratch(tag : String) -> String {
+  "/tmp/bm2-wbtest-" + tag + "-" + @proc.get_pid().to_string()
+}
+
+///|
 /// One job, built the way supervision builds it: the path, who holds the file
 /// open, and the policy the project asked for.
 fn job(
@@ -50,8 +58,9 @@ async test "a published sweep rotates the oversized daemon log" {
 
 ///|
 async test "rotation leaves small files alone" {
-  let path = "/tmp/bm2-wbtest-log/small.log"
-  @fsx.mkdir_p("/tmp/bm2-wbtest-log")
+  let dir = wb_scratch("small")
+  @fsx.mkdir_p(dir)
+  let path = dir + "/small.log"
   // This is the one case that depends on the file staying small, and every run
   // appends a line to it: start from nothing so a repeated run cannot creep past
   // the limit and rotate where the test says it must not.
@@ -68,40 +77,44 @@ async test "rotation leaves small files alone" {
 /// operator reads about on every sweep.
 async test "rotation is a no-op for a log that is not there" {
   assert_true(
-    @log.maybe_rotate_async(job("/tmp/bm2-wbtest-log-missing/none.log", 1024))
+    @log.maybe_rotate_async(job(wb_scratch("missing") + "/none.log", 1024))
     is Skipped,
   )
 }
 
 ///|
 async test "rotation renames past the limit" {
-  let path = "/tmp/bm2-wbtest-log/renamed.log"
+  let dir = wb_scratch("renamed")
+  @fsx.mkdir_p(dir)
+  let path = dir + "/renamed.log"
   // One timestamped line is ~28 bytes, over the tiny limit.
   @log.plain(path, "x")
   assert_true(@log.maybe_rotate_async(job(path, 10)) is Rotated)
   assert_false(@fsx.file_size(path) is Some(_))
-  assert_true(@fsx.file_size(path + ".1") is Some(_))
+  // 代数插在 `.log` 之前，全仓统一：`renamed.1.log`，不是 `renamed.log.1`。
+  assert_true(@fsx.file_size(dir + "/renamed.1.log") is Some(_))
 }
 
 ///|
 /// With a bound, the chain stops at it: the oldest generation is dropped rather
 /// than shifted past the limit.
 async test "rotation keeps at most ten generations" {
-  let path = "/tmp/bm2-wbtest-log/gen/app.log"
-  @fsx.mkdir_p("/tmp/bm2-wbtest-log/gen")
+  let dir = wb_scratch("gen")
+  @fsx.mkdir_p(dir)
+  let path = dir + "/app.log"
   for i in 0..<12 {
     @fsx.write_atomic(path, @utf8.encode("gen\{i}"))
     // Every written file is over this limit, so each pass rotates once.
     assert_true(@log.maybe_rotate_async(job(path, 1, keep=10)) is Rotated)
   }
   assert_false(@fsx.file_size(path) is Some(_))
-  assert_true(@fsx.file_size(path + ".1") is Some(_))
-  assert_true(@fsx.file_size(path + ".10") is Some(_))
-  assert_false(@fsx.file_size(path + ".11") is Some(_))
+  assert_true(@fsx.file_size(dir + "/app.1.log") is Some(_))
+  assert_true(@fsx.file_size(dir + "/app.10.log") is Some(_))
+  assert_false(@fsx.file_size(dir + "/app.11.log") is Some(_))
   // Eleven generations were written; the oldest (gen1) fell off at the twelfth
   // rotation, so .10 holds gen2 and .1 holds gen11.
-  assert_eq(@utf8.decode_lossy(@fsx.read_small(path + ".10")), "gen2")
-  assert_eq(@utf8.decode_lossy(@fsx.read_small(path + ".1")), "gen11")
+  assert_eq(@utf8.decode_lossy(@fsx.read_small(dir + "/app.10.log")), "gen2")
+  assert_eq(@utf8.decode_lossy(@fsx.read_small(dir + "/app.1.log")), "gen11")
 }
 
 ///|
@@ -109,22 +122,27 @@ async test "rotation keeps at most ten generations" {
 /// the directory says it is. The length has to be read from disk, because after a
 /// restart the task has no memory of how far the chain had grown.
 async test "keep = 0 lets the chain grow without dropping anything" {
-  let path = "/tmp/bm2-wbtest-log/unbounded/app.log"
-  @fsx.mkdir_p("/tmp/bm2-wbtest-log/unbounded")
+  let dir = wb_scratch("unbounded")
+  @fsx.mkdir_p(dir)
+  let path = dir + "/app.log"
   for i in 0..<12 {
     @fsx.write_atomic(path, @utf8.encode("gen\{i}"))
     assert_true(@log.maybe_rotate_async(job(path, 1)) is Rotated)
   }
   // Twelve writes, twelve generations, nothing dropped: .1 is the newest and
   // .12 goes all the way back to the first write.
-  assert_true(@fsx.file_size(path + ".12") is Some(_))
-  assert_eq(@utf8.decode_lossy(@fsx.read_small(path + ".12")), "gen0")
-  assert_eq(@utf8.decode_lossy(@fsx.read_small(path + ".1")), "gen11")
+  let oldest = dir + "/app.12.log"
+  let newest = dir + "/app.1.log"
+  assert_true(@fsx.file_size(oldest) is Some(_))
+  assert_eq(@utf8.decode_lossy(@fsx.read_small(oldest)), "gen0")
+  assert_eq(@utf8.decode_lossy(@fsx.read_small(newest)), "gen11")
 }
 
 ///|
 async test "copytruncate rotation empties the file in place" {
-  let path = "/tmp/bm2-wbtest-log/trunc.log"
+  let dir = wb_scratch("trunc")
+  @fsx.mkdir_p(dir)
+  let path = dir + "/trunc.log"
   @log.plain(path, "content")
   assert_true(
     @log.maybe_rotate_async(job(path, 10, copytruncate=true)) is Rotated,
@@ -133,7 +151,9 @@ async test "copytruncate rotation empties the file in place" {
   // app's next write lands in a fresh file on the same inode.
   assert_eq(@utf8.decode_lossy(@fsx.read_small(path)), "")
   assert_true(
-    @utf8.decode_lossy(@fsx.read_small(path + ".1")).contains("content\n"),
+    @utf8.decode_lossy(@fsx.read_small(dir + "/trunc.1.log")).contains(
+      "content\n",
+    ),
   )
 }
 
@@ -144,7 +164,9 @@ async test "copytruncate rotation empties the file in place" {
 /// deterministic failure — reading it raises, and the failure travels back as a
 /// value.
 async test "a rotation that cannot copy reports the reason" {
-  let path = "/tmp/bm2-wbtest-log-blocked/app.log"
+  let dir = wb_scratch("blocked")
+  @fsx.mkdir_p(dir)
+  let path = dir + "/app.log"
   @fsx.mkdir_p(path)
   match @log.maybe_rotate_async(job(path, 1, copytruncate=true)) {
     Failed(reason) => assert_true(reason.length() > 0)

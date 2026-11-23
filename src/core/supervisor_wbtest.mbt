@@ -58,6 +58,27 @@ test "unregistering a project drops its in-memory state" {
 }
 
 ///|
+/// forget_app 必须把每个实例的进程句柄放掉。pidfd 是 C 层的 int，GC 不会替它
+/// 收尾：只丢掉项目对象，等于每删一个项目漏掉「实例数」个 fd——soak 里每轮
+/// delete + start 后 daemon 的 fd 数加一，就是这个。
+/// 这条测试把它压成一次调用，且不依赖 GC 什么时候肯跑。
+test "forget_app releases the process handle of every instance" {
+  let root = "/tmp/bm2-wbtest-release-\{@proc.get_pid()}"
+  let config = wb_config("wbapp", root, 4460)
+  let sv = wb_sv(root, config)
+  // 造一个「看起来正在跑」的实例：pid 非 0 就够了。pidfd 留 0，因为这里没有
+  // 真实描述符，而 clear_process 对 0 不做 close。
+  let inst = Instance::new(config, 0)
+  inst.pid = 4242
+  match sv.projects.get("wbapp") {
+    Some(project) => project.instances.push(inst)
+    None => fail("expected the registered project")
+  }
+  sv.forget_app("wbapp")
+  assert_true(inst.pid == 0)
+}
+
+///|
 /// A config that drops instances must not leave the dropped ones' state files
 /// behind: a later recovery would read them.
 test "a shrunk instance set loses its stale state files" {
