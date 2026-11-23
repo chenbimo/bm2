@@ -1,7 +1,7 @@
 .mooncakes/
 .temp/
 _build/
-_build-wsl/
+_build-wsl*/
 nul
 
 # 编译器为每个包生成的接口文件(0.10.17 起落在包根),构建时重建
