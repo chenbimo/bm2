@@ -1,6 +1,6 @@
 name = "chensuiyi/bm2"
 
-version = "0.12.0"
+version = "0.12.1"
 
 source = "src"
 
