@@ -47,6 +47,23 @@ fn environ_of(entries : Array[String]) -> Bytes {
 
 ///|
 fn state_json(app : String, id : Int32, pid : Int32, port : Int32) -> String {
+  state_json_with_started(app, id, pid, port, None)
+}
+
+///|
+/// 带启动时钟读数的版本：`started_mono` 为 `None` 时模拟旧版本写的文件，
+/// 那种文件没有这个字段。
+fn state_json_with_started(
+  app : String,
+  id : Int32,
+  pid : Int32,
+  port : Int32,
+  started_mono : UInt64?,
+) -> String {
+  let started_field = match started_mono {
+    Some(ms) => ",\"started_mono_ms\":" + ms.to_string()
+    None => ""
+  }
   "{\"app_name\":\"" +
   app +
   "\",\"instance_id\":" +
@@ -57,7 +74,9 @@ fn state_json(app : String, id : Int32, pid : Int32, port : Int32) -> String {
   pid.to_string() +
   ",\"port\":" +
   port.to_string() +
-  ",\"status\":\"online\",\"started_at\":\"2026-01-01T00:00:00.000Z\",\"restart_count\":0}"
+  ",\"status\":\"online\",\"started_at\":\"2026-01-01T00:00:00.000Z\"" +
+  started_field +
+  ",\"restart_count\":0}"
 }
 
 ///|
@@ -183,12 +202,20 @@ test "recover adopts a live instance that carries the reserved variables" {
   assert_true(wait_for_fingerprint(pid, config.name, 5000))
   let path = state_path(state_dir, "api", 0)
   @fsx.mkdir_p(project_state_dir(state_dir, "api"))
-  @fs.write_string_to_file(path, state_json("api", 0, pid, 4503))
+  // 状态文件里记着一个更早的单调时钟读数，接管后必须原样接上。
+  let recorded_start = 1_000UL
+  @fs.write_string_to_file(
+    path,
+    state_json_with_started("api", 0, pid, 4503, Some(recorded_start)),
+  )
   sv.recover()
   let inst = sv.instance("api", 0)
   assert_eq(inst.status, Status::Online)
   assert_eq(inst.pid, pid)
   assert_true(inst.pidfd > 0)
+  // 接管不是重启：启动读数照抄，运行时长因此接得上，而不是从换班那刻重算。
+  assert_eq(inst.started_mono_ms, recorded_start)
+  assert_true(@proc.monotonic_ms() > inst.started_mono_ms)
   // Adoption is not a fresh start: the launch counter survives.
   assert_true(
     read_events(state_dir + "/bm2d.events.log").contains("instance_adopted"),

@@ -138,8 +138,27 @@ pub fn Supervisor::recover(self : Supervisor) -> Unit {
       }
       if env_matches(environ, inst) {
         inst.status = Online
-        inst.started_at_ms = @utils.now_ms()
-        inst.started_mono_ms = @proc.monotonic_ms()
+        // 接管不是重启：启动时刻照抄状态文件。原来这里写的是「现在」，
+        // 于是每次换班（bm2 reload / 崩溃后恢复）都会把运行时长清零，
+        // 运维在 list 里看到 uptime 从几小时变成几秒，以为服务刚重启过。
+        //
+        // 用单调时钟算经过时长，再把墙上时间往回推同样的量：这样两个字段
+        // 都对得上，也不受换班期间系统时间被调整的影响。旧状态文件没有
+        // monotonic 读数，只能从零起算——宁可显示成刚启动，也不要瞎猜。
+        let now_mono = @proc.monotonic_ms()
+        let elapsed = match state.started_mono_ms {
+          // JSON 里的数字是 double，这里再转回单调时钟的毫秒。上界检查挡的是
+          // 「状态文件来自上一次开机」：那种读数可能比当前时钟还大。
+          Some(recorded) =>
+            if recorded >= 0.0 && recorded.to_uint64() <= now_mono {
+              now_mono - recorded.to_uint64()
+            } else {
+              0UL
+            }
+          None => 0UL
+        }
+        inst.started_mono_ms = now_mono - elapsed
+        inst.started_at_ms = @utils.now_ms() - elapsed
         inst.times = state.times.unwrap_or(0)
         inst.restart_count = state.restart_count
         self.try_save_state(inst)

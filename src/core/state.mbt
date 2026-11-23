@@ -47,6 +47,11 @@ pub(all) struct InstanceState {
   port : Int32
   status : String
   started_at : String
+  /// 启动时刻的单调时钟读数。换班（daemon 重启后 adopt）靠它把运行时长接上：
+  /// 只有墙上时间的话，时钟被调整过就会算错；只有它的话，状态文件里对人类
+  /// 有用的那个 ISO 时间就丢了。两个都写，各管一边。
+  /// 旧版本写的文件没有这个字段（`None`），回退成从换班时刻起算。
+  started_mono_ms : Double?
   times : Int32?
   restart_count : Int32
   last_exit_code : Int32?
@@ -77,6 +82,7 @@ fn InstanceState::of(inst : Instance) -> InstanceState {
     port: inst.port,
     status: inst.status.as_string(),
     started_at: @utils.iso8601(inst.started_at_ms),
+    started_mono_ms: Some(inst.started_mono_ms.to_double()),
     times: Some(inst.times),
     restart_count: inst.restart_count,
     last_exit_code: inst.last_exit_code,
