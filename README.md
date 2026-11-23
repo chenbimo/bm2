@@ -739,6 +739,16 @@ tail -5 ~/.bm2/projects/api/logs/api.error.log
 2026-11-22T12:32:20.608Z [bm2] 实例 0 pid=39335 原因=exit_code 退出码=1 重启次数=10
 ```
 
+### 提示正在删除中
+
+刚 `bm2 delete` 完又马上 `bm2 start`，会看到这一句：
+
+```text
+api 正在删除中，稍等再启动
+```
+
+删除是异步的：它发完停止信号就返回，实例还在退出、端口还没放开。等 `bm2 list` 里这个名字消失再 start，或者一开始就用 `bm2 restart`——它本来就是「停下再起」，不会撞上这个时间差。
+
 ### 报 reuseport_missing
 
 多实例模式要求应用打开 `reusePort`，没开就无法共用端口。
