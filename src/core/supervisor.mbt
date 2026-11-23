@@ -269,6 +269,16 @@ pub fn Supervisor::app_instances(
 }
 
 ///|
+/// 项目是否正在被删除（实例在退、名册还没摘）。`start` 用它给出明确提示，
+/// 而不是让新实例撞上还没放开的端口、再靠三次重启进 errored。
+pub fn Supervisor::app_removing(self : Supervisor, app_name : String) -> Bool {
+  match self.projects.get(app_name) {
+    Some(project) => project.removing
+    None => false
+  }
+}
+
+///|
 /// 项目此刻有没有活着的实例。`start` 用它实现幂等：已经在跑就什么都不做。
 pub fn Supervisor::app_running(self : Supervisor, app_name : String) -> Bool {
   match self.projects.get(app_name) {
@@ -570,6 +580,16 @@ pub fn Supervisor::daemon_info(self : Supervisor) -> @protocol.DaemonInfo {
 /// cross-project leak — the name would keep answering with a dead project's
 /// numbers — and the test next to this function lists them all.
 pub fn Supervisor::forget_app(self : Supervisor, app_name : String) -> Unit {
+  // 实例的 pidfd 是 C 层描述符，GC 不会替它收尾。先逐个摘干净再丢项目：
+  // 否则每删一个项目就漏掉「它的实例数」那么多个 fd——soak 里表现为
+  // 每轮 delete+start 后 daemon 的 fd 数加一。
+  match self.projects.get(app_name) {
+    Some(project) =>
+      for inst in project.instances {
+        inst.clear_process()
+      }
+    None => ()
+  }
   self.projects.remove(app_name)
   // The notify side owns four more per-project maps (`offline_since`,
   // `cpu_samples`, `rss_peak`, `rss_peak_daily`); this is the call that clears

@@ -378,10 +378,10 @@ enum Send {
 /// removed as the removal finalizes. Watching the file keeps this to one request
 /// and works even while the daemon is busy with something else.
 fn wait_project_gone(state_dir : String, name : String) -> Bool {
-  let marker = @utils.join_path(
-    @utils.join_path(state_dir, name),
-    "project.json",
-  )
+  // 走 core 的 project_path：项目现在住在 `projects/<name>/` 下，这里若还拼
+  // `state_dir/<name>/project.json`，文件永远不存在，函数就永远立刻「成功」，
+  // delete -f 会抢在 daemon 放手之前删目录。
+  let marker = @core.project_path(state_dir, name)
   for _ in 0..<300 {
     if !@fs.path_exists(marker) {
       return true

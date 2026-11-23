@@ -27,6 +27,16 @@ pub fn already_running(lang : Lang, name : String) -> String {
 }
 
 ///|
+/// 同名项目还在删除中。它不直说「稍后再试」以外的话：实例在退、端口占着，
+/// 这时候拉起来只会撞端口，用户唯一能做的是等一下。
+pub fn still_deleting(lang : Lang, name : String) -> String {
+  match lang {
+    En => "\{name} is still being deleted; try again in a moment"
+    Zh => "\{name} 正在删除中，稍等再启动"
+  }
+}
+
+///|
 pub fn stopped(lang : Lang) -> String {
   match lang {
     En => "stopped"

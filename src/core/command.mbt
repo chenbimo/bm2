@@ -263,6 +263,11 @@ fn Supervisor::cmd_start(
   }
   let name = config.name
   let lang = self.lang_for(Some(name), req)
+  // 同名项目还在删除中：它的实例没退完、端口也没放开，这时候拉起来必然撞端口。
+  // 必须放在 register 之前——register 会把删除标记清掉，之后就看不出来了。
+  if self.app_removing(name) {
+    return @protocol.Response::error(@i18n.still_deleting(lang, name))
+  }
   // The runtime verdict was already produced on the control side (RuntimeProbe),
   // where waiting for the helper costs nothing: doing it here would block the
   // supervision tick, which is the one thing the tick must never do.
