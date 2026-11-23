@@ -696,6 +696,12 @@ fn Supervisor::check_pending(self : Supervisor) -> Unit {
     if self.is_stopped(name) {
       continue
     }
+    // `ready` 是上一轮收集的，这一轮之间 delete 可能已经把项目标成 removing。
+    // 不清掉这个判断，spawn_fresh 会把它重新拉起来：删除请求返回成功，项目
+    // 却还活着——这正是 e2e 里「delete 之后 start 没被拒」看到的现场。
+    if self.app_removing(name) {
+      continue
+    }
     // spawn_instance marks its own failures; nothing to do here.
     try self.spawn_fresh(name) catch {
       _ => ()
