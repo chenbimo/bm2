@@ -69,7 +69,13 @@ cleanup() {
   if [ -f "$state_dir/bm2d.pid" ]; then
     kill -TERM "$(cat "$state_dir/bm2d.pid")" 2>/dev/null || true
   fi
-  pkill -f "$ACC/.*slow\.ts" 2>/dev/null || true
+  # 只杀 cmdline 里确实带 slow 的 bun 进程。不能用 `pkill -f "slow.ts"`：
+  # 那个模式也匹配本脚本自己的命令行，pkill 会把执行中的 soak 一起杀掉。
+  for pid in $(pgrep -x bun 2>/dev/null); do
+    if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q slow; then
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+  done
   rm -rf "$bin_dir"
 }
 trap cleanup EXIT
@@ -89,7 +95,7 @@ sample() { # sample <label>: refresh SAMPLE_* and print them
 # shellcheck source=scripts/e2e/table.sh
 source "$root/scripts/e2e/table.sh"
 
-(cd "$ACC/app" && bm2 serve >/dev/null)
+(cd "$ACC/app" && bm2 start >/dev/null)
 sleep 2
 sample "warm"
 WARM_FDS=$SAMPLE_FDS
@@ -97,8 +103,14 @@ WARM_RSS=$SAMPLE_RSS
 WARM_FILES=$SAMPLE_FILES
 
 for i in $(seq 1 "$CYCLES"); do
-  bm2 remove app >/dev/null 2>&1 || true
-  (cd "$ACC/app" && bm2 serve >/dev/null)
+  bm2 delete app >/dev/null 2>&1 || true
+  # delete 提交即返回：它退役是异步的。等这个项目真的从名册里消失再拉起来，
+  # 否则紧接着的 start 会撞上还在退出的旧实例（端口没放开，新实例起不来）。
+  for _ in $(seq 1 100); do
+    bm2 list app >/dev/null 2>&1 || break
+    sleep 0.1
+  done
+  (cd "$ACC/app" && bm2 start >/dev/null)
   if [ $((i % 10)) -eq 0 ]; then sample "cycle$i"; fi
 done
 online=$(online_count app)
@@ -106,6 +118,9 @@ online=$(online_count app)
   echo "soak: the app is not online after $CYCLES cycles (matched $online)" >&2
   exit 1
 }
+# 轮次结束时的样本要单独留下：后面的检查若只看 reload 之后的样本，重新换班时
+# 新进程、fd 归零，轮次中途的泄漏就被洗掉了。这里先卡一次。
+CYCLE_FDS=$SAMPLE_FDS
 
 for i in $(seq 1 "$RELOADS"); do
   bm2 reload >/dev/null 2>&1
@@ -126,6 +141,10 @@ http=$(curl -s --max-time 3 localhost:4441 || true)
 # Growth checks: a healthy daemon keeps its descriptor count flat, its RSS within
 # noise, and its state-file count bounded (the same names are rewritten each
 # cycle).
+[ "$CYCLE_FDS" -le "$WARM_FDS" ] || {
+  echo "soak: daemon descriptors grew from $WARM_FDS to $CYCLE_FDS across $CYCLES cycles" >&2
+  exit 1
+}
 [ "$SAMPLE_FDS" -le "$WARM_FDS" ] || {
   echo "soak: daemon descriptors grew from $WARM_FDS to $SAMPLE_FDS" >&2
   exit 1
