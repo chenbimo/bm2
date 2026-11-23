@@ -132,3 +132,17 @@ pub fn realpath(path : String) -> String? {
     Some(@utf8.decode_lossy(buf[:len]))
   }
 }
+
+///|
+/// 目录里有几个条目（不含 `.` 与 `..`）。读不到就是 None，不把「未知」当成 0。
+///
+/// 用它而不是 `@fs.read_dir`：后者在条目数会变的目录上（`/proc/<pid>/fd`）
+/// 会用 C 侧指针算错数组长度并越界，`opendir`/`readdir` 没有这个假设。
+pub fn count_dir_entries(path : String) -> Int32? {
+  let count = c_count_dir_entries(cstr(path))
+  if count < 0 {
+    None
+  } else {
+    Some(count)
+  }
+}

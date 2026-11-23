@@ -53,3 +53,7 @@ extern "C" fn c_dir_owner(path : Bytes) -> Int32 = "fsx_dir_owner"
 ///|
 #borrow(path, buf)
 extern "C" fn c_realpath(path : Bytes, buf : Bytes, cap : Int32) -> Int32 = "fsx_realpath"
+
+///|
+#borrow(path)
+extern "C" fn c_count_dir_entries(path : Bytes) -> Int32 = "fsx_count_dir_entries"

@@ -2,6 +2,7 @@
 
 #include <moonbit.h>
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -181,4 +182,32 @@ int32_t fsx_realpath(moonbit_bytes_t path, moonbit_bytes_t buf, int32_t cap) {
   if (len > (size_t)cap) return -ENAMETOOLONG;
   memcpy(buf, resolved, len);
   return (int32_t)len;
+}
+
+/*
+ * Count entries in a directory, minus "." and "..".
+ *
+ * Exists because the only other way to count a directory from MoonBit is
+ * moonbitlang/x/fs read_dir, which turns the C-returned pointer into a MoonBit
+ * array with %identity: on a directory that changes while it is being read
+ * (/proc/<pid>/fd during concurrent connections) the array length and the
+ * actual entries disagree and the read runs off the end. opendir/readdir has no
+ * such assumption — it walks whatever is there.
+ *
+ * Returns -1 when the directory cannot be opened; the caller treats that as
+ * "unknown", not as zero.
+ */
+MOONBIT_FFI_EXPORT
+int32_t fsx_count_dir_entries(moonbit_bytes_t path) {
+  DIR *dir = opendir((const char *)path);
+  if (dir == NULL) return -1;
+  int32_t count = 0;
+  struct dirent *entry;
+  while ((entry = readdir(dir)) != NULL) {
+    if (strcmp(entry->d_name, ".") == 0) continue;
+    if (strcmp(entry->d_name, "..") == 0) continue;
+    count++;
+  }
+  closedir(dir);
+  return count;
 }

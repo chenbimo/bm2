@@ -104,10 +104,9 @@ fn render_summary(head : Array[String], values : Array[String]) -> String {
 /// operator looks first, and descriptor growth or a stalled command counter is
 /// exactly what the table cannot show.
 pub fn print_daemon(info : @protocol.DaemonInfo, lang : @i18n.Lang) -> Unit {
-  let fds = try @fs.read_dir("/proc/\{info.pid}/fd").length() catch {
-    _ => 0
-  } noraise {
-    count => count
+  let fds = match @fsx.count_dir_entries("/proc/\{info.pid}/fd") {
+    Some(count) => count
+    None => 0
   }
   let rss = match @proc.read_rss_kb(info.pid) {
     Some(kb) => kb

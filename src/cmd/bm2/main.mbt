@@ -194,6 +194,9 @@ async fn run() -> Int32 {
   }
   // start targets the project itself (single-app config); kill filters by
   // name; notify takes no positional argument; kill -y has no target.
+  //
+  // stop 与 delete 不给名字时也读当前目录的配置：在项目目录里 `bm2 stop` 是个
+  // 自然动作，没道理只让 `bm2 restart` 支持。三个命令的这条规则保持一致。
   let app : String? = if starts {
     match config {
       Some(cfg) => Some(cfg.name)
@@ -202,7 +205,18 @@ async fn run() -> Int32 {
   } else if command == "notify" {
     None
   } else {
-    app_arg
+    match app_arg {
+      Some(name) => Some(name)
+      None =>
+        if command == "stop" || command == "delete" {
+          match config {
+            Some(cfg) => Some(cfg.name)
+            None => None
+          }
+        } else {
+          None
+        }
+    }
   }
   // Requests must wait out the slowest possible daemon operation (a full
   // restart waiting on stop_timeout) plus margin, so a slow-but-healthy
