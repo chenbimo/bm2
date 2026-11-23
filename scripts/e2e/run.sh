@@ -92,6 +92,48 @@ wait_unknown() {
   printf '%s' "$out"
 }
 
+# wait_online_count <app> <count> <max attempts>
+# 定量的等待：sleep 一个固定秒数再数一遍，机器慢一点就不够、快一点就白等。
+wait_online_count() {
+  local n=0
+  for _ in $(seq 1 "$3"); do
+    n=$(col_values "$1" STATUS | grep -c '^online$' || true)
+    if [ "$n" = "$2" ]; then
+      printf '%s' "$n"
+      return 0
+    fi
+    sleep 0.25
+  done
+  printf '%s' "$n"
+}
+
+# wait_port_free <port> <max attempts>
+# 端口释放是内核回收时机的事，固定 sleep 既慢又不可靠。
+wait_port_free() {
+  local n=1
+  for _ in $(seq 1 "$2"); do
+    n=$(ss -ltn 2>/dev/null | grep -c ":$1 " || true)
+    if [ "$n" = "0" ]; then
+      printf '0'
+      return 0
+    fi
+    sleep 0.25
+  done
+  printf '%s' "$n"
+}
+
+# wait_file <path> <max attempts>
+wait_file() {
+  for _ in $(seq 1 "$2"); do
+    if [ -f "$1" ]; then
+      printf '1'
+      return 0
+    fi
+    sleep 0.25
+  done
+  printf '0'
+}
+
 # write_project <dir> <name> <port> <script> <instances> <stop_timeout>
 # Creates one project directory (a single-app bm2.toml) inside $ACC.
 write_project() {
@@ -163,16 +205,14 @@ write_project slow slow 4231 slow.ts 1 1000
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "slow http" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
 
-# start 是幂等的:已经在跑,再来一次不动任何进程。restart 才真的换 pid。
+# start 不再是幂等的:已经在跑就停掉重起,所以每一条 start 都换 pid。
 SLOW_PID_BEFORE=$(cell slow PID)
 (cd "$ACC/slow" && bm2 start >/dev/null 2>&1)
-check "start is idempotent" "$SLOW_PID_BEFORE" "$(cell slow PID)"
-(cd "$ACC/slow" && bm2 restart slow >/dev/null 2>&1)
 sleep 1
 SLOW_PID_AFTER=$(cell slow PID)
-check "restart replaces the process" 1 \
+check "start replaces a running process" 1 \
   "$([ -n "$SLOW_PID_AFTER" ] && [ "$SLOW_PID_AFTER" != "$SLOW_PID_BEFORE" ] && echo 1 || echo 0)"
-check "slow still serving after restart" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
+check "slow still serving after start" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
 
 echo "===== F. delete quick unregisters it ====="
 bm2 delete -f quick
@@ -220,7 +260,8 @@ sed -i 's/stop_timeout_ms = 1000/stop_timeout_ms = 2000/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "slow still on 4231" "slow slow-0 production 4231 0" "$(wait_http 4231 "slow slow-0 production 4231 0")"
 
-echo "===== J. structural change restarts on the new port ====="
+echo "===== J. a changed port takes effect on the next start ====="
+# start 总是重起，所以改完配置跑一次就生效——这正是它承担 restart 职责的地方。
 sed -i 's/port = 4231/port = 4241/' "$ACC/slow/bm2.toml"
 (cd "$ACC/slow" && bm2 start >/dev/null)
 check "structural restart on new port" "slow slow-0 production 4241 0" "$(wait_http 4241 "slow slow-0 production 4241 0")"
@@ -277,10 +318,10 @@ write_project stubborn stubborn 4251 ignore-term.ts 1 300
 (cd "$ACC/stubborn" && bm2 start >/dev/null)
 sleep 1
 SPID=$(cell stubborn PID)
-# restart 是动作型命令:成功时零输出,退出码就是结果。旧进程忽略 SIGTERM,
+# start 是动作型命令:成功时零输出,退出码就是结果。旧进程忽略 SIGTERM,
 # 所以它必须被升级成 SIGKILL 才让得开位置。
-(cd "$ACC/stubborn" && bm2 restart stubborn >/dev/null 2>&1)
-check "restart with ignored SIGTERM" "0" "$?"
+(cd "$ACC/stubborn" && bm2 start >/dev/null 2>&1)
+check "start with ignored SIGTERM" "0" "$?"
 sleep 1
 check "stubborn old process SIGKILLed" 1 "$(kill -0 "$SPID" 2>/dev/null; echo $?)"
 check "stubborn new instance online" "online" "$(cell stubborn STATUS)"
@@ -323,14 +364,9 @@ check "unknown app message" "unknown app: nosuch" "$OUT"
 OUT=$(bm2 reload extra 2>&1)
 check "reload extra arg rejected" 2 "$?"
 OUT=$(bm2 kill -y slow 2>&1)
-check "kill -y with app rejected" 2 "$?"
+check "kill -y takes no project" 2 "$?"
 OUT=$(bm2 kill slow 2>&1)
-check "kill with app rejected" 1 "$?"
-if echo "$OUT" | grep -q "kill no longer takes a project" && echo "$OUT" | grep -q "bm2 delete slow"; then
-  PASS=$((PASS + 1)); echo "PASS: kill with app points to stop/delete"
-else
-  FAIL=$((FAIL + 1)); echo "FAIL: kill with app points to stop/delete (got [$OUT])"
-fi
+check "kill takes no project" 2 "$?"
 mkdir -p "$ACC/noconfig"
 OUT=$(cd "$ACC/noconfig" && bm2 start 2>&1)
 check "serve without config rejected" 1 "$?"
@@ -381,9 +417,14 @@ else
 fi
 check "the owner keeps its instances" "3" "$(row_count slow)"
 # The same directory starting again is the update path, and still works: it
-# exits cleanly and the instances keep running under the refreshed config.
+# exits cleanly, then all three instances come back under the refreshed config.
 (cd "$ACC/slow" && bm2 start >/dev/null 2>&1)
-check "same directory restart still updates" "0" "$?"
+check "same directory start still updates" "0" "$?"
+# start 现在会停掉旧实例重起，所以这里要等它们回到 online，不能立刻断言。
+for _ in $(seq 1 40); do
+  [ "$(col_values slow STATUS | grep -c '^online$' || true)" = "3" ] && break
+  sleep 0.5
+done
 check "owner still online after the update" "3" "$(col_values slow STATUS | grep -c '^online$' || true)"
 bm2 delete -f slow
 
@@ -405,18 +446,22 @@ else
   FAIL=$((FAIL + 1)); echo "FAIL: daemon answers during long restart (status=$ST)"
 fi
 wait "$START_PID"
-sleep 5
-check "stubborn online after full restart" "online" "$(cell stubborn STATUS)"
+check "stubborn online after full restart" "online" "$(wait_status stubborn online 60)"
 bm2 delete -f stubborn
 
 echo "===== V. stop, delete, clean ====="
 write_project v1 vapp 4491 slow.ts 1 1000
 (cd "$ACC/v1" && bm2 start >/dev/null)
 check "vapp online before stop" "online" "$(cell vapp STATUS)"
+VAPP_PID=$(cell vapp PID)
 bm2 stop vapp
 check "stop exits cleanly" "0" "$?"
 # stop 提交即返回:实例还在优雅退出的路上,等它落到 stopped。
 check "vapp reaches stopped" "stopped" "$(wait_status vapp stopped 40)"
+# 已经停着的项目再 stop 一次:目标状态已达成,退出码 0 且不打印任何东西。
+OUT=$(bm2 stop vapp 2>&1)
+check "stopping a stopped app is a no-op" "0" "$?"
+check "stopping a stopped app stays quiet" "" "$OUT"
 # Stopped but registered: still listed, with nothing online.
 check "a stopped app stays registered" "1" "$(row_count vapp)"
 check "nothing online after a stop" "0" "$(col_values vapp STATUS | grep -c '^online$' || true)"
@@ -424,10 +469,20 @@ check "nothing online after a stop" "0" "$(col_values vapp STATUS | grep -c '^on
 bm2 reload >/dev/null
 sleep 2
 check "still stopped after the daemon reloaded" "0" "$(col_values vapp STATUS | grep -c '^online$' || true)"
+# 停止的副作用要看进程本身，不只看状态列：状态是 bm2 自己写的，把「状态改对
+# 了但进程还活着」这种情况抓不住。停之前记下 pid，停之后它必须已经不存在。
+check "the stopped process is really gone" 1 "$(kill -0 "$VAPP_PID" 2>/dev/null; [ $? -ne 0 ] && echo 1 || echo 0)"
 # And start is how it comes back.
 (cd "$ACC/v1" && bm2 start >/dev/null)
-sleep 2
-check "start resumes a stopped project" "1" "$(col_values vapp STATUS | grep -c '^online$' || true)"
+check "start resumes a stopped project" "1" "$(wait_online_count vapp 1 40)"
+# 在项目目录里不带名字:读当前目录的 bm2.toml 取名,与 start 同一条规则。
+(cd "$ACC/v1" && bm2 stop >/dev/null)
+check "stop without a name exits cleanly" "0" "$?"
+check "nameless stop took effect" "stopped" "$(wait_status vapp stopped 40)"
+# 拉回在线再删:实例已在跑,delete 才会有「等它退出」的窗口,下面那条
+# 「删除中拒绝 start」的断言依赖这个前提。
+(cd "$ACC/v1" && bm2 start >/dev/null)
+check "online again before delete" "online" "$(wait_status vapp online 40)"
 # Retiring frees the name and keeps the logs.
 bm2 delete vapp
 check "delete exits cleanly" "0" "$?"
@@ -487,9 +542,9 @@ sleep 1
 # 应用写暂存，收集任务每秒搬到主日志；造 11MB 带换行的内容，让主日志超过
 # 默认 10MB 上限后按大小分片。
 yes "0123456789abcdef" | head -c 11000000 > "$state_dir/projects/slowback/.tempLogs/slowback-0.out.log"
-# 收集每秒一轮，搬运 11MB 需要几轮；轮转在写出这一轮时判定。
-sleep 8
-check "rotated generation exists" 1 "$([ -f "$state_dir/projects/slowback/logs/slowback.1.log" ] && echo 1 || echo 0)"
+# 收集每秒一轮，搬运 11MB 需要几轮；轮转在写出这一轮时判定。等文件出现，
+# 而不是赌一个固定秒数。
+check "rotated generation exists" 1 "$(wait_file "$state_dir/projects/slowback/logs/slowback.1.log" 80)"
 SIZE=$(stat -c%s "$state_dir/projects/slowback/logs/slowback.log" 2>/dev/null || echo 0)
 check "active log restarted below the limit" 1 "$([ "$SIZE" -lt 11000000 ] && echo 1 || echo 0)"
 check "app unaffected by rotation" "slow slowback-0 production 4291 0" "$(wait_http 4291 "slow slowback-0 production 4291 0")"
@@ -534,8 +589,7 @@ min_uptime_ms = 60000
 stop_timeout_ms = 1000
 EOF
 (cd "$ACC/reuseapp" && bm2 start >/dev/null)
-sleep 1
-check "three instances online" "3" "$(row_count reuseapp)"
+check "three instances online" "3" "$(wait_online_count reuseapp 3 40)"
 check "all instances share port 4301" "3" "$(col_values reuseapp PORT | grep -c '^4301$' || true)"
 check "mode column shows cluster" "3" "$(col_values reuseapp EXEC | grep -c '^cluster$' || true)"
 DISTINCT=$(for i in $(seq 1 40); do curl -s --max-time 1 localhost:4301; done | sort -u | wc -l)
@@ -573,8 +627,7 @@ contains "reusePort event logged" "$state_dir/bm2d.events.log" "reuseport_missin
 # 崩溃记录先进暂存，收集每秒搬一轮。
 sleep 3
 contains "reusePort crash log" "$state_dir/projects/noreuse/logs/noreuse.error.log" "reuseport_missing"
-sleep 2
-check "port released after violation stop" "0" "$(ss -ltn | grep -c ':4311 ' || true)"
+check "port released after violation stop" "0" "$(wait_port_free 4311 40)"
 check "project still registered" "1" "$([ -f "$state_dir/projects/noreuse/project.json" ] && echo 1 || echo 0)"
 # Fix the app (reusePort on) and start again: the same project must recover.
 cp "$fixtures/reuse.ts" "$ACC/noreuse/"
@@ -631,14 +684,21 @@ bm2 delete -f cycle >/dev/null
 
 echo "===== AA3. concurrent CLI calls do not take the daemon down ====="
 # 并发段只压 list：它会遍历每个项目的目录（P0 段错误就出在这里），而串行的
-# e2e 永远排不上这个队。
+# e2e 永远排不上这个队。分两档，因为控制面有 64 条连接上限：低于上限必须
+# 全部成功，高于上限允许被拒——被拒是设计，崩掉才是 bug。
 : > "$ACC/conc.fail"
 for _ in $(seq 1 50); do
   (bm2 list >/dev/null 2>&1 || echo fail >> "$ACC/conc.fail") &
 done
 wait
 check "fifty concurrent list calls all succeed" "0" "$(wc -l < "$ACC/conc.fail" | tr -d ' ')"
-check "daemon survived the concurrent burst" "1" "$(pgrep -x bm2d >/dev/null && echo 1 || echo 0)"
+: > "$ACC/conc.fail"
+for _ in $(seq 1 200); do
+  (bm2 list >/dev/null 2>&1 || echo fail >> "$ACC/conc.fail") &
+done
+wait
+check "daemon survived two hundred concurrent calls" "1" "$(pgrep -x bm2d >/dev/null && echo 1 || echo 0)"
+check "daemon still answers after the burst" "0" "$(bm2 list >/dev/null 2>&1; echo $?)"
 
 echo "===== AB. a second daemon refuses to start ====="
 bm2 list >/dev/null 2>&1

@@ -1,4 +1,12 @@
 ///|
+/// 每个用例一个独立目录，路径里带 pid：两次运行（或并行跑的用例）不会共用
+/// 上一次留下的 state 与日志。固定路径曾经让 `load_projects` 这类断言读到
+/// 上一次注册的项目，表现成偶发失败。
+fn core_scratch(name : String) -> String {
+  "/tmp/bm2-core-test-" + name + "-" + @proc.get_pid().to_string()
+}
+
+///|
 fn make_app_dir(root : String, name : String, script : String) -> String raise {
   let dir = root + "/" + name
   @fsx.mkdir_p(dir)
@@ -82,7 +90,7 @@ async fn stop_all(sv : @core.Supervisor, app : String) -> Unit {
 
 ///|
 async test "crash loop restarts then reaches errored" {
-  let root = "/tmp/bm2-core-test-errored"
+  let root = core_scratch("errored")
   let dir = make_app_dir(root, "api", "exit 1\n")
   let sv = make_sv(root, app_config("api", dir, 4100))
   sv.start_app("api")
@@ -104,7 +112,7 @@ async test "crash loop restarts then reaches errored" {
 
 ///|
 async test "clean exit after min uptime restarts without count" {
-  let root = "/tmp/bm2-core-test-clean"
+  let root = core_scratch("clean")
   let dir = make_app_dir(root, "api", "exit 0\n")
   let sv = make_sv(
     root,
@@ -164,7 +172,7 @@ async test "crash after min uptime still consumes the crash budget" {
   // because the instance had been online past min_uptime let a process that
   // crashes on a period longer than min_uptime loop forever without ever
   // reaching errored. An abnormal exit must always count.
-  let root = "/tmp/bm2-core-test-budget"
+  let root = core_scratch("budget")
   let dir = make_app_dir(root, "api", "sleep 0.3\nexit 1\n")
   let sv = make_sv(
     root,
@@ -195,7 +203,7 @@ async test "crash after min uptime still consumes the crash budget" {
 
 ///|
 async test "a clean exit after min uptime earns back the crash budget" {
-  let root = "/tmp/bm2-core-test-budget-reset"
+  let root = core_scratch("budget-reset")
   let dir = make_app_dir(root, "api", "sleep 0.3\nexit 0\n")
   let sv = make_sv(
     root,
@@ -223,7 +231,7 @@ async test "a clean exit after min uptime earns back the crash budget" {
 /// publishes it and returns. Delivery belongs to the notify task, so a tick
 /// never pays for a network round trip — not even a failing one.
 async test "ticks publish alerts instead of delivering them" {
-  let root = "/tmp/bm2-core-test-publish"
+  let root = core_scratch("publish")
   let dir = make_app_dir(root, "api", "exit 1\n")
   let doc = "name = \"api\"\nscript = \"fixture.sh\"\ninstances = 1\nport = 4124\n" +
     "[notify]\nenabled = true\nqueue_size = 4\n" +
@@ -263,7 +271,7 @@ async test "ticks publish alerts instead of delivering them" {
 
 ///|
 async test "memory limit terminates instance and counts restarts" {
-  let root = "/tmp/bm2-core-test-memory"
+  let root = core_scratch("memory")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(
     root,
@@ -283,7 +291,7 @@ async test "memory limit terminates instance and counts restarts" {
 
 ///|
 async test "kill marks manual, never restarts, and unregisters the project" {
-  let root = "/tmp/bm2-core-test-kill"
+  let root = core_scratch("kill")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4140))
   sv.start_app("api")
@@ -301,7 +309,7 @@ async test "kill marks manual, never restarts, and unregisters the project" {
 
 ///|
 async test "state file reflects online then stopped" {
-  let root = "/tmp/bm2-core-test-state"
+  let root = core_scratch("state")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4150))
   sv.start_app("api")
@@ -323,7 +331,7 @@ async test "state file reflects online then stopped" {
 
 ///|
 async test "start count increments with every launch" {
-  let root = "/tmp/bm2-core-test-startcount"
+  let root = core_scratch("startcount")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4340))
   sv.start_app("api")
@@ -338,7 +346,7 @@ async test "start count increments with every launch" {
 
 ///|
 async test "start conflicts while full restart is pending" {
-  let root = "/tmp/bm2-core-test-conflict"
+  let root = core_scratch("conflict")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4160, stop_timeout_ms=3000))
   sv.start_app("api")
@@ -356,7 +364,7 @@ async test "start conflicts while full restart is pending" {
 
 ///|
 async test "kill during pending restart does not resurrect the app" {
-  let root = "/tmp/bm2-core-test-kill-pending"
+  let root = core_scratch("kill-pending")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4170, stop_timeout_ms=1000))
   sv.start_app("api")
@@ -378,7 +386,7 @@ async test "kill during pending restart does not resurrect the app" {
 
 ///|
 async test "kill clears a stale pid so removal never blocks" {
-  let root = "/tmp/bm2-core-test-stale-pid"
+  let root = core_scratch("stale-pid")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4330))
   sv.start_app("api")
@@ -395,7 +403,7 @@ async test "kill clears a stale pid so removal never blocks" {
 
 ///|
 test "register writes the project registration file" {
-  let root = "/tmp/bm2-core-test-register"
+  let root = core_scratch("register")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = @core.Supervisor::new(
     state_dir=root + "/state",
@@ -410,7 +418,7 @@ test "register writes the project registration file" {
 
 ///|
 async test "register rejects overlapping port ranges across projects" {
-  let root = "/tmp/bm2-core-test-portconflict"
+  let root = core_scratch("portconflict")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4200))
   let rejected = try
@@ -433,7 +441,7 @@ async test "register rejects overlapping port ranges across projects" {
 /// Ranges may touch but must not overlap: a fork project occupies `port`
 /// through `port + instances - 1`, so the check is on inclusive intervals.
 async test "port ranges that merely touch are accepted" {
-  let root = "/tmp/bm2-core-test-porttouch"
+  let root = core_scratch("porttouch")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4400, instances=2))
   // api occupies 4400~4401, so 4402 is the next free port.
@@ -455,7 +463,7 @@ async test "port ranges that merely touch are accepted" {
 
 ///|
 async test "a zero restart budget parks the instance on the first crash" {
-  let root = "/tmp/bm2-core-test-norestart"
+  let root = core_scratch("norestart")
   let dir = make_app_dir(root, "api", "exit 1\n")
   let sv = make_sv(root, app_config("api", dir, 4410, max_restarts=0))
   sv.start_app("api")
@@ -467,8 +475,8 @@ async test "a zero restart budget parks the instance on the first crash" {
 }
 
 ///|
-async test "register accepts structural change and restart applies it" {
-  let root = "/tmp/bm2-core-test-reload-struct"
+async test "register accepts a structural change and a full reload applies it" {
+  let root = core_scratch("reload-struct")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4190))
   sv.start_app("api")
@@ -496,8 +504,8 @@ async test "register accepts structural change and restart applies it" {
 }
 
 ///|
-async test "restart rebuilds instances from the updated config" {
-  let root = "/tmp/bm2-core-test-rebuild"
+async test "a full reload rebuilds instances from the updated config" {
+  let root = core_scratch("rebuild")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4290))
   sv.start_app("api")
@@ -507,13 +515,16 @@ async test "restart rebuilds instances from the updated config" {
   sv.start_app("api")
   drive(sv, 1500)
   assert_eq(sv.app_instances("api").length(), 2)
-  assert_true(sv.instance("api", 1).port > 0)
+  // cluster 模式下每个实例分到一个具体端口，不是「随便大于 0」：第二个实例
+  // 必须是基址 +1，否则端口分配逻辑错了也能过。
+  assert_eq(sv.instance("api", 0).port, 4290)
+  assert_eq(sv.instance("api", 1).port, 4291)
   stop_all(sv, "api")
 }
 
 ///|
 async test "load_projects restores registered projects" {
-  let root = "/tmp/bm2-core-test-loadprojects"
+  let root = core_scratch("loadprojects")
   let dir = make_app_dir(root, "api", "sleep 30\n")
   let sv = make_sv(root, app_config("api", dir, 4220))
   sv.start_app("api")
@@ -554,7 +565,7 @@ test "resolve_state_dir uses fixed home directory" {
 /// started from a stale record.
 test "load_projects skips a project whose config is gone" {
   // A run-fixed root: two tests in one process must not share the listing.
-  let root = "/tmp/bm2-core-test-lost-config-\{@proc.get_pid()}"
+  let root = core_scratch("lost-config")
   let state_dir = root + "/state"
   @fsx.mkdir_p(state_dir + "/projects/api")
   // The record must be one the loader would accept — mode and stopped

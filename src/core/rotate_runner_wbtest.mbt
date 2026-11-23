@@ -169,6 +169,9 @@ async test "a rotation that cannot copy reports the reason" {
   let path = dir + "/app.log"
   @fsx.mkdir_p(path)
   match @log.maybe_rotate_async(job(path, 1, copytruncate=true)) {
+    // 只能断言非空：底层错误只带 errno 语义，不带路径（见本文件末尾的
+    // 审计记录）。想断言「原因里有哪条路径」得先让实现把路径拼进错误，
+    // 那是实现改动，不是测试能补出来的。
     Failed(reason) => assert_true(reason.length() > 0)
     _ => fail("expected the rotation to report a failure")
   }

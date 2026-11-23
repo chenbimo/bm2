@@ -209,18 +209,20 @@ test "clk_tck is a sane divisor" {
 
 ///|
 test "load_1m/sane_value" {
-  let load = @proc.load_1m()
-  match load {
+  // /proc/loadavg 在 Linux 上必然存在：读不到就是探测函数坏了，不能算通过。
+  // 值本身随机器变，只能断范围。
+  match @proc.load_1m() {
     Some(value) => inspect(value >= 0.0, content="true")
-    None => ()
+    None => fail("expected a load average from /proc/loadavg")
   }
 }
 
 ///|
 test "disk_free_kb/root_is_positive" {
+  // 同一个理由：statvfs 对存在的路径一定给得出结果，读不到就是调用坏了。
   match @proc.disk_free_kb("/tmp") {
     Some(kb) => inspect(kb > 0L, content="true")
-    None => ()
+    None => fail("expected a free-space reading for /tmp")
   }
 }
 
@@ -281,6 +283,11 @@ test "process tree finds a real parent and child" {
   let tree = @proc.process_tree(pid, 32)
   assert_true(tree.contains(pid))
   assert_true(tree.length() >= 2)
+  // 深度上限必须真的截断：配置里的 max_tree_processes 就是传到这里当深度用的，
+  // 只验配置解析、不验截断，等于没测那个字段的行为。深度 1 只到直接子进程。
+  let shallow = @proc.process_tree(pid, 1)
+  assert_true(shallow.contains(pid))
+  assert_true(shallow.length() <= tree.length())
   match @proc.tree_rss_kb(pid, 32) {
     Some(kb) => assert_true(kb > 0)
     None => fail("expected tree RSS for a running tree")
@@ -296,7 +303,14 @@ test "process tree finds a real parent and child" {
       None => @proc.sleep_ms(20)
     }
   }
-  assert_true(exit is Some(_))
+  // SIGKILL 之后必须能被回收，且退出信息要认出是信号而不是退出码：只看
+  // 「有值」的话，把 SIGKILL 记成 Exited(0) 也照样通过。
+  match exit {
+    Some((_, @proc.ChildExit::Signaled(sig))) => assert_eq(sig, @proc.SIGKILL)
+    Some((_, @proc.ChildExit::Exited(code))) =>
+      fail("expected a signal exit, got exit code \{code}")
+    None => fail("expected the killed child to be reaped")
+  }
 }
 
 ///|

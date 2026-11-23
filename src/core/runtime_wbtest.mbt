@@ -18,22 +18,30 @@ test "runtime_verdict judges a missing runtime, a bad exit and a version" {
     Some("cannot parse bun --version output"),
   )
   // Below the floor: the reason names both what was found and what is required.
-  let old = runtime_verdict("bun", 0, "1.0.0")
-  assert_true(old is Some(_))
-  match old {
+  match runtime_verdict("bun", 0, "1.0.0") {
     Some(reason) => {
       assert_true(reason.contains("1.0.0"))
       assert_true(reason.contains("1.4.0"))
     }
-    None => ()
+    None => fail("bun 1.0.0 must be below the floor")
   }
   // At the floor and above it: accepted.
   assert_eq(runtime_verdict("bun", 0, "1.4.0"), None)
   assert_eq(runtime_verdict("bun", 0, "1.9.3"), None)
   // node has its own floor: 24.0.0 is the line bm2 ships against, so the whole
-  // 22.x and 23.x range must be refused.
-  assert_true(runtime_verdict("node", 0, "22.12.0") is Some(_))
-  assert_true(runtime_verdict("node", 0, "23.11.1") is Some(_))
+  // 22.x and 23.x range must be refused — and the reason has to name both the
+  // version found and the floor, or an operator cannot tell why it was refused.
+  match runtime_verdict("node", 0, "22.12.0") {
+    Some(reason) => {
+      assert_true(reason.contains("22.12.0"))
+      assert_true(reason.contains("24.0.0"))
+    }
+    None => fail("node 22.x must be below the floor")
+  }
+  match runtime_verdict("node", 0, "23.11.1") {
+    Some(reason) => assert_true(reason.contains("23.11.1"))
+    None => fail("node 23.x must be below the floor")
+  }
   assert_eq(runtime_verdict("node", 0, "24.0.0"), None)
   assert_eq(runtime_verdict("node", 0, "26.13.1"), None)
 }

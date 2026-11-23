@@ -500,3 +500,26 @@ test "every supported language renders copy" {
     )
   }
 }
+
+///|
+/// 待重启与退役撞在同一轮里：`check_pending` 的候选表是上一轮收集的，这一轮
+/// 之间 delete 可能已经把项目标成 removing。此时再 spawn_fresh 会让「删除成功
+/// 返回」与「项目还活着」同时成立——e2e 里表现为 delete 之后 start 没被拒绝。
+/// 窗口太窄，e2e 抓不稳，所以不变式落在这里：removing 必须压过 restarting。
+test "a pending reload does not resurrect a retired project" {
+  let root = "/tmp/bm2-wbtest-retire-race-\{@proc.get_pid()}"
+  let config = wb_config("wbapp", root, 4471)
+  let sv = wb_sv(root, config)
+  match sv.projects.get("wbapp") {
+    Some(project) => {
+      project.restarting = true
+      project.removing = true
+    }
+    None => fail("expected the registered project")
+  }
+  sv.check_pending()
+  // 两个标记同时存在时，removing 赢：没有任何实例被拉起来。
+  for inst in sv.app_instances("wbapp") {
+    assert_true(inst.pid == 0)
+  }
+}
