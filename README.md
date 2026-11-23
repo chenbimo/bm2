@@ -99,7 +99,7 @@ port = 3000
 ### 启动
 
 ```bash
-bm2 start        # 登记、拉起实例、写状态，成功时无输出
+bm2 start        # 登记、拉起实例、写状态；已在运行则重启，成功时无输出
 bm2 list         # 看实例表
 ```
 
@@ -117,9 +117,11 @@ Bun.serve({ port, reusePort: true, fetch: () => new Response("ok") })
 
 一条命令一行说明。动作型命令成功时不打印任何东西，退出码就是结果。
 
-命令分两层：`start` / `stop` / `delete` / `list` / `check` / `notify` 管项目，`kill` / `reload` / `upgrade` / `clean` 管守护进程本身。跑 `bm2 --help` 看到的也是这个分组。
+按对象分成三组：项目命令管应用的生死，守护进程命令管看管进程本身。`bm2 --help` 看到的也是这个分组。
 
-### bm2 start
+### 项目管理
+
+#### bm2 start
 
 登记项目、拉起实例、写状态。没在跑就起，已经在跑就停掉重起——所以改过端口、实例数或脚本之后，跑一次 `start` 就生效。
 
@@ -133,7 +135,36 @@ bm2 start api             # 指定目录，找其中的 bm2.toml
 
 每次 `start` 都会让进程换一次，包括已经在健康运行的时候。启动脚本里重复执行会连续重启，需要幂等就自己判断一下。
 
-### bm2 list
+#### bm2 stop
+
+停下实例，保留登记。之后再 `bm2 start` 就回来了。
+
+```bash
+bm2 stop             # 在项目目录里，读 bm2.toml 取名
+bm2 stop api
+```
+
+不带名字时和 `start` 同一条规则：读当前目录的 `bm2.toml`，把它描述的项目停下。
+
+停止是持久的：停止标记写进登记信息，看管进程重启也不会把它带回来。
+
+提交即返回，实例还在优雅退出的路上；`bm2 list` 看它什么时候落到「已停止」。
+
+#### bm2 delete
+
+删除：停下、注销、交还名字。日志默认保留。
+
+```bash
+bm2 delete api       # 日志留着，随时能翻
+bm2 delete api -f    # 连状态目录与日志一起删
+bm2 delete           # 在项目目录里，读 bm2.toml 取名
+```
+
+`delete` 与 `stop` 的区别：前者之后这个名字可以给别的项目用，后者不行。
+
+`-f` 是唯一会等结果的变形：删目录前必须确认项目已经从名册里消失。
+
+#### bm2 list
 
 看所有项目的实例表，也可以只看一个。
 
@@ -150,42 +181,7 @@ bm2 list --json
 
 `--json` 给脚本用，每行一个实例对象。
 
-### bm2 stop
-
-停下实例，保留登记。之后再 `bm2 start` 就回来了。
-
-```bash
-bm2 stop
-bm2 stop api
-```
-
-停止是持久的：停止标记写进登记信息，看管进程重启也不会把它带回来。
-
-提交即返回，实例还在优雅退出的路上；`bm2 list` 看它什么时候落到「已停止」。
-
-### bm2 delete
-
-删除：停下、注销、交还名字。日志默认保留。
-
-```bash
-bm2 delete api       # 日志留着，随时能翻
-bm2 delete api -f    # 连状态目录与日志一起删
-```
-
-`delete` 与 `stop` 的区别：前者之后这个名字可以给别的项目用，后者不行。
-
-`-f` 是唯一会等结果的变形：删目录前必须确认项目已经从名册里消失。
-
-### bm2 clean
-
-清掉状态目录里没有登记信息的残留目录。
-
-```bash
-bm2 clean --dry-run   # 先看会删哪些
-bm2 clean
-```
-
-### bm2 check
+#### bm2 check
 
 只校验当前目录的 `bm2.toml`，顺带探端口是否可用。
 
@@ -201,29 +197,7 @@ bm2 check
 
 字段写错、端口段重叠、脚本不存在，都会在这里被点出来。
 
-### bm2 reload
-
-换入新的看管进程，应用继续跑。
-
-```bash
-bm2 reload
-```
-
-换了 bm2 相关配置、或者装了新版运行时之后用它。
-
-看管进程的 `PATH` 在启动那一刻定格，所以要让它看到新的 `bun` 或 `node`，得 reload 一次。
-
-### bm2 upgrade
-
-升级 bm2 本身，服务不中断。
-
-```bash
-bm2 upgrade
-```
-
-新版本装好之后换班：旧看管进程退场，新进程接管运行中的应用。
-
-### bm2 notify
+#### bm2 notify
 
 给本项目所有通知目标发一条测试消息。
 
@@ -239,7 +213,9 @@ bm2 notify
 project api has no notifications enabled: set [notify].enabled = true and add at least one [[notify.target]] in bm2.toml
 ```
 
-### bm2 kill
+### 守护进程
+
+#### bm2 kill
 
 停掉守护进程与它跑的全部应用。要确认才动手。
 
@@ -249,14 +225,47 @@ bm2 kill -y
 
 它不接受项目名：这条命令的对象是守护进程，不是某一个项目。想停单个项目用 `stop`，想连登记一起清掉用 `delete`。
 
-### bm2 version
+#### bm2 reload
+
+换入新的看管进程，应用继续跑。
+
+```bash
+bm2 reload
+```
+
+换了 bm2 相关配置、或者装了新版运行时之后用它。
+
+看管进程的 `PATH` 在启动那一刻定格，所以要让它看到新的 `bun` 或 `node`，得 reload 一次。
+
+#### bm2 upgrade
+
+升级 bm2 本身，服务不中断。
+
+```bash
+bm2 upgrade
+```
+
+新版本装好之后换班：旧看管进程退场，新进程接管运行中的应用。
+
+#### bm2 clean
+
+清掉状态目录里没有登记信息的残留目录。
+
+```bash
+bm2 clean --dry-run   # 先看会删哪些
+bm2 clean
+```
+
+### 其他
+
+#### bm2 version
 
 ```bash
 bm2 version
 ```
 
 ```text
-bm2 0.10.0
+bm2 0.12.0
 ```
 
 ## 配置
@@ -700,6 +709,7 @@ bm2 notify
 ~/.bm2/
 ├── daemon.endpoint           控制通道
 ├── bm2d.pid                  看管进程号
+├── bm2d.lock                 单实例锁，看管进程退出自动释放
 ├── bm2d.log                  看管进程自己的输出
 ├── bm2d.events.log           看管事件
 ├── bm2.events.log            命令侧事件
